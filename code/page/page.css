@@ -1,0 +1,530 @@
+:root {
+  color-scheme: light dark;
+  --ground: #ffffff;
+  --panel: #f6f6f4;
+  --line: #e2e1dc;
+  --ink: #1f1e1c;
+  --dim: #77756e;
+  --accent: #b85c3a;
+  --added: #2b7a3d;
+  --removed: #b3372f;
+  --hover: #ecebe6;
+  --chosen: #e4e2da;
+  --mark: #f1c04055;
+  font: 13px/1.4 system-ui, -apple-system, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #1e1e1e;
+    --panel: #262624;
+    --line: #3a3936;
+    --ink: #e6e4dd;
+    --dim: #9a978e;
+    --accent: #d98a6a;
+    --added: #6cc281;
+    --removed: #ec8078;
+    --hover: #32312e;
+    --chosen: #3d3b37;
+    --mark: #f1c04040;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--ground);
+  color: var(--ink);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 2px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button.quiet {
+  background: none;
+  border-color: transparent;
+  color: var(--dim);
+}
+
+button.main {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.main:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.08);
+}
+
+#top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+#title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+#views {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+#views button {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--dim);
+}
+
+#views button.chosen {
+  background: var(--chosen);
+  color: var(--ink);
+}
+
+.count {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+
+#list {
+  width: var(--listWidth, 270px);
+  flex: none;
+  overflow: auto;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  padding: 4px 0;
+}
+
+/* The list's edge, dragged to size it: wider than the line it lies on. */
+#splitter {
+  flex: none;
+  position: relative;
+  z-index: 45;
+  width: 7px;
+  margin: 0 -3px 0 -4px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+#splitter:hover,
+#splitter.dragged {
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+body.listHidden #list,
+body.listHidden #splitter {
+  display: none;
+}
+
+.file {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  text-align: left;
+}
+
+.file.chosen {
+  background: var(--chosen);
+}
+
+.file .name {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file .folder {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dim);
+  font-size: 11px;
+  direction: rtl;
+  text-align: left;
+}
+
+.file .state {
+  flex: none;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.plus {
+  color: var(--added);
+}
+
+.minus {
+  color: var(--removed);
+}
+
+.file .plus,
+.file .minus,
+#fileCounts {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+#list details {
+  margin-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+#list summary {
+  padding: 5px 10px;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+#list .none {
+  padding: 8px 10px;
+  color: var(--dim);
+}
+
+#work {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#fileBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+#fileBar[hidden],
+#history[hidden],
+#waiting[hidden],
+#toast[hidden] {
+  display: none;
+}
+
+#filePath {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+}
+
+.spring {
+  flex: 1;
+}
+
+#fileActions {
+  display: flex;
+  gap: 6px;
+}
+
+#editor {
+  flex: 1;
+  min-height: 0;
+}
+
+#note {
+  padding: 24px;
+  color: var(--dim);
+}
+
+#note:empty {
+  display: none;
+}
+
+#work.bare #editor {
+  display: none;
+}
+
+/* A change's own buttons: a view zone under its last line. */
+.changeBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 10;
+  font: 12px/1.4 system-ui, -apple-system, sans-serif;
+}
+
+.changeBar button {
+  padding: 0 8px;
+  line-height: 18px;
+  font-size: 11px;
+}
+
+.changeBar .lines {
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.commentedLine {
+  background: var(--mark);
+}
+
+.commentedEdge {
+  border-left: 3px solid #d9a520;
+  margin-left: 3px;
+}
+
+/* The comment button and box: content widgets at the selection or the change. */
+.commentWidget {
+  z-index: 40;
+  font: 12px/1.4 system-ui, -apple-system, sans-serif;
+}
+
+.commentWidget > button {
+  box-shadow: 0 1px 6px #0003;
+}
+
+.commentBox {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 340px;
+  max-width: 80vw;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--ground);
+  box-shadow: 0 4px 18px #0004;
+}
+
+.commentBox .head,
+.commentBox .foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.commentBox textarea {
+  font: inherit;
+  color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px 6px;
+  min-height: 58px;
+  resize: vertical;
+}
+
+#history {
+  width: 300px;
+  flex: none;
+  overflow: auto;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.drawerHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 6px 6px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+#journal,
+#waitingList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#journal li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+#journal li.undone .what {
+  text-decoration: line-through;
+  color: var(--dim);
+}
+
+#journal .what {
+  flex: 1;
+  min-width: 0;
+}
+
+#journal .where,
+#journal .when {
+  display: block;
+  color: var(--dim);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#journal .none {
+  color: var(--dim);
+}
+
+#waiting {
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  padding: 3px 6px;
+}
+
+#waitingList {
+  max-height: 30vh;
+  overflow: auto;
+}
+
+#waitingList li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 6px;
+}
+
+#waitingList .where {
+  flex: none;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+#waitingList .text {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  white-space: normal;
+}
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 90vw;
+  padding: 6px 8px 6px 12px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--ground);
+  box-shadow: 0 4px 18px #0005;
+  z-index: 100;
+}
+
+#toast button {
+  background: none;
+  border-color: #8886;
+  color: inherit;
+}
+
+/* The sessions' index. */
+body.index {
+  display: block;
+  padding: 24px;
+}
+
+body.index li {
+  margin: 6px 0;
+}
+
+body.index span {
+  margin-left: 10px;
+  color: var(--dim);
+}
+
+/* A narrow pane is a tall one: the list stands over the editor, which keeps the whole width. */
+@media (max-width: 760px) {
+  main {
+    flex-direction: column;
+  }
+
+  #list {
+    width: auto;
+    height: var(--listHeight, 30vh);
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  #splitter {
+    width: auto;
+    height: 7px;
+    margin: -4px 0 -3px;
+    cursor: row-resize;
+  }
+
+  #history {
+    position: absolute;
+    z-index: 50;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: min(300px, 88vw);
+    box-shadow: -4px 0 18px #0003;
+  }
+
+  #fileCounts {
+    display: none;
+  }
+}

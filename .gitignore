@@ -1,0 +1,3 @@
+__pycache__/
+# The review page's editor: code/vendor/fetch_monaco.py fetches it.
+code/vendor/monaco/
