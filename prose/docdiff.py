@@ -3,22 +3,21 @@
 
 Usage: docdiff.py [--repo PATH] [--base REV] [--head REV] [--name NAME] [--out DIR] [--new-label TEXT]
                   [--publish CMD] [--reviewed-at REV] [--serve] [--port N] [plugins' options] [paths...]
-       docdiff.py --umbrella | --restart | --stop | --install-agent [--port N]
 
 paths are pathspecs relative to the repo root (default: every *.md, and the files plugins make docs of).
 
 Old = the file at REV (default HEAD); new = the file at --head, or without it the working tree,
 staged or not, untracked included. Each review is named (--name; by default the repo's name, with --pr
 the repo's name and the PR's number) and keeps its page and state in ~/.docdiff/<name>, or in --out, which
-~/.docdiff/<name> then links to. One server, the umbrella server, serves every review in ~/.docdiff under
+~/.docdiff/<name> then links to. redpen's server (../base/server.py) serves every review in ~/.docdiff under
 /<name>/ on 127.0.0.1:7878 (--port), with an index of them at /. With --serve, the review is built,
-the umbrella server started if it is not running, and "URL: ..." printed. The server stores what the page
+the server started if it is not running, and "URL: ..." printed. The server stores what the page
 sends in the review's dir: accepted/<file>.html, the file as accepted so far, which tells which changes
 are still to review; revisit requests in revisit.jsonl. When the head or the base moves, the accepted copy is carried
 over by where its changes are, and what changed since the last review is new, with a blue edge (see
-accepted_html(), next_round()); --reviewed-at REV makes REV the version last reviewed. It runs docdiff's
-code as it is on disk at each request; --restart restarts it (needed only after a change to the server
-itself), --stop stops it, and --install-agent prints a LaunchAgent that keeps it running.
+accepted_html(), next_round()); --reviewed-at REV makes REV the version last reviewed. The server runs
+docdiff's code as it is on disk at each request; restarting it, stopping it and the LaunchAgent that keeps
+it running are ../base/server.py's.
 
 The page's header says what is compared (a plugin's title(), or else commits or the uncommitted edits)
 and names both sides: a revision with its commit, or the working tree; --new-label TEXT names the new
@@ -33,17 +32,15 @@ Plugins, the modules in plugins/, add their own arguments, docs and buttons (see
 respec.py diffs ReSpec specs, gdoc_comments.py shows a Google Doc's comments (--comments), github_pr.py
 links changes to a GitHub PR (--pr), review.py keeps review comments and shows revisits' answers.
 """
-import argparse, base64, difflib, hashlib, html, http.server, importlib.util, json, mimetypes, os, pathlib, plistlib
-import re, shlex, shutil, signal, subprocess, sys, threading, time, traceback, urllib.parse, urllib.request, webbrowser
+import argparse, base64, difflib, hashlib, html, http.server, importlib.util, json, mimetypes, os, pathlib
+import re, shlex, shutil, subprocess, sys, threading, time, urllib.parse, webbrowser
 
-# Every review's dir, <name>, and the clones of PRs' repos (clones/); the umbrella server's log. DOCDIFF_HOME
+# Every review's dir, <name>, and the clones of PRs' repos (clones/); the server's log. DOCDIFF_HOME
 # puts them elsewhere, for a test server that must not see the reviews in use.
 HOME = pathlib.Path(os.environ.get('DOCDIFF_HOME') or pathlib.Path.home() / '.docdiff').expanduser()
-# The umbrella server's port, so a review's address outlives restarts.
-PORT = 7878
 NAME = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_.-]*')
-# The LaunchAgent that keeps the umbrella server running (see agent()).
-AGENT = 'com.asurkov.docdiff'
+# No review's names: the clones' dir, and where the server has the reviews of code (/code/…).
+RESERVED = ('clones', 'code')
 
 # Tags, entities, words and single punctuation marks, each with its trailing space: "nothing," and
 # "nothing" share the word.
@@ -1440,29 +1437,19 @@ def commit_accepted(out, req):
     return done
 
 
+def framed(path):
+    """Whether a GET of path is answered on localhost too, where specs render (respec.py): a review's
+    sources alone, so a spec's own scripts read no review's state. Only the page posts: a spec's render
+    frame is on localhost, another origin, though the same server."""
+    return bool(re.fullmatch(r'/[^/]*/src/.*', path))
+
+
 def respond(h, method):
-    """A request to the umbrella server (h, an Umbrella), in docdiff's code as it is now. / is the index of
-    the reviews; /<name>/… is a review's: the files in its dir, with caching off, so a reload after a rebuild
-    shows the new page, and its routes (see review_get(), review_post()). It answers on 127.0.0.1, and on
-    localhost, where specs render (respec.py), with a review's sources alone, so a spec's own scripts read
-    no review's state; to any other name for this address (a page elsewhere that points a name of its own
-    at it, the port being fixed), nothing. Only the page posts: a spec's render frame is on localhost,
-    another origin, though the same server."""
-    port, url = h.server.server_address[1], urllib.parse.urlsplit(h.path)
+    """A request redpen's server (../base/server.py) hands on, in docdiff's code as it is now: /<name>/… is
+    a review's: the files in its dir and its routes (see review_get(), review_post()). Where the request
+    comes from, the server has checked (see framed())."""
+    url = urllib.parse.urlsplit(h.path)
     m = re.fullmatch(r'/([^/]*)(/.*)?', url.path)
-    frame = method != 'POST' and m and (m.group(2) or '').startswith('/src/')
-    if h.headers.get('Host') != f'127.0.0.1:{port}' and not (frame and h.headers.get('Host') == f'localhost:{port}'):
-        return h.send_error(403)
-    if method == 'POST' and h.headers.get('Origin') != f'http://127.0.0.1:{port}':
-        return h.send_error(403)
-    if url.path in ('/', '/index.html'):
-        return send(h, 200, index().encode(), 'text/html; charset=utf-8', method)
-    # Every page asks for one; none, rather than a 404 in the log each time.
-    if url.path == '/favicon.ico':
-        return send(h, 204, b'', 'image/x-icon', method)
-    # What running() asks for.
-    if url.path == '/.docdiff.json':
-        return send(h, 200, json.dumps({'pid': os.getpid(), 'port': port}).encode(), 'application/json', method)
     out = HOME / m.group(1) if m and NAME.fullmatch(m.group(1)) else None
     if not out or not (out / '.run.json').is_file():
         return h.send_error(404, 'no such review')
@@ -1546,26 +1533,19 @@ def review_post(h, out, lock):
     send(h, 200, json.dumps(reply).encode(), 'application/json')
 
 
-def send(h, code, data, mime, method='GET'):
+def send(h, code, data, mime):
     h.send_response(code)
     h.send_header('Content-Type', mime)
     h.send_header('Content-Length', str(len(data)))
     h.end_headers()
-    if method != 'HEAD':
-        h.wfile.write(data)
+    h.wfile.write(data)
 
 
-INDEX_STYLE = '''
-main{padding-bottom:16px} h1{font-size:22px} .reviews{list-style:none;padding:0;margin:0}
-.reviews li{padding:12px 0;border-bottom:1px solid var(--line)} .reviews .name{font-weight:600} .reviews .n{font-size:13px}
-'''
-
-
-def index():
-    """The index of reviews, the last active first: each one's name, linked to its page, what it compares
-    and from where, its counts (to review and reviewed, and the plugins' counts()), and when it was last
-    active (run, accepted, commented, asked or answered)."""
-    rows, e = [], html.escape
+def listed_reviews():
+    """The reviews, for the server's index: each one's name, where its page is, what it compares and from
+    where, its counts (to review and reviewed, and the plugins' counts()), and when it was last active (run,
+    accepted, commented, asked or answered)."""
+    rows = []
     for d in HOME.iterdir() if HOME.is_dir() else []:
         try:
             run = json.loads((d / '.run.json').read_text())
@@ -1576,169 +1556,36 @@ def index():
             continue
         # One review that cannot be read (its repo gone, say) leaves the others listed.
         try:
-            what, href = compared(run)
+            what, link = compared(run)
             b = json.loads((d / 'build.json').read_text()) if (d / 'build.json').exists() else {}
             counts = ([f'{b["todo"]} to review', f'{b["done"]} {WORDS[bool(run.get("head"))]["accepted"]}'] if 'todo' in b else []) + \
                      [w for m in PLUGINS if hasattr(m, 'counts') for w in m.counts(run) or []]
         except (Exception, SystemExit) as x:
-            what, href, counts = f'not readable: {x}', None, []
+            what, link, counts = f'not readable: {x}', None, []
         when = max(f.stat().st_mtime for f in [d / '.run.json', *(d / n for n in ('review.json', 'revisit.jsonl', 'answers.jsonl')),
                                                  *d.glob('accepted/*')] if f.exists())
         where = ' · '.join([str(run.get('repo', '')).replace(str(pathlib.Path.home()), '~', 1), *run.get('paths', [])])
-        what = f'<a href="{e(href)}" target="_blank" rel="noopener">{e(what)}</a>' if href else e(what)
-        rows.append((when, f'<li><a class="name" href="{e(d.name)}/index.html">{e(d.name)}</a> · {what}<div class="n">'
-                           f'{e(" · ".join([*counts, time.strftime("active %b %-d, %H:%M", time.localtime(when))]))}</div>'
-                           f'<div class="n">{e(where)}</div></li>'))
-    listed = ''.join(r for _, r in sorted(rows, reverse=True)) or '<li class="n">No reviews yet.</li>'
-    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>docdiff · reviews</title><style>{STYLE}{INDEX_STYLE}</style></head><body><main><h1>Reviews</h1>
-<p class="n">Every review in {e(str(HOME).replace(str(pathlib.Path.home()), '~', 1))}, the last active first.</p>
-<ul class="reviews">{listed}</ul></main></body></html>'''
+        rows.append({'name': d.name, 'href': f'{d.name}/index.html', 'when': when, 'what': what, 'link': link,
+                     'counts': counts, 'where': where})
+    return {'title': 'Documents', 'rows': rows,
+            'note': f'Every review in {str(HOME).replace(str(pathlib.Path.home()), "~", 1)}, the last active first.'}
 
 
-class Umbrella(http.server.SimpleHTTPRequestHandler):
-    """The umbrella server's requests, each answered by docdiff's code as it is on disk now (see live())."""
-
-    def end_headers(self):
-        self.send_header('Cache-Control', 'no-store')
-        super().end_headers()
-
-    def do_GET(self):
-        live().respond(self, 'GET')
-
-    def do_HEAD(self):
-        live().respond(self, 'HEAD')
-
-    def do_POST(self):
-        live().respond(self, 'POST')
-
-    def log_request(self, code='-', size='-'):
-        # Open pages ask every second or two: only failures go to the log (log_error()).
-        pass
-
-
-# The code the umbrella server's requests run (see live()), and what it was loaded from.
-LIVE, LIVE_LOCK = {}, threading.Lock()
-
-
-def sources():
-    """docdiff.py and its plugins, each with its time: when these change, live() loads the code again."""
-    me = pathlib.Path(__file__).resolve()
-    return [(str(f), f.stat().st_mtime_ns) for f in [me, *sorted((me.parent / 'plugins').glob('*.py'))]]
-
-
-def live():
-    """docdiff as it is on disk now: this module, loaded again once docdiff.py or a plugin has changed, or a
-    plugin came or went, so new code runs without a restart. Code that does not load goes to the log, and
-    the code before it goes on."""
-    now = sources()
-    with LIVE_LOCK:
-        if LIVE['sources'] != now:
-            LIVE['sources'] = now
-            spec = importlib.util.spec_from_file_location('docdiff_live', now[0][0])
-            mod = importlib.util.module_from_spec(spec)
-            # Its plugins find it there (see load_plugins).
-            sys.modules[spec.name] = mod
-            try:
-                spec.loader.exec_module(mod)
-                LIVE['mod'] = mod
-            except Exception:
-                traceback.print_exc()
-        return LIVE['mod']
-
-
-def umbrella(port):
-    """Serves every review in HOME on port (see respond()) until stopped. A port in use is waited for: the
-    LaunchAgent's server, while one started by --serve still runs, takes over when that one stops."""
-    LIVE.update(mod=sys.modules[__name__], sources=sources())
-    waiting = False
-    while True:
-        try:
-            server = http.server.ThreadingHTTPServer(('127.0.0.1', port), Umbrella)
-            break
-        except OSError as e:
-            if not waiting:
-                print(f'{time.strftime("%Y-%m-%d %H:%M:%S")} port {port}: {e.strerror}; waiting for it', flush=True)
-            waiting = True
-            time.sleep(5)
-    server.locks = {}
-    print(f'{time.strftime("%Y-%m-%d %H:%M:%S")} pid {os.getpid()} serves {HOME} on http://127.0.0.1:{port}/', flush=True)
-    server.serve_forever()
-
-
-def running(port):
-    """The umbrella server on port, {pid, port}; None if none answers."""
-    try:
-        return json.loads(urllib.request.urlopen(f'http://127.0.0.1:{port}/.docdiff.json', timeout=2).read())
-    except (OSError, ValueError):
-        return None
-
-
-def start(port):
-    """Starts the umbrella server apart from this process, so it outlives the command and the shell that
-    ran it, its output in HOME/server.log; returns once it answers."""
-    HOME.mkdir(parents=True, exist_ok=True)
-    with open(HOME / 'server.log', 'a') as log:
-        p = subprocess.Popen([sys.executable, '-I', os.path.abspath(__file__), '--umbrella', '--port', str(port)],
-                             stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    for _ in range(100):
-        got = running(port)
-        if got:
-            # Another one came up first (the LaunchAgent's, another run's): this one is not needed.
-            if got['pid'] != p.pid:
-                p.terminate()
-            return
-        if p.poll() is not None:
-            break
-        time.sleep(0.1)
-    p.terminate()
-    sys.exit(f'no docdiff server came up on port {port} (is something else on it?): see {HOME / "server.log"}')
-
-
-def stop(port):
-    """Stops the umbrella server on port, if one runs (under the LaunchAgent, launchd starts it again);
-    returns what ran."""
-    got = running(port)
-    if got:
-        os.kill(got['pid'], signal.SIGTERM)
-        for _ in range(50):
-            if (running(port) or {}).get('pid') != got['pid']:
-                break
-            time.sleep(0.1)
-    return got
-
-
-def restart(port):
-    """Restarts the umbrella server: launchd does, under the LaunchAgent; else it is stopped and started.
-    Needed only after a change to the server itself (umbrella(), Umbrella, live()): the rest of docdiff's
-    code is loaded again on its own."""
-    was = running(port)
-    if port == PORT and not subprocess.run(['launchctl', 'kickstart', '-k', f'gui/{os.getuid()}/{AGENT}'],
-                                           capture_output=True).returncode:
-        for _ in range(100):
-            if (running(port) or was or {}).get('pid') != (was or {}).get('pid'):
-                return
-            time.sleep(0.1)
-        sys.exit(f'launchd restarted {AGENT}, and nothing new answers on port {port}: see {HOME / "server.log"}')
-    stop(port)
-    start(port)
-
-
-def agent():
-    """The LaunchAgent that keeps the umbrella server running, as a plist: started at login, started again
-    when it stops, its output in HOME/server.log. Its PATH has pandoc's and git's dirs, as launchd's own
-    has no Homebrew."""
-    tools = [os.path.dirname(t) for t in map(shutil.which, ('pandoc', 'git')) if t]
-    return plistlib.dumps({
-        'Label': AGENT,
-        'ProgramArguments': [shutil.which('python3') or sys.executable, '-I', os.path.abspath(__file__), '--umbrella'],
-        'EnvironmentVariables': {'PATH': ':'.join(dict.fromkeys([*tools, '/usr/bin', '/bin', '/usr/sbin', '/sbin']))},
-        'RunAtLoad': True, 'KeepAlive': True,
-        'StandardOutPath': str(HOME / 'server.log'), 'StandardErrorPath': str(HOME / 'server.log'),
-    }).decode()
+def shared(name):
+    """A module of redpen's base, ../base/<name>.py, loaded by its path, as python -I keeps this script's
+    dir off the path; the server's own copy, when it is the server that runs this code."""
+    mod = sys.modules.get(f'redpen_base_{name}')
+    if not mod:
+        spec = importlib.util.spec_from_file_location(
+            f'redpen_base_{name}', pathlib.Path(__file__).resolve().parent.parent / 'base' / f'{name}.py')
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules[spec.name] = mod
+    return mod
 
 
 def main():
+    server = shared('server')
     p = argparse.ArgumentParser()
     p.add_argument('--repo', default='.')
     p.add_argument('--base', default='HEAD')
@@ -1754,33 +1601,16 @@ def main():
     p.add_argument('--reviewed-at', metavar='REV',
                    help='count what changed since REV as new since your last review (once: it is not kept for reruns)')
     p.add_argument('--serve', action='store_true')
-    p.add_argument('--port', type=int, default=PORT, help="the umbrella server's port")
-    p.add_argument('--umbrella', action='store_true', help='run the umbrella server here (what --serve starts)')
-    p.add_argument('--restart', action='store_true', help='restart the umbrella server')
-    p.add_argument('--stop', action='store_true', help='stop the umbrella server')
-    p.add_argument('--install-agent', action='store_true',
-                   help='print a LaunchAgent that keeps the umbrella server running, to install by hand')
+    p.add_argument('--port', type=int, default=server.default_port, help="the server's port")
+    p.add_argument('--umbrella', action='store_true',
+                   help="run redpen's server here: what a LaunchAgent installed before ../base/server.py runs")
     p.add_argument('paths', nargs='*')
     for m in PLUGINS:
         if hasattr(m, 'add_args'):
             m.add_args(p)
     a = p.parse_args()
     if a.umbrella:
-        return umbrella(a.port)
-    if a.restart:
-        restart(a.port)
-        return print(f'restarted: http://127.0.0.1:{a.port}/')
-    if a.stop:
-        got = stop(a.port)
-        return print(f'stopped pid {got["pid"]}' if got else f'no docdiff server on port {a.port}')
-    if a.install_agent:
-        print(agent(), end='')
-        plist, me = f'~/Library/LaunchAgents/{AGENT}.plist', f'python3 -I {shlex.quote(os.path.abspath(__file__))}'
-        return print(f'\nTo install: save it as {plist}, stop the server started by --serve, and load it:\n'
-                     f'  {me} --install-agent > {plist}\n'
-                     f'  {me} --stop\n'
-                     f'  launchctl bootstrap gui/$(id -u) {plist}\n'
-                     f'To remove: launchctl bootout gui/$(id -u)/{AGENT} && rm {plist}', file=sys.stderr)
+        return server.serve(a.port)
     if not shutil.which('pandoc'):
         sys.exit('pandoc not found: brew install pandoc')
     top = git(pathlib.Path(a.repo), 'rev-parse', '--show-toplevel').stdout.decode().strip()
@@ -1788,10 +1618,12 @@ def main():
     for rev in filter(None, (a.base, a.head)):
         if git(repo, 'rev-parse', '--verify', '--quiet', f'{rev}^{{commit}}', check=False).returncode:
             sys.exit(f'unknown revision: {rev}')
-    if a.name and (not NAME.fullmatch(a.name) or a.name == 'clones'):
-        sys.exit(f'--name {a.name}: letters, digits, _, . and -, starting with a letter, digit or _; not clones')
+    if a.name and (not NAME.fullmatch(a.name) or a.name in RESERVED):
+        sys.exit(f'--name {a.name}: letters, digits, _, . and -, starting with a letter, digit or _; not {" or ".join(RESERVED)}')
     name = a.name or re.sub(r'[^A-Za-z0-9_.-]+', '-', pathlib.Path(a.out).resolve().name if a.out else next(
         filter(None, (m.name({**vars(a), 'repo': str(repo)}) for m in PLUGINS if hasattr(m, 'name'))), None) or repo.name).lstrip('.-')
+    if name in RESERVED:
+        sys.exit(f'{name} names no review: name this one with --name')
     out = pathlib.Path(a.out) if a.out else HOME / name
     was = json.loads((out / '.run.json').read_text()).get('repo') if (out / '.run.json').exists() else None
     if was and was != str(repo):
@@ -1817,8 +1649,8 @@ def main():
     if not shown and not page_top(run):
         return
     if a.serve:
-        if not running(a.port):
-            start(a.port)
+        if not server.running(a.port):
+            server.start(a.port)
         print(f'URL: http://127.0.0.1:{a.port}/{name}/index.html', flush=True)
 
 

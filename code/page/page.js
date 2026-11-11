@@ -1,8 +1,8 @@
 // The review page: the session's files, the one open in the diff editor, and what is done to them.
 import { DiffView, button, loaded } from './editor.js';
 
-const session = location.pathname.split('/')[2];
-const api = `/api/${session}`;
+const session = location.pathname.split('/').at(-2);
+const api = `../../api/${session}`;
 const byId = id => document.getElementById(id);
 
 // Each view shows the changes between two of a file's three texts, and what can be done to them.

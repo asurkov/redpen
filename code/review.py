@@ -3,10 +3,11 @@
 Reject per change and per file.
 
 Usage: review.py [--session ID] [--port N]   start the server unless it runs; print the page's URL
-       review.py --stop [--port N]           stop the server
-       review.py --serve [--port N]          the server itself, as the first form starts it
        review.py --prompt-hook               UserPromptSubmit hook: hands the session's waiting
                                              comments to the model
+
+The server is redpen's (../base/server.py): it has the pages under /code/, lists the sessions in its
+index, and runs this file as it is on disk at each request.
 
 The page reads the record recorder.py keeps in ~/.claude/cursordiff/<session>/: files/<key>.json
 names a file the session edited, and base/<key> is its baseline, the text its pending changes are
@@ -27,14 +28,13 @@ orig → base: Unaccept puts orig's lines back into base, which makes the change
 A change is named by line ranges of the two texts it lies between, counted the way the page's editor
 counts lines: a text split at every "\\n", so a text that ends in a newline has an empty last line.
 """
-import argparse, datetime, filecmp, hashlib, http.server, json, os, pathlib, re, signal, subprocess, sys
-import tempfile, threading, time, urllib.parse, urllib.request
+import argparse, datetime, filecmp, hashlib, importlib.util, json, os, pathlib, re, subprocess, sys
+import tempfile, threading, time, urllib.parse
 
 home = pathlib.Path.home()
 store = home / '.claude/cursordiff'
 history = home / '.claude/file-history'
 here = pathlib.Path(__file__).resolve().parent
-default_port = 7890
 # Files under these are Claude's own and temporary ones, not the work's: the page lists them apart.
 other_roots = (f'{home}/.claude/', '/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/')
 # A text past this is not sent to the page.
@@ -429,15 +429,36 @@ def sessions():
     return sorted(found, key=lambda s: s['updated'], reverse=True)
 
 
-def index():
-    def escaped(text):
-        return text.replace('&', '&amp;').replace('<', '&lt;').replace('"', '&quot;')
-    rows = ''.join(
-        f'<li><a href="/s/{escaped(s["session"])}/">{escaped(s["title"])}</a>'
-        f'<span>{s["files"]} files · {escaped(s["updated"][:16].replace("T", " "))} UTC</span></li>' for s in sessions())
-    return ('<!doctype html><html lang="en"><meta charset="utf-8"><title>Claude Edits</title>'
-            '<link rel="stylesheet" href="/page/page.css"><body class="index"><h1>Claude Edits</h1>'
-            f'<ul>{rows or "<li>No session has edited a file yet.</li>"}</ul></body></html>')
+def listed_reviews():
+    """The sessions with a record, for the server's index: each one's title, where its page is, how
+    many files it edited, and when it was last active (edited, reviewed or commented)."""
+    rows = []
+    for s in sessions():
+        folder = store / s['session']
+        marks = [folder / 'session.json', folder / 'review/journal.json', folder / 'review/comments.json']
+        rows.append({'name': s['title'], 'href': f's/{s["session"]}/',
+                     'counts': [f'{s["files"]} file{"" if s["files"] == 1 else "s"}'],
+                     'when': max((f.stat().st_mtime for f in marks if f.exists()), default=0)})
+    return {'title': "Claude's edits", 'rows': rows,
+            'note': 'Every session with a record in ~/.claude/cursordiff, the last active first.'}
+
+
+def shared(name):
+    """A module of redpen's base, ../base/<name>.py, loaded by its path, as python -I keeps this
+    script's folder off the path; the server's own copy, when it is the server that runs this code."""
+    module = sys.modules.get(f'redpen_base_{name}')
+    if not module:
+        spec = importlib.util.spec_from_file_location(f'redpen_base_{name}', here.parent / 'base' / f'{name}.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        sys.modules[spec.name] = module
+    return module
+
+
+def kept_lock(h):
+    """The lock the records' reads and writes take turns under: the server keeps it, as this code
+    comes and goes. Its key is no review's name in the server's other part."""
+    return h.server.locks.setdefault('/code', threading.Lock())
 
 
 def send(h, status, body, kind='text/plain; charset=utf-8', cache='no-store'):
@@ -462,17 +483,11 @@ def send_file(h, root, name, cache='no-store'):
 
 
 def respond(h, method):
-    """Answers a request. Only a page of this server reaches it: under any other name for this address
-    (a page elsewhere that points a name of its own at it, the port being fixed) it answers nothing,
-    and it takes a POST from its own pages alone."""
-    port = h.server.server_address[1]
-    if h.headers.get('Host') != f'127.0.0.1:{port}':
-        return send(h, 403, b'Forbidden.')
-    if method == 'POST' and h.headers.get('Origin') != f'http://127.0.0.1:{port}':
-        return send(h, 403, b'Forbidden.')
+    """Answers a request redpen's server (../base/server.py) hands on, its path the one within /code.
+    That a page of the server's own asks, the server has checked."""
     path = urllib.parse.unquote(urllib.parse.urlsplit(h.path).path)
     try:
-        if method == 'GET':
+        if method != 'POST':
             return get(h, path)
         length = int(h.headers.get('Content-Length') or 0)
         if not 0 < length <= 1 << 20:
@@ -483,21 +498,13 @@ def respond(h, method):
             raise Refusal(400, 'The request body is not JSON.')
         if not isinstance(body, dict):
             raise Refusal(400, 'The request body is not an object.')
-        with h.server.lock:
+        with kept_lock(h):
             return post(h, path, body)
     except Refusal as e:
         send_json(h, {'error': str(e)}, e.status)
 
 
 def get(h, path):
-    if path == '/':
-        return send(h, 200, index().encode(), 'text/html; charset=utf-8')
-    # What running() asks for.
-    if path == '/.redpen.json':
-        return send_json(h, {'name': 'redpen-code', 'pid': os.getpid(), 'port': h.server.server_address[1],
-                             'script': h.server.script})
-    if path == '/favicon.ico':
-        return send(h, 204, b'', 'image/x-icon')
     if path.startswith('/page/'):
         return send_file(h, here / 'page', path[6:])
     if path.startswith('/vs/'):
@@ -507,7 +514,7 @@ def get(h, path):
         Review(found.group(1))
         if not found.group(2):
             h.send_response(301)
-            h.send_header('Location', path + '/')
+            h.send_header('Location', f'{found.group(1)}/')
             h.send_header('Content-Length', '0')
             h.end_headers()
             return
@@ -516,7 +523,7 @@ def get(h, path):
     if not found:
         raise Refusal(404, 'Not found.')
     review = Review(found.group(1))
-    with h.server.lock:
+    with kept_lock(h):
         if found.group(2) == 'files':
             return send_json(h, review.listing())
         if found.group(2) == 'journal':
@@ -539,102 +546,26 @@ def post(h, path, body):
     send_json(h, {})
 
 
-class Handler(http.server.BaseHTTPRequestHandler):
-    protocol_version = 'HTTP/1.1'
-
-    def do_GET(self):
-        respond(self, 'GET')
-
-    def do_POST(self):
-        respond(self, 'POST')
-
-    def log_message(self, format, *args):
-        # Refusals and failures alone: the page asks for the file list every other second.
-        if args and str(args[1])[:1] in '45':
-            print(f'{time.strftime("%Y-%m-%d %H:%M:%S")} {format % args}', flush=True)
-
-
-def script_stamp():
-    return str(pathlib.Path(__file__).stat().st_mtime_ns)
-
-
-def serve(port):
-    server = http.server.ThreadingHTTPServer(('127.0.0.1', port), Handler)
-    server.daemon_threads = True
-    server.lock = threading.Lock()
-    server.script = script_stamp()
-    print(f'{time.strftime("%Y-%m-%d %H:%M:%S")} pid {os.getpid()} serves {store} on http://127.0.0.1:{port}/', flush=True)
-    server.serve_forever()
-
-
-def running(port):
-    """The server on port, {pid, port, script}; None if none of ours answers."""
-    try:
-        got = json.loads(urllib.request.urlopen(f'http://127.0.0.1:{port}/.redpen.json', timeout=2).read())
-    except (OSError, ValueError):
-        return None
-    return got if isinstance(got, dict) and got.get('name') == 'redpen-code' else None
-
-
-def start(port):
-    """Starts the server apart from this process, so it outlives the command and the shell that ran
-    it, its output in ~/.claude/cursordiff/review.log; returns once it answers."""
-    store.mkdir(parents=True, exist_ok=True)
-    with open(store / 'review.log', 'a') as log:
-        p = subprocess.Popen([sys.executable, '-I', os.path.abspath(__file__), '--serve', '--port', str(port)],
-                             stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    for _ in range(100):
-        if running(port):
-            return
-        if p.poll() is not None:
-            break
-        time.sleep(0.1)
-    p.terminate()
-    sys.exit(f'no review server came up on port {port} (is something else on it?): see {store / "review.log"}')
-
-
-def stop(port):
-    """Stops the server on port, if one of ours runs; returns once it no longer answers."""
-    got = running(port)
-    if not got:
-        return False
-    os.kill(got['pid'], signal.SIGTERM)
-    for _ in range(50):
-        if not running(port):
-            break
-        time.sleep(0.1)
-    return True
-
-
 def main():
     parser = argparse.ArgumentParser(description='Review a Claude Code session\'s edits on a page.')
     parser.add_argument('--session', default=os.environ.get('CLAUDE_CODE_SESSION_ID', ''))
-    parser.add_argument('--port', type=int, default=default_port)
-    parser.add_argument('--serve', action='store_true')
-    parser.add_argument('--stop', action='store_true')
+    parser.add_argument('--port', type=int)
     parser.add_argument('--prompt-hook', action='store_true')
     args = parser.parse_args()
+    # The hook reads the record alone, and no change to the server's code can fail it.
     if args.prompt_hook:
         return prompt_hook()
-    if args.serve:
-        return serve(args.port)
-    if args.stop:
-        print('stopped' if stop(args.port) else 'no server runs')
-        return
-    got = running(args.port)
-    # A server started from an older script gives way to this one.
-    if got and got.get('script') != script_stamp():
-        stop(args.port)
-        got = None
-    if not got:
-        start(args.port)
+    server = shared('server')
+    port = args.port or server.default_port
+    if not server.running(port):
+        server.start(port)
     session = args.session or next((s['session'] for s in sessions()), '')
     if session and (store / session / 'files').is_dir():
-        print(f'http://127.0.0.1:{args.port}/s/{session}/')
+        print(f'http://127.0.0.1:{port}{server.mounts["code"]}/s/{session}/')
     else:
         if session:
             print(f'session {session} has edited no file yet', file=sys.stderr)
-        print(f'http://127.0.0.1:{args.port}/')
+        print(f'http://127.0.0.1:{port}/')
 
 
 if __name__ == '__main__':

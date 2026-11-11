@@ -1,7 +1,7 @@
 ---
 name: redpen
 description: "Review this Claude Code session's file edits, change by change: on a page in the desktop app's Browser pane, the way Cursor shows its agent's edits (each file whole with red and green lines, Accept/Reject per change and per file, an Accepted view to revisit and unaccept, undo history, comments on lines that reach Claude with the next message), or in Cursor itself as its own inline diffs with Undo/Keep. Use when the user invokes /redpen, or asks to review, accept or reject Claude's edits in Claude's own UI, or to see or review them in Cursor, \"Cursor style\", or as Cursor inline diffs."
-argument-hint: "[cursor] [--session ID] [--stop] [--workspace ID] [--clear]"
+argument-hint: "[cursor] [--session ID] [--workspace ID] [--clear]"
 ---
 
 # redpen
@@ -18,10 +18,10 @@ through `~/.claude/skills/docdiff`, a link to `prose/`; its instructions are `pr
 python3 ~/.claude/skills/redpen/code/review.py
 ```
 
-The script starts a local server (127.0.0.1:7890) unless it runs, and prints the page's URL for this
-session, `http://127.0.0.1:7890/s/<session>/`. Open that URL in the Browser pane (`preview_start` with
-`url`, or `navigate`) and tell the user it is open. Do not click Accept, Reject or Unaccept there
-yourself: those are the user's.
+The script starts redpen's server ([below](#the-server)) unless it runs, and prints the page's URL for
+this session, `http://127.0.0.1:7878/code/s/<session>/`. Open that URL in the Browser pane
+(`preview_start` with `url`, or `navigate`) and tell the user it is open. Do not click Accept, Reject or
+Unaccept there yourself: those are the user's.
 
 The page shows what the session's Edit and Write calls changed, not what a shell command changed.
 
@@ -45,10 +45,9 @@ When a `UserPromptSubmit` hook hands you comments from this page, each names its
 quotes them as the user saw them; answer or act on each. A comment "of the accepted text" or "of the
 file as it was before your edits" is on lines the file may no longer have.
 
-`--session <id>` prints another session's page; `/` on the server lists every session with a record.
-`--stop` stops the server. A server started from an older copy of the script is restarted by the plain
-command. The page's editor is Monaco, in `code/vendor/monaco/`; `code/vendor/fetch_monaco.py` fetches
-it where it is missing.
+`--session <id>` prints another session's page; the server's index lists every session with a record.
+The page's editor is Monaco, in `code/vendor/monaco/`; `code/vendor/fetch_monaco.py` fetches it where it
+is missing.
 
 ## In Cursor
 
@@ -105,6 +104,21 @@ Install or update the extension with `python3 ~/.claude/skills/redpen/code/exten
 installs it into every Cursor profile (each has its own extensions; `--profile <name>` picks one), then
 reload the window. Cursor's Agents Window runs only Cursor's built-in extensions, so the view shows only
 in editor windows. `install.py --uninstall` removes it.
+
+## The server
+
+`base/server.py` is one server for both parts, on `127.0.0.1:7878`: the review pages under `/code/`,
+docdiff's reviews under `/<name>/`, and at http://127.0.0.1:7878/ one index of both, the last active
+first. It runs a part's code as it is on disk, loading a changed script again at the next request, so
+only a change to `base/server.py` itself needs a restart:
+
+```bash
+python3 -I ~/.claude/skills/redpen/base/server.py --restart
+```
+
+`--stop` stops it, and `--port N` works with another server on port N, a test's say. Its log is
+`~/.docdiff/server.log`. The LaunchAgent that keeps it running is in `prose/SKILL.md`, under "The
+server".
 
 ## The record
 

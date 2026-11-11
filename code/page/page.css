@@ -479,21 +479,6 @@ body.listHidden #splitter {
   color: inherit;
 }
 
-/* The sessions' index. */
-body.index {
-  display: block;
-  padding: 24px;
-}
-
-body.index li {
-  margin: 6px 0;
-}
-
-body.index span {
-  margin-left: 10px;
-  color: var(--dim);
-}
-
 /* A narrow pane is a tall one: the list stands over the editor, which keeps the whole width. */
 @media (max-width: 760px) {
   main {

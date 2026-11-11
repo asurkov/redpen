@@ -90,8 +90,9 @@ Read them from the invocation, in any order:
    of reach of macOS's temp cleanup, so a rerun with the same name picks up its accepts, comments and
    revisits. `--out DIR` keeps them elsewhere, an older review's `$TMPDIR/docdiff-<repo name>` say:
    the review is then named after DIR, unless `--name` says otherwise, and `~/.docdiff/<name>` links
-   to DIR. A name already taken by a review of another repo is refused: pass `--name`.
-   [The umbrella server](#the-umbrella-server) serves every review under its name, so the URL stays
+   to DIR. A name already taken by a review of another repo is refused, and so are `clones` and
+   `code`, which name no review: pass `--name`.
+   [The server](#the-server) serves every review under its name, so the URL stays
    the same from run to run. `--serve` starts it if it is not running, and otherwise leaves the new
    build to it, and an open page reloads into the new build. The server also notices on its own when
    the repo moves on (a commit, an edit, a new export: the revisions or the changed files' sizes and
@@ -318,10 +319,12 @@ cherry-picks the commit onto the checkout at PATH (the repo's own), so the sessi
 there; the reply says where it landed, or, when it does not apply there (a conflict, or uncommitted edits
 in its way), that it stays on the session's branch, with git's reason, and PATH is left as it was.
 
-## The umbrella server
+## The server
 
 One server on `127.0.0.1:7878` serves every review in `~/.docdiff`, each under `/<name>/`, found by its
-`.run.json`. Its index, http://127.0.0.1:7878/, lists them, the last active first: each one's name,
+`.run.json`. It is redpen's, `~/.claude/skills/redpen/base/server.py`, which has the reviews of Claude's
+file edits as well, under `/code/`. Its index, http://127.0.0.1:7878/, lists them, the last active
+first: each one's name,
 linked to its page, what it compares (the PR, or the repo with its revisions), its counts (to review,
 reviewed or accepted, then as the page's header counts them, drafts, on GitHub and open questions) and
 when it was last active. `--serve` starts the server
@@ -331,25 +334,25 @@ no other name for the address.
 
 The server runs docdiff's code as it is on disk: once `docdiff.py` or a plugin changes, the next request
 loads it again (code that does not load goes to the log, and the code before it goes on). Only a change
-to the server itself (`umbrella()`, `Umbrella`, `live()`) needs a restart:
+to the server itself (`base/server.py`) needs a restart:
 
 ```bash
-python3 -I ~/.claude/skills/docdiff/docdiff.py --restart
+python3 -I ~/.claude/skills/redpen/base/server.py --restart
 ```
 
-`--stop` stops it, and `--port N` (with `--serve`, `--restart` or `--stop`) works with another server on
+Its `--stop` stops it, and `--port N` (there, or with docdiff's `--serve`) works with another server on
 port N instead, a test's say, which serves the same reviews. `DOCDIFF_HOME=<dir>` keeps the reviews, the
 clones and the server's log in `<dir>` instead of `~/.docdiff`, so a test server on another port neither
 sees nor writes the reviews in use, and `DOCDIFF_GITHUB_API=<url>` sends its GitHub API calls, reads and
 pushes, to a stand-in at url.
 
-**Keeping it running.** `--install-agent` prints a LaunchAgent, `com.asurkov.docdiff`, which starts the
+**Keeping it running.** The server's `--install-agent` prints a LaunchAgent, `com.asurkov.docdiff`, which starts the
 server at login and again whenever it stops, its PATH set to find pandoc and git, its output in the same
 log. It is not installed until the user says so, as it changes their Mac for good; then:
 
 ```bash
-python3 -I ~/.claude/skills/docdiff/docdiff.py --install-agent > ~/Library/LaunchAgents/com.asurkov.docdiff.plist
-python3 -I ~/.claude/skills/docdiff/docdiff.py --stop
+python3 -I ~/.claude/skills/redpen/base/server.py --install-agent > ~/Library/LaunchAgents/com.asurkov.docdiff.plist
+python3 -I ~/.claude/skills/redpen/base/server.py --stop
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.asurkov.docdiff.plist
 ```
 
@@ -357,9 +360,10 @@ Under it, `--restart` has launchd restart the server, and `--stop` amounts to a 
 starts it again. To remove it: `launchctl bootout gui/$(id -u)/com.asurkov.docdiff`, then delete the
 plist. launchd starts the server with none of the shell's environment, so a `GITHUB_TOKEN` set there does
 not reach it: to push comments to a PR or resolve its threads from it, the plist needs `GITHUB_TOKEN` under
-`EnvironmentVariables`, where the token then sits in plain text.
+`EnvironmentVariables`, where the token then sits in plain text. An agent installed before
+`base/server.py` existed runs `docdiff.py --umbrella`, which runs the same server.
 
-Servers from before the umbrella server, one per review on a port of its own, run their old code until
+Servers from before this one, one per review on a port of its own, run their old code until
 stopped; a review's dir from one of them comes over with `--out` (or, in `~/.docdiff` already, with its
 name).
 
@@ -660,7 +664,7 @@ in the pending review. Your pending review and its comments never count as poste
 so their 💬 stays a draft's, in your pending review. The token is the
 server's `GITHUB_TOKEN`, one that may write the PR's comments (classic
 `public_repo`, or fine-grained Pull requests: read and write); the launchd server has none unless its
-plist gives it one ([The umbrella server](#the-umbrella-server)).
+plist gives it one ([The server](#the-server)).
 
 ## Proposing wording with it
 

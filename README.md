@@ -6,8 +6,11 @@ comments handed back to the agent. Written for Claude Code and packaged as its s
 
 | Part | What it reviews | Where |
 |---|---|---|
-| `code/` | the file edits of an agent's session | a local page (127.0.0.1:7890), shown in the Claude desktop app's Browser pane; Cursor |
-| `prose/` | the changes to a repo's documents: Markdown, ReSpec specs, a GitHub PR | a local page (127.0.0.1:7878); its own skill, `/docdiff` |
+| `code/` | the file edits of an agent's session | a local page, shown in the Claude desktop app's Browser pane; Cursor |
+| `prose/` | the changes to a repo's documents: Markdown, ReSpec specs, a GitHub PR | a local page; its own skill, `/docdiff` |
+
+`base/` is what the two share: so far the server, one for both parts' pages (127.0.0.1:7878), with one
+index of every review.
 
 ## What is tied to Claude Code
 
@@ -28,7 +31,7 @@ first edit to it, and a way to hand the agent a comment. Neither exists yet.
 | File | What |
 |---|---|
 | `recorder.py` | the hook that records a session's edits: each file's baseline, in `~/.claude/cursordiff/<session>/` |
-| `review.py` | the review page's server (127.0.0.1:7890), and the hook that hands the page's comments to Claude |
+| `review.py` | answers the review page's requests (`/code/…` on the server), and is the hook that hands the page's comments to Claude |
 | `page/` | the review page |
 | `cursor.py` | writes the record into Cursor as its inline diffs |
 | `extension/` | the Claude Edits sidebar for Cursor |
@@ -37,12 +40,18 @@ first edit to it, and a way to hand the agent a comment. Neither exists yet.
 ## prose/
 
 docdiff, merged in with its history. It keeps its name, its skill (`/docdiff`, in `prose/SKILL.md`), its
-server and its state.
+reviews' addresses and its state.
 
 | File | What |
 |---|---|
-| `docdiff.py` | builds a review's page from two revisions of a repo (rendered with pandoc), and serves every review |
+| `docdiff.py` | builds a review's page from two revisions of a repo (rendered with pandoc), and answers every review's requests |
 | `plugins/` | review comments and questions to Claude, ReSpec specs, a GitHub PR, Google Docs and their comments |
+
+## base/
+
+| File | What |
+|---|---|
+| `server.py` | the server (127.0.0.1:7878): the index of every review, `/code/…` handed to `code/review.py` and the rest to `prose/docdiff.py`, each run as it is on disk; `--restart`, `--stop`, and `--install-agent` for a LaunchAgent that keeps it running |
 
 ## Setup
 
@@ -84,8 +93,9 @@ The Claude Edits sidebar, for Cursor:
 python3 ~/.claude/skills/redpen/code/extension/install.py
 ```
 
-`/docdiff`: a link that makes `prose/` a skill folder of its own. docdiff, its server's LaunchAgent and
-gdocsync name `~/.claude/skills/docdiff/docdiff.py`, and reach it through the link.
+`/docdiff`: a link that makes `prose/` a skill folder of its own. docdiff, gdocsync and a LaunchAgent
+installed before `base/server.py` name `~/.claude/skills/docdiff/docdiff.py`, and reach it through the
+link.
 
 ```bash
 ln -s redpen/prose ~/.claude/skills/docdiff

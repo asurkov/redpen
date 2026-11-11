@@ -15,7 +15,7 @@ const barHeight = 24;
 
 export function loaded() {
   return new Promise(resolve => {
-    window.require.config({ paths: { vs: '/vs' } });
+    window.require.config({ paths: { vs: new URL('../../vs', location.href).pathname } });
     window.require(['vs/editor/editor.main'], () => {
       const dark = matchMedia('(prefers-color-scheme: dark)');
       const themed = () => monaco.editor.setTheme(dark.matches ? 'vs-dark' : 'vs');
