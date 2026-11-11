@@ -1,11 +1,27 @@
 # redpen
 
-Review of what Claude changed, change by change: accept, reject, revisit, comment. A Claude Code skill
-(`SKILL.md`), kept in `~/.claude/skills/redpen`.
+Review of what a coding agent changed, change by change: accept, reject, revisit, comment, with the
+comments handed back to the agent. Written for Claude Code and packaged as its skill (`SKILL.md`), kept in
+`~/.claude/skills/redpen`; [what ties it to Claude Code](#what-is-tied-to-claude-code) is below.
 
 | Part | What it reviews | Where |
 |---|---|---|
-| `code/` | the file edits of a Claude Code session | a page in the desktop app's Browser pane; Cursor |
+| `code/` | the file edits of an agent's session | a local page (127.0.0.1:7890), shown in the Claude desktop app's Browser pane; Cursor |
+| `prose/` | the changes to a repo's documents: Markdown, ReSpec specs, a GitHub PR | a local page (127.0.0.1:7878); its own skill, `/docdiff` |
+
+## What is tied to Claude Code
+
+The review is not. `code/` reviews a record of plain files (for each edited file, its path and its text
+before the session's first edit), and `prose/` reviews what git has. The ends are:
+
+| | `code/` | `prose/` |
+|---|---|---|
+| What records the changes | `recorder.py`, a Claude Code hook on its edit tools | nothing: git has them |
+| How a comment reaches the agent | `review.py --prompt-hook`, a Claude Code hook: the comment goes with the user's next message | a command the skill has Claude keep waiting on the review's `revisit.jsonl` |
+| Where the state is kept | `~/.claude/cursordiff/<session>/`, under Claude Code's session id | `~/.docdiff/<name>/` |
+
+For another agent those ends have to be written: something that saves a file's text before the agent's
+first edit to it, and a way to hand the agent a comment. Neither exists yet.
 
 ## code/
 
@@ -17,6 +33,16 @@ Review of what Claude changed, change by change: accept, reject, revisit, commen
 | `cursor.py` | writes the record into Cursor as its inline diffs |
 | `extension/` | the Claude Edits sidebar for Cursor |
 | `vendor/fetch_monaco.py` | fetches the page's editor, Monaco, into `vendor/monaco/` (not kept in the repository) |
+
+## prose/
+
+docdiff, merged in with its history. It keeps its name, its skill (`/docdiff`, in `prose/SKILL.md`), its
+server and its state.
+
+| File | What |
+|---|---|
+| `docdiff.py` | builds a review's page from two revisions of a repo (rendered with pandoc), and serves every review |
+| `plugins/` | review comments and questions to Claude, ReSpec specs, a GitHub PR, Google Docs and their comments |
 
 ## Setup
 
