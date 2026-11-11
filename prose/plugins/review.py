@@ -82,9 +82,10 @@ STYLE = '''
 .rv-settled .blk.done:not(.rvshow):not(.fresh){border-left-color:color-mix(in srgb,var(--muted) 45%,transparent)} .rv-settled .blk.done[data-kind=rw]:not(.rvshow)>.was{display:none} .rv-settled .blk.done[data-kind=del]:not(.rvshow)>.was>.old{display:none}
 .rv-settled .rvbar:not(.fresh-b){box-shadow:-8px 0 0 -6px color-mix(in srgb,var(--muted) 55%,transparent)}
 ::highlight(rvcm){text-decoration:underline dotted;text-decoration-color:var(--rw);text-decoration-thickness:2px;text-underline-offset:3px}
-body:not(.show-diff) #rvsd{display:none}
+body:not(.show-diff) #rvsd{visibility:hidden}
+#rvsd[aria-pressed=true]:not(:disabled){background:color-mix(in srgb,var(--fg) 10%,var(--bg));border-color:color-mix(in srgb,var(--fg) 45%,var(--bg));box-shadow:inset 0 1px 2px rgba(0,0,0,.12)}
 #rvsum{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0 6px;font-size:13px;color:var(--muted)} #rvsum button:hover{text-decoration:underline} #rvsum .rvarmed{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px}
-header .rvn button,header .rvn button:hover,#rvsum button,#rvsum button:hover{border:0;background:none;padding:0;height:auto;line-height:inherit;font:inherit;color:var(--link);cursor:pointer}
+.files .rvn button,.files .rvn button:hover,#rvsum button,#rvsum button:hover{border:0;background:none;padding:0;height:auto;line-height:inherit;font:inherit;color:var(--link);cursor:pointer}
 #rvsum .rvaud-g{color:var(--fg)} #rvsum .rvaud-c{color:var(--rw)} #rvsum .rvaud-r{color:var(--muted)} #rvsum .rvaud-new{color:var(--insb);font-weight:600}
 #rvp blockquote,#rvc blockquote{margin:4px 0;padding:2px 8px;border-left:3px solid color-mix(in srgb,var(--rw) 55%,var(--line));border-radius:0 4px 4px 0;background:var(--code);color:var(--muted);font-size:13px;max-height:4.8em;overflow:hidden}
 .rva{border-left:3px solid var(--insb);padding-left:8px;margin-top:6px} .rva>:first-child{margin-top:0} .rva>:last-child{margin-bottom:0}
@@ -331,7 +332,7 @@ addEventListener('keydown',e=>{if(!armed||e.target.closest('input,textarea')||e.
 if(e.key==='Escape'){if(card.hidden)arm(null);return;}
 const d=e.key==='n'||e.key==='j'?1:e.key==='p'||e.key==='k'?-1:0,st=d&&steps.get(armed);if(!st)return;
 e.preventDefault();e.stopImmediatePropagation();stepTo(armed,st.l,st.w,d);},true);
-document.querySelector('header').addEventListener('click',e=>{if(armed&&!e.target.closest('#rvsum'))arm(null);},true);
+for(const el of document.querySelectorAll('header,.files'))el.addEventListener('click',e=>{if(armed&&!e.target.closest('#rvsum'))arm(null);},true);
 // Each doc's bar counts the comments made elsewhere on it (on GitHub, in the Google Docs); a click opens the
 // Review panel on that doc's comments, where each entry goes to its place.
 function chips(){document.querySelectorAll('.rvfc').forEach(e=>e.remove());const all=order();
@@ -360,8 +361,11 @@ if(ts.length)await post('review',{revisits:ts.flatMap(t=>t.members.map(m=>m.time
 // it, and their ✓. Clicking one shows its diff again; ± diffs, kept per viewer, shows them all. Changes to
 // review always show their diffs.
 let diffs=false;try{diffs=localStorage.getItem(sk('docdiff-diffs'))==='1';}catch(e){}
-const sd=mk('button',{id:'rvsd',textContent:'± diffs',title:'Show the diffs of '+W.accepted+' changes'});
-function settle(){body.classList.toggle('rv-settled',!diffs);sd.setAttribute('aria-pressed',diffs);}
+const sd=mk('button',{id:'rvsd',textContent:'± diffs'});
+// A toggle: pressed while the diffs show; with nothing reviewed yet, it has nothing to show.
+function settle(){body.classList.toggle('rv-settled',!diffs);sd.setAttribute('aria-pressed',diffs);sd.disabled=!groups.some(x=>x.done);
+sd.title=sd.disabled?'No '+W.accepted+' changes yet: their diffs show here once there are':
+diffs?'Showing the diffs of '+W.accepted+' changes: click to show them settled':'Show the diffs of '+W.accepted+' changes';}
 sd.onclick=()=>{diffs=!diffs;try{localStorage.setItem(sk('docdiff-diffs'),diffs?'1':'');}catch(e){}settle();};
 $('views').before(sd);for(const g of groups)if(g.done&&!g.els[0].classList.contains('blk'))
 g.els[0].closest('p,li,dt,dd,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figcaption')?.classList.add('rvbar');
@@ -739,10 +743,12 @@ const k=a=>got.plan.filter(p=>p.act===a&&p.id in got.pushed).length,said=[[k('ad
 ph.textContent=(got.error?'✗ '+got.error+(said.length?'; before that, ':''):'✓ ')+(said.length?said.join(', ')+': in your pending review on GitHub, not submitted.':'');
 if(got.review)ph.append(submitAt(got));}catch(e){ph.textContent='✗ Not pushed: '+e.message+' (is the docdiff server running?)';}
 pg.textContent='Done';pg.disabled=false;pg.dataset.done=1;pg.focus();};
-function toggle(on){lp.hidden=!on;body.classList.toggle('rv-open',on);if(on){lp.style.top=document.querySelector('header').getBoundingClientRect().bottom+'px';list();}keep();}
+function toggle(on){lp.hidden=!on;body.classList.toggle('rv-open',on);if(on){dock();list();}keep();}
+// The panel hangs from the sticky toolbar, which moves up as the page's first lines scroll away.
+const dock=()=>{if(!lp.hidden)lp.style.top=document.querySelector('header').getBoundingClientRect().bottom+'px';};
 // The panel, its filter and its fold outlast reloads.
 function keep(){try{sessionStorage.setItem(sk('docdiff-review'),JSON.stringify({on:!lp.hidden,filter,folded,aud}));}catch(e){}}
-rvt.onclick=()=>{only=null;if(lp.hidden){filter='open';aud=null;}toggle(lp.hidden);};addEventListener('resize',()=>{if(!lp.hidden)lp.style.top=document.querySelector('header').getBoundingClientRect().bottom+'px';});
+rvt.onclick=()=>{only=null;if(lp.hidden){filter='open';aud=null;}toggle(lp.hidden);};addEventListener('resize',dock);addEventListener('scroll',dock,{passive:true});
 pc.onmousedown=e=>e.preventDefault();pc.onclick=()=>{const a=anchorOf();hidePop();openCm(a);};
 // The doc's own click and selection handling leaves the panel and the card alone.
 for(const e of [lp,card])for(const t of ['click','mouseup'])e.addEventListener(t,ev=>ev.stopPropagation());
