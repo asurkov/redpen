@@ -83,3 +83,10 @@ The Claude Edits sidebar, for Cursor:
 ```bash
 python3 ~/.claude/skills/redpen/code/extension/install.py
 ```
+
+`/docdiff`: a link that makes `prose/` a skill folder of its own. docdiff, its server's LaunchAgent and
+gdocsync name `~/.claude/skills/docdiff/docdiff.py`, and reach it through the link.
+
+```bash
+ln -s redpen/prose ~/.claude/skills/docdiff
+```

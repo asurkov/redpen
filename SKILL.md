@@ -9,6 +9,9 @@ argument-hint: "[cursor] [--session ID] [--stop] [--workspace ID] [--clear]"
 Review of what Claude changed, change by change. `code/` reviews a session's file edits in two places:
 on the review page (`/redpen`) and in Cursor (`/redpen cursor`). Both read the record at the end.
 
+`prose/` is docdiff, the review of a repo's documents. It is a skill of its own, `/docdiff`, found
+through `~/.claude/skills/docdiff`, a link to `prose/`; its instructions are `prose/SKILL.md`.
+
 ## The review page
 
 ```bash
