@@ -25,10 +25,10 @@ measured from. Beside them, in the record's review/ folder, the page keeps:
   journal.json      what was accepted, rejected and unaccepted here, oldest first, each naming the text
                     it replaced and the text it wrote, so it can be undone and redone
   blobs/<sha256>    those texts
-  comments.json     the comments waiting to be sent to Claude
-  sent.jsonl        the batches of comments sent, one per line: by the page's Send now, for the
-                    command Claude keeps waiting (--wait), or else by the hook, with the session's
-                    next message
+  comments.json     the comments made while Claude's command did not wait: not sent yet
+  sent.jsonl        the batches of comments sent, one per line: by the page as each is made, while
+                    the command Claude keeps waiting (--wait) runs; by that command as it starts;
+                    or else by the hook, with the session's next message
   handed.jsonl      which of them Claude was handed, and how (see ../base/channel.py)
   answers.jsonl     Claude's answers, each naming the comment it is under, and the threads the user
                     resolved, one per line
@@ -279,6 +279,9 @@ class Review:
                 'isWatched': channel.watching(self.sent) == 'wait',
                 # Whether a git review's files are still being found.
                 'isScanning': self.session in scans,
+                # What the page's own code is now: a page made of other code loads itself again.
+                'page': ' '.join(signature(here / 'page' / name)
+                                 for name in ('page.html', 'page.js', 'editor.js', 'page.css')),
                 'untaken': sum(len(ask.get('comments') or []) for ask in channel.waiting(self.sent))}
 
     def opened(self, key):
@@ -418,9 +421,13 @@ class Review:
             if not any(thread['id'] == body['thread'] for thread in self.threads()):
                 raise Refusal(404, 'No such thread.')
             comment['thread'] = body['thread']
-        # Under the channel's lock, as the hook and Send now empty the file under it.
-        with shared('channel').locked(self.sent):
+        # Under the channel's lock, as the hook and the waiting command empty the file under it.
+        channel = shared('channel')
+        with channel.locked(self.sent):
             write_atomic(self.folder / 'comments.json', json.dumps(self.comments() + [comment], indent=1).encode())
+            # Claude's command waits for comments now: this one is sent, with any made before it.
+            if channel.watching(self.sent) == 'wait':
+                self.post(channel)
         return comment
 
     def uncomment(self, comment_id):
@@ -438,9 +445,17 @@ class Review:
                 raise Refusal(409, 'No comment is waiting.')
             if channel.watching(self.sent) != 'wait':
                 raise Refusal(409, 'Claude is not waiting for comments now: they go with your next message.')
+            self.post(channel)
+        return {'sent': len(comments)}
+
+    def post(self, channel):
+        """Sends the comments not sent yet, as one ask; returns how many. Under the channel's lock,
+        which the caller holds."""
+        comments = self.comments()
+        if comments:
             channel.append(self.sent, {'comments': comments})
             write_atomic(self.folder / 'comments.json', b'[]')
-        return {'sent': len(comments)}
+        return len(comments)
 
     def threads(self):
         """The comments as the page shows them, each first one with what followed it: the user's
@@ -605,6 +620,9 @@ def wait(session):
         for review in waited_reviews(session):
             review.folder.mkdir(parents=True, exist_ok=True)
             channel.beat(review.sent)
+            # The comments made while nobody waited are taken with the sent ones.
+            with channel.locked(review.sent):
+                review.post(channel)
             handed += channel.hand_over(review.sent, 'wait',
                                         lambda ask: print(described(ask.get('comments') or [], review.git)))
         if handed:

@@ -12,10 +12,12 @@ const languageByEnding = {
 };
 const languageByName = { DEPS: 'python' };
 const barHeight = 24;
-// What is said of a comment of the user's nothing has followed yet.
-const stateWords = { draft: 'not sent yet', sent: 'sent, Claude has not taken it yet', taken: 'Claude has it' };
-// What stands in a thread for Claude's answer until it comes.
-const awaitedWords = { sent: 'Waiting for Claude to take it…', taken: 'Claude is answering…' };
+// What stands in a thread for Claude's answer until it comes, by what became of the user's comment.
+const awaitedWords = {
+  draft: 'Goes to Claude with your next message in the chat',
+  sent: 'Waiting for Claude to take it…',
+  taken: 'Claude is answering…',
+};
 
 export function loaded() {
   return new Promise(resolve => {
@@ -323,6 +325,11 @@ export class DiffView {
     this.mark(this.threads);
   }
 
+  // The first line of the text shown that is in view.
+  topLine() {
+    return this.shown.getVisibleRanges()[0]?.startLineNumber;
+  }
+
   // Scrolls the text up as far as an input under the editor's lower edge needs to be seen whole.
   bringUp(input) {
     const hidden = input.getBoundingClientRect().bottom + 40 - this.shown.getDomNode().getBoundingClientRect().bottom;
@@ -389,11 +396,7 @@ export class DiffView {
       head.className = 'head';
       const who = head.appendChild(document.createElement('b'));
       who.textContent = entry.by === 'claude' ? 'Claude' : 'You';
-      const said = [new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })];
-      if (entry.by === 'user' && index > lastAnswer) {
-        said.push(entry.state === 'draft' && !this.isWatched ? 'goes with your next message' : stateWords[entry.state]);
-      }
-      head.append(said.join(' · '), spring());
+      head.append(new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), spring());
       if (entry.state === 'draft') {
         button(head, '✕', () => this.handlers.uncomment(entry.id), 'quiet').title = 'Delete the comment';
       }
@@ -444,7 +447,7 @@ export class DiffView {
           this.replyIn(null);
         }
       });
-      foot.append(this.isWatched ? 'Send now, at the bottom, hands it to Claude' : 'Goes with your next message', spring());
+      foot.append(this.isWatched ? 'Goes to Claude at once' : 'Goes to Claude with your next message in the chat', spring());
       button(foot, 'Cancel', () => this.replyIn(null), 'quiet');
       button(foot, 'Add reply', send, 'main');
     } else if (thread.entries.some(entry => entry.state !== 'draft')) {
@@ -564,7 +567,7 @@ export class DiffView {
     input.placeholder = 'What should change here?';
     const foot = box.appendChild(document.createElement('div'));
     foot.className = 'foot';
-    foot.append(this.isWatched ? 'Send now, at the bottom, hands it to Claude' : 'Goes with your next message', spring());
+    foot.append(this.isWatched ? 'Goes to Claude at once' : 'Goes to Claude with your next message in the chat', spring());
     const send = () => {
       if (input.value.trim()) {
         this.handlers.comment({

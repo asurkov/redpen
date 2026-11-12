@@ -39,9 +39,8 @@ const state = {
   comments: [],
   // The comments with what followed them, Claude's answers too: what the editor and the strip show.
   threads: [],
-  // Whether Claude's command waits for comments now, and how many sent ones it has not taken.
+  // Whether Claude's command waits for comments now.
   isWatched: false,
-  untaken: 0,
   // The thread last stepped to, by its id.
   thread: null,
   // The open file: its key, what the server sent for it, its signature then, and whether the editor
@@ -88,6 +87,40 @@ function workRoot() {
 
 const shortened = (file, root) => (!file.isOther && root && file.path.startsWith(root) ? file.path.slice(root.length) : file.path);
 
+// What the page takes up again after loading itself: the view, the file and the line at the top.
+const resumed = 'redpenResumed';
+
+// Loads the page again, as its code changed, unless something typed would be lost; says whether.
+function loadAgain() {
+  if ([...document.querySelectorAll('textarea')].some(input => input.value.trim())) {
+    return false;
+  }
+  try {
+    sessionStorage.setItem(resumed, JSON.stringify({ at: location.pathname, view: state.view, key: state.key, line: diffView.topLine() }));
+  } catch {
+    // Without the storage the page opens as it does the first time.
+  }
+  location.reload();
+  return true;
+}
+
+// Takes up what loadAgain() left, once.
+async function resume() {
+  let left = null;
+  try {
+    left = JSON.parse(sessionStorage.getItem(resumed));
+    sessionStorage.removeItem(resumed);
+  } catch {
+    return;
+  }
+  if (left?.at !== location.pathname || !views[left.view] || !state.files.some(file => file.key === left.key)) {
+    return;
+  }
+  state.view = left.view;
+  drawViews();
+  await show(left.key, left.line || undefined);
+}
+
 // Reads the file list again and redraws what changed; opens another file when the open one left
 // the view, the next one in the list.
 async function refresh() {
@@ -98,8 +131,11 @@ async function refresh() {
   state.threads = listing.threads;
   state.isWatched = listing.isWatched;
   diffView.isWatched = listing.isWatched;
-  state.untaken = listing.untaken;
   state.isScanning = listing.isScanning;
+  if (state.page && listing.page && listing.page !== state.page && loadAgain()) {
+    return;
+  }
+  state.page = state.page || listing.page;
   byId('title').textContent = listing.title;
   document.title = `${listing.title} · Claude Edits`;
   drawViews();
@@ -344,7 +380,7 @@ function drawProgress() {
   byId('progress').textContent = [counted, state.isScanning ? 'looking for changed files…' : ''].filter(Boolean).join(' · ');
   const answered = state.threads.filter(thread => thread.entries.at(-1).by === 'claude').length;
   byId('threadsButton').hidden = !state.threads.length;
-  const awaited = state.threads.filter(thread => ['sent', 'taken'].includes(thread.entries.at(-1).state)).length;
+  const awaited = state.threads.filter(thread => thread.entries.at(-1).by === 'user').length;
   byId('threadsButton').textContent = `${state.threads.length} thread${state.threads.length === 1 ? '' : 's'}${answered ? `, ${answered} answered` : ''}${awaited ? `, ${awaited} waiting` : ''}`;
 }
 
@@ -409,30 +445,27 @@ async function drawJournal() {
   byId('journal').replaceChildren(...rows);
 }
 
-// The strip at the bottom: the threads of every file, each a way to its line; the comments not sent
-// yet, with Send now while Claude's command waits for them; and how many of the sent ones Claude
-// has not taken.
+// The strip at the bottom: how many threads there are and how many of them wait for Claude; and,
+// opened, the threads of every file, each a way to its line.
 function drawWaiting() {
-  const { comments, threads, isWatched, untaken } = state;
-  const drawing = JSON.stringify({ comments, threads, isWatched, untaken });
+  const { comments, threads, isWatched } = state;
+  const drawing = JSON.stringify({ comments, threads, isWatched });
   if (drawing === drawn.waiting) {
     return;
   }
   drawn.waiting = drawing;
   const counted = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
-  byId('waiting').hidden = !threads.length && !untaken;
-  byId('sendButton').hidden = !isWatched || !comments.length;
-  byId('untaken').hidden = !untaken;
-  byId('untaken').textContent = `${untaken} sent, not taken by Claude yet`;
+  byId('waiting').hidden = !threads.length;
+  const awaited = threads.filter(thread => thread.entries.at(-1).by === 'user').length;
   byId('waitingButton').hidden = !threads.length;
-  byId('waitingButton').textContent = !comments.length ? counted(threads.length, 'thread')
-    : `${counted(comments.length, 'comment')} for Claude${isWatched ? '' : ': sent with your next message'}`;
+  byId('waitingButton').textContent = [counted(threads.length, 'thread'), awaited ? `${awaited} waiting for Claude` : '',
+    comments.length && !isWatched ? 'Claude takes them with your next message in the chat' : ''].filter(Boolean).join(' · ');
   byId('waitingList').replaceChildren(...threads.map(thread => {
     const row = document.createElement('li');
     const last = thread.entries.at(-1);
     const lines = thread.start === thread.end ? thread.start : `${thread.start}–${thread.end}`;
     row.append(span('where', `${nameOf(thread.path)}:${lines}`));
-    row.append(span(`state ${last.by}`, last.by === 'claude' ? 'Claude' : { draft: 'not sent', sent: 'sent', taken: 'Claude has it' }[last.state]));
+    row.append(span(`state ${last.by}`, last.by === 'claude' ? 'Claude' : { draft: 'not sent', sent: 'sent', taken: 'Claude answers' }[last.state]));
     const text = button(row, last.text, () => queued(() => showThread(thread)));
     text.className = 'text';
     if (thread.entries.length === 1 && last.state === 'draft') {
@@ -440,18 +473,6 @@ function drawWaiting() {
     }
     return row;
   }));
-}
-
-function sendNow() {
-  return queued(async () => {
-    try {
-      const { sent } = await asked('/send', {});
-      toast(`Sent ${sent} comment${sent === 1 ? '' : 's'} to Claude`);
-    } catch (error) {
-      toast(error.message);
-    }
-    await refresh();
-  });
 }
 
 function comment(target) {
@@ -573,9 +594,9 @@ async function main() {
   }));
   byId('historyClose').addEventListener('click', () => (byId('history').hidden = true));
   byId('waitingButton').addEventListener('click', () => (byId('waitingList').hidden = !byId('waitingList').hidden));
-  byId('sendButton').addEventListener('click', sendNow);
   document.addEventListener('keydown', takeKey, true);
   await queued(refresh);
+  await queued(resume);
   setInterval(() => {
     if (!document.hidden) {
       queued(() => refresh().catch(() => {}));

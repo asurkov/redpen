@@ -39,8 +39,9 @@ What to tell the user when it matters:
   which says whether it is sent and whether Claude has it, and shows Claude's answer under it.
   **Reply** adds to the thread, **Resolve** takes it off the page. An answer that came with a change
   links to that change. The header counts the open threads, with how many Claude answered last, and
-  steps to the next one on a click; the strip at the bottom lists the threads of every file. While Claude's waiting command runs (below), the strip has **Send now**,
-  which hands the comments not sent yet to Claude at once. Otherwise they go to Claude with the user's
+  steps to the next one on a click; the strip at the bottom lists the threads of every file. While Claude's
+  waiting command runs (below), a comment goes to Claude as it is made, and its thread says so
+  until the answer comes. Otherwise it goes to Claude when the command next starts, or with the user's
   next message in that session, through the `UserPromptSubmit` hook
   `python3 ~/.claude/skills/redpen/code/review.py --prompt-hook` in `~/.claude/settings.json`; without
   that hook they stay unsent.
@@ -62,7 +63,7 @@ python3 ~/.claude/skills/redpen/code/review.py --wait
 ```
 
 It waits on the session's page and on the git reviews made from the session (below), those made
-while it waits too. It prints the comments sent with Send now and ends; those sent between one wait
+while it waits too. It prints the comments as they are made and ends; those made between one wait
 and the next are printed by the next as it starts. When it ends with comments, start it again at once,
 then answer or act on each. A comment reaches you once: from this command, or from the
 `UserPromptSubmit` hook with the user's next message. While a git review of the session's has no

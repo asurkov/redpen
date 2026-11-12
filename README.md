@@ -20,7 +20,7 @@ before the session's first edit), and `prose/` reviews what git has. The ends ar
 | | `code/` | `prose/` |
 |---|---|---|
 | What records the changes | `recorder.py`, a Claude Code hook on its edit tools | nothing: git has them |
-| How a comment reaches the agent | `review.py --wait`, a command the skill has Claude keep waiting: the page's Send now hands it over at once; else `review.py --prompt-hook`, a Claude Code hook, with the user's next message | `base/channel.py --wait`, a command the skill has Claude keep waiting on the review's `revisit.jsonl` |
+| How a comment reaches the agent | `review.py --wait`, a command the skill has Claude keep waiting: a comment is handed over as it is made; else `review.py --prompt-hook`, a Claude Code hook, with the user's next message | `base/channel.py --wait`, a command the skill has Claude keep waiting on the review's `revisit.jsonl` |
 | Where the state is kept | `~/.redpen/code/<session>/`, under Claude Code's session id | `~/.docdiff/<name>/` |
 
 `review.py --git` needs neither end to show a page: it reviews a git work tree against a commit, whoever
