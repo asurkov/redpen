@@ -365,8 +365,7 @@ Under it, `--restart` has launchd restart the server, and `--stop` amounts to a 
 starts it again. To remove it: `launchctl bootout gui/$(id -u)/com.asurkov.redpen`, then delete the
 plist. launchd starts the server with none of the shell's environment, so a `GITHUB_TOKEN` set there does
 not reach it: to push comments to a PR or resolve its threads from it, the plist needs `GITHUB_TOKEN` under
-`EnvironmentVariables`, where the token then sits in plain text. An agent installed before
-`base/server.py` existed runs `docdiff.py --umbrella`, which runs the same server.
+`EnvironmentVariables`, where the token then sits in plain text.
 
 Servers from before this one, one per review on a port of its own, run their old code until
 stopped; a review's dir from one of them comes over with `--out` (or, in `~/.docdiff` already, with its
