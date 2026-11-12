@@ -5,19 +5,20 @@ const session = location.pathname.split('/').at(-2);
 const api = `../../api/${session}`;
 const byId = id => document.getElementById(id);
 
-// Each view shows the changes between two of a file's three texts, and what can be done to them.
+// Each view shows the changes between two of a file's three texts, and what can be done to them:
+// [action, label, key] for a change, the key where the page's key does it to the current change.
 const views = {
   pending: {
     left: 'base',
     right: 'disk',
-    changeActions: [['accept', 'Accept'], ['reject', 'Reject']],
+    changeActions: [['accept', 'Accept', 'a'], ['reject', 'Reject']],
     fileActions: [['reject', 'Reject file'], ['accept', 'Accept file', 'main']],
     none: 'Nothing is pending: every change is accepted or rejected.',
   },
   accepted: {
     left: 'orig',
     right: 'base',
-    changeActions: [['unaccept', 'Unaccept']],
+    changeActions: [['unaccept', 'Unaccept', 'a']],
     fileActions: [['unaccept', 'Unaccept file']],
     none: 'Nothing is accepted yet.',
   },
@@ -30,6 +31,7 @@ const views = {
   },
 };
 const doneWords = { accept: 'Accepted', reject: 'Rejected', unaccept: 'Unaccepted' };
+const steps = { n: 'next', j: 'next', 'Alt+ArrowDown': 'next', p: 'previous', k: 'previous', 'Alt+ArrowUp': 'previous' };
 
 const state = {
   view: 'pending',
@@ -38,10 +40,12 @@ const state = {
   // Whether Claude's command waits for comments now, and how many sent ones it has not taken.
   isWatched: false,
   untaken: 0,
-  // The open file: its key, what the server sent for it, and its signature then.
+  // The open file: its key, what the server sent for it, its signature then, and whether the editor
+  // shows its two texts.
   key: null,
   opened: null,
   signature: null,
+  isText: false,
   areOthersOpen: false,
 };
 let diffView;
@@ -126,6 +130,7 @@ async function show(key, place) {
   const left = state.opened.texts[view.left];
   const right = state.opened.texts[view.right];
   const isText = left.text !== null && right.text !== null;
+  state.isText = isText;
   byId('filePath').textContent = `‎${shortened(file, root)}`;
   byId('filePath').title = file.path;
   byId('fileCounts').replaceChildren(...counts(file));
@@ -151,9 +156,14 @@ async function show(key, place) {
 
 // Carries out an action on a change of the open file, or on the whole file with no change named.
 function act(action, change) {
+  const view = views[state.view];
+  const { key, opened } = state;
   return queued(async () => {
-    const view = views[state.view];
-    const { key, opened } = state;
+    // Shown anew since it was asked for, after an earlier action say: the change's lines were read
+    // from texts the file no longer has.
+    if (opened !== state.opened) {
+      return;
+    }
     const name = nameOf(opened.path);
     try {
       const expected = { left: opened.texts[view.left].sha, right: opened.texts[view.right].sha };
@@ -178,6 +188,48 @@ function flip(id) {
     }
     await refreshAll();
   });
+}
+
+// Steps to the next or previous change; past the open file's last or first one, into the file
+// after or before it in the list, round the list's ends.
+function step(direction) {
+  return queued(async () => {
+    const files = listed();
+    if (!state.key || !files.length || (state.isText && diffView.go(direction))) {
+      return;
+    }
+    const index = files.findIndex(file => file.key === state.key);
+    const neighbour = files[(index + (direction === 'next' ? 1 : files.length - 1)) % files.length];
+    await show(neighbour.key, direction === 'next' ? undefined : 'last');
+  });
+}
+
+// The page's keys: n or j and p or k step through the changes, as Alt+↓ and Alt+↑ do; a carries out
+// the current change's own action; r opens a comment on the selected text, or else on that change.
+function takeKey(event) {
+  const key = (event.altKey ? 'Alt+' : '') + event.key;
+  // A letter typed into a field is the field's; the editor's own text is no such field.
+  const isTyped = !event.altKey && event.target.closest?.('input, textarea') && !diffView.hasTextFocus();
+  if (!state.key || event.metaKey || event.ctrlKey || event.isComposing || isTyped) {
+    return;
+  }
+  if (steps[key]) {
+    step(steps[key]);
+  } else if (key === 'a') {
+    // One press, one change: a key held down does not go on accepting.
+    if (state.isText && !event.repeat) {
+      diffView.actByKey(key);
+    }
+  } else if (key === 'r') {
+    if (!state.isText || !diffView.startComment()) {
+      toast('Select text, or step to a change, then press r.');
+    }
+  } else {
+    return;
+  }
+  // The editor must not take the key for its own.
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 async function refreshAll() {
@@ -289,12 +341,10 @@ function drawWaiting() {
     const row = document.createElement('li');
     const lines = comment.start === comment.end ? comment.start : `${comment.start}–${comment.end}`;
     row.append(span('where', `${nameOf(comment.path)}:${lines}`));
-    const text = button(row, comment.text, () => queued(async () => {
-      await show(comment.key);
-      if (comment.side === views[state.view].right) {
-        diffView.reveal(comment.start);
-      }
-    }));
+    // The comment's file at its line, when the view shows the text the comment is on.
+    const text = button(row, comment.text, () => queued(() => (
+      show(comment.key, comment.side === views[state.view].right ? comment.start : undefined)
+    )));
     text.className = 'text';
     button(row, '✕', () => queued(async () => {
       await asked('/uncomment', { id: comment.id });
@@ -399,8 +449,8 @@ async function main() {
       await show(listed().some(file => file.key === state.key) ? state.key : listed()[0]?.key || null);
     }));
   }
-  byId('previousChange').addEventListener('click', () => diffView.go('previous'));
-  byId('nextChange').addEventListener('click', () => diffView.go('next'));
+  byId('previousChange').addEventListener('click', () => step('previous'));
+  byId('nextChange').addEventListener('click', () => step('next'));
   byId('historyButton').addEventListener('click', () => queued(async () => {
     byId('history').hidden = !byId('history').hidden;
     if (!byId('history').hidden) {
@@ -410,12 +460,7 @@ async function main() {
   byId('historyClose').addEventListener('click', () => (byId('history').hidden = true));
   byId('waitingButton').addEventListener('click', () => (byId('waitingList').hidden = !byId('waitingList').hidden));
   byId('sendButton').addEventListener('click', sendNow);
-  document.addEventListener('keydown', event => {
-    if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp') && state.key) {
-      event.preventDefault();
-      diffView.go(event.key === 'ArrowDown' ? 'next' : 'previous');
-    }
-  }, true);
+  document.addEventListener('keydown', takeKey, true);
   await queued(refresh);
   setInterval(() => {
     if (!document.hidden) {

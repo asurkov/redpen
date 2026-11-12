@@ -61,9 +61,19 @@ export class DiffView {
     });
     this.shown = this.editor.getModifiedEditor();
     this.marks = this.shown.createDecorationsCollection();
+    this.currentEdge = this.shown.createDecorationsCollection();
     this.zoneIds = [];
+    this.bars = [];
     this.changes = [];
+    // The current change, the one the keys act on: its place in changes, -1 with none.
+    this.current = -1;
     this.editor.onDidUpdateDiff(() => this.drawBars());
+    // The change the cursor is put into becomes the current one.
+    this.shown.onDidChangeCursorPosition(() => {
+      if (!this.afterDiff) {
+        this.pickAtCursor();
+      }
+    });
     this.shown.onDidChangeCursorSelection(() => {
       clearTimeout(this.offerTimer);
       this.dropWidget('offer');
@@ -71,18 +81,21 @@ export class DiffView {
     });
   }
 
-  // Shows the two texts of the file at path. changeActions: [action, label] pairs for each change's
-  // bar; sides: the names of the two texts, {left, right}; place: 'kept' to stay where the view is,
-  // else the first change comes into view.
+  // Shows the two texts of the file at path. changeActions: [action, label, key] for each change's
+  // bar, the key where a key carries the action out on the current change; sides: the names of the
+  // two texts, {left, right}; place: 'kept' to stay where the view is, 'last' for the last change, a
+  // line's number for that line, else the first change comes into view.
   show({ path, left, right, changeActions, canSplice, sides, comments, place }) {
-    const scrollTop = this.shown.getScrollTop();
+    const was = { top: this.viewTop(), position: this.shown.getPosition(), hadCurrent: this.current >= 0 };
     const language = languageOf(path);
     const old = this.editor.getModel();
     this.dropWidget('offer');
     this.dropWidget('box');
     this.changeActions = canSplice ? changeActions : [];
     this.sides = sides;
-    this.afterDiff = () => (place === 'kept' ? this.shown.setScrollTop(scrollTop) : this.editor.revealFirstDiff());
+    // No change is current until the editor has compared the two texts.
+    this.current = -1;
+    this.afterDiff = () => this.settle(place, was);
     this.editor.setModel({
       original: monaco.editor.createModel(left, language),
       modified: monaco.editor.createModel(right, language),
@@ -90,9 +103,47 @@ export class DiffView {
     old?.original.dispose();
     old?.modified.dispose();
     if (place === 'kept') {
-      this.shown.setScrollTop(scrollTop);
+      this.scrollTo(was.top);
     }
     this.mark(comments);
+  }
+
+  // The view's place in the text: its first line and where that line's top is against the view's.
+  // Unlike the scroll offset it holds while the bars and the removed lines above it come and go.
+  viewTop() {
+    const line = this.shown.getVisibleRanges()[0]?.startLineNumber || 1;
+    return { line, offset: this.shown.getTopForLineNumber(line) - this.shown.getScrollTop() };
+  }
+
+  scrollTo({ line, offset }) {
+    this.shown.setScrollTop(this.shown.getTopForLineNumber(line) - offset);
+  }
+
+  // Puts the view in its place once the changes are known; the change there becomes the current one.
+  settle(place, was) {
+    if (place === 'kept') {
+      if (was.position) {
+        this.shown.setPosition(was.position);
+      }
+      this.scrollTo(was.top);
+      // The current change is gone, accepted say: the next one takes its place if it is in view,
+      // or with none further the one before.
+      const line = this.shown.getPosition().lineNumber;
+      const next = this.changes.findIndex(change => lastLineOf(change) >= line);
+      const near = this.changes[next >= 0 ? next : this.changes.length - 1];
+      if (was.hadCurrent && near && !holds(near, line) && this.isInView(near)) {
+        this.shown.setPosition({ lineNumber: firstLineOf(near), column: 1 });
+      }
+      this.pickAtCursor();
+    } else if (place === 'last') {
+      this.goTo(this.changes.length - 1);
+    } else if (typeof place === 'number') {
+      this.shown.setPosition({ lineNumber: place, column: 1 });
+      this.shown.revealLineInCenter(place);
+      this.pickAtCursor();
+    } else {
+      this.goTo(0);
+    }
   }
 
   // Whether the page's line count of the text matches the editor's, so a change's ranges mean the
@@ -104,12 +155,91 @@ export class DiffView {
     return isSame;
   }
 
+  // Steps to the next or previous change: from the current one, or with none from the cursor. Says
+  // whether there was one that way; while the editor compares the texts, that there was.
   go(direction) {
-    this.editor.goToDiff(direction);
+    if (this.afterDiff) {
+      return true;
+    }
+    const line = this.shown.getPosition().lineNumber;
+    let index;
+    if (this.current >= 0) {
+      index = this.current + (direction === 'next' ? 1 : -1);
+    } else if (direction === 'next') {
+      index = this.changes.findIndex(change => lastLineOf(change) >= line);
+    } else {
+      index = this.changes.findLastIndex(change => firstLineOf(change) < line);
+    }
+    if (!this.changes[index]) {
+      return false;
+    }
+    this.goTo(index);
+    return true;
   }
 
-  reveal(line) {
-    this.shown.revealLineInCenter(line);
+  // Makes the change at index the current one and brings it into view, the cursor on its first line.
+  goTo(index) {
+    const change = this.changes[index];
+    if (change) {
+      const first = firstLineOf(change);
+      this.shown.setPosition({ lineNumber: first, column: 1 });
+      // In view already with its bar and the lines next to it, it stays where it is; else it comes
+      // near the top.
+      this.shown.revealRangeNearTopIfOutsideViewport(new monaco.Range(Math.max(1, first - 1), 1, lastLineOf(change) + 1, 1));
+    }
+    this.pick(change ? index : -1);
+  }
+
+  // Draws the change at index as the current one, or none with -1; the cursor stays where it is.
+  pick(index) {
+    const change = this.changes[index];
+    this.current = index;
+    this.bars.forEach((bar, place) => bar.classList.toggle('current', place === index));
+    this.currentEdge.set(change?.modifiedEndLineNumber > 0 ? [{
+      range: new monaco.Range(change.modifiedStartLineNumber, 1, change.modifiedEndLineNumber, 1),
+      options: { isWholeLine: true, linesDecorationsClassName: 'currentEdge' },
+    }] : []);
+  }
+
+  pickAtCursor() {
+    const line = this.shown.getPosition().lineNumber;
+    this.pick(this.changes.findIndex(change => holds(change, line)));
+  }
+
+  isInView(change) {
+    const line = firstLineOf(change);
+    return this.shown.getVisibleRanges().some(range => range.startLineNumber <= line && line <= range.endLineNumber);
+  }
+
+  // Carries out the current change's action that has the key, if there is such a one.
+  actByKey(key) {
+    const change = this.changes[this.current];
+    const [action] = this.changeActions.find(([, , actionKey]) => actionKey === key) || [];
+    if (change && action) {
+      this.handlers.act(action, spans(change));
+    }
+  }
+
+  // Opens the comment box on the selected text, or else on the current change; says whether there
+  // was either. A box that is open comes back into view and takes the keys again.
+  startComment() {
+    const box = this.widgets?.box;
+    if (box) {
+      this.shown.revealLineInCenterIfOutsideViewport(box.getPosition().position.lineNumber);
+      focusLaidOut(box.getDomNode().querySelector('textarea'));
+      return true;
+    }
+    const change = this.changes[this.current];
+    const target = this.selectionTarget() || (change && this.changeTarget(change));
+    if (target) {
+      this.openBox(target);
+    }
+    return Boolean(target);
+  }
+
+  // Whether the keys go to the text shown, not to a field over it.
+  hasTextFocus() {
+    return this.shown.hasTextFocus();
   }
 
   // Marks the lines the waiting comments are on, those on the text shown.
@@ -130,20 +260,31 @@ export class DiffView {
   }
 
   drawBars() {
-    this.changes = this.editor.getLineChanges() || [];
+    const changes = this.editor.getLineChanges();
+    this.changes = changes || [];
+    const zones = this.changes.map(change => this.bar(change));
+    this.bars = zones.map(zone => zone.firstChild);
     this.shown.changeViewZones(accessor => {
       this.zoneIds.forEach(id => accessor.removeZone(id));
-      this.zoneIds = this.changes.map(change => accessor.addZone({
+      this.zoneIds = this.changes.map((change, index) => accessor.addZone({
         afterLineNumber: change.modifiedEndLineNumber || change.modifiedStartLineNumber,
         // Under the editor's own zone, the removed lines, when both stand after one line.
         ordinal: 10001,
         heightInPx: barHeight,
-        domNode: this.bar(change),
+        domNode: zones[index],
         suppressMouseDown: true,
       }));
     });
-    this.afterDiff?.();
-    this.afterDiff = null;
+    if (!changes) {
+      // The editor has not compared the texts yet: it says so again once it has.
+      return;
+    }
+    if (this.afterDiff) {
+      this.afterDiff();
+      this.afterDiff = null;
+    } else {
+      this.pick(Math.min(this.current, this.changes.length - 1));
+    }
   }
 
   bar(change) {
@@ -157,10 +298,13 @@ export class DiffView {
     for (const name of ['mousedown', 'pointerdown']) {
       bar.addEventListener(name, event => event.stopPropagation());
     }
-    for (const [action, label] of this.changeActions) {
-      button(bar, label, () => this.handlers.act(action, spans(change)));
+    for (const [action, label, key] of this.changeActions) {
+      const made = button(bar, label, () => this.handlers.act(action, spans(change)));
+      if (key) {
+        made.dataset.key = key;
+      }
     }
-    button(bar, 'Comment', () => this.openBox(this.changeTarget(change)), 'quiet');
+    button(bar, 'Comment', () => this.openBox(this.changeTarget(change)), 'quiet').dataset.key = 'r';
     return zone;
   }
 
@@ -176,25 +320,34 @@ export class DiffView {
     return { side: this.sides.left, start, end, quote, anchor: Math.max(1, change.modifiedStartLineNumber), isRemoved: true };
   }
 
-  offerComment() {
+  // What a comment on the selected text is on; nothing with no text selected.
+  selectionTarget() {
     const selection = this.shown.getSelection();
-    if (!selection || selection.isEmpty() || this.widgets?.box) {
-      return;
+    if (!selection || selection.isEmpty()) {
+      return null;
     }
     // A selection that ends at a line's start does not take that line.
     const end = selection.endColumn === 1 && selection.endLineNumber > selection.startLineNumber
       ? selection.endLineNumber - 1 : selection.endLineNumber;
-    const target = {
+    return {
       side: this.sides.right,
       start: selection.startLineNumber,
       end,
       quote: this.shown.getModel().getValueInRange(selection),
       anchor: selection.getPosition().lineNumber,
     };
+  }
+
+  offerComment() {
+    const target = this.widgets?.box ? null : this.selectionTarget();
+    if (!target) {
+      return;
+    }
     const node = document.createElement('div');
     node.className = 'commentWidget';
     button(node, 'Comment', () => this.openBox(target));
-    this.addWidget('offer', node, { lineNumber: selection.getPosition().lineNumber, column: selection.getPosition().column }, true);
+    const { lineNumber, column } = this.shown.getSelection().getPosition();
+    this.addWidget('offer', node, { lineNumber, column }, true);
   }
 
   openBox(target) {
@@ -279,6 +432,20 @@ function spring() {
   const made = document.createElement('span');
   made.className = 'spring';
   return made;
+}
+
+// A change's first and last line in the text shown; removed lines alone count as the line they
+// stand after.
+function firstLineOf(change) {
+  return Math.max(1, change.modifiedStartLineNumber);
+}
+
+function lastLineOf(change) {
+  return Math.max(firstLineOf(change), change.modifiedEndLineNumber);
+}
+
+function holds(change, line) {
+  return firstLineOf(change) <= line && line <= lastLineOf(change);
 }
 
 function linesOf(model, start, end) {

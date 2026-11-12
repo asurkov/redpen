@@ -21,7 +21,7 @@ python3 ~/.claude/skills/redpen/code/review.py
 The script starts redpen's server ([below](#the-server)) unless it runs, and prints the page's URL for
 this session, `http://127.0.0.1:7878/code/s/<session>/`. Open that URL in the Browser pane
 (`preview_start` with `url`, or `navigate`) and tell the user it is open. Do not click Accept, Reject or
-Unaccept there yourself: those are the user's.
+Unaccept there yourself, nor press `a`: those are the user's.
 
 The page shows what the session's Edit and Write calls changed, not what a shell command changed.
 
@@ -39,6 +39,10 @@ What to tell the user when it matters:
   Claude at once. Otherwise they go to Claude with the user's next message in that session, through
   the `UserPromptSubmit` hook `python3 ~/.claude/skills/redpen/code/review.py --prompt-hook` in
   `~/.claude/settings.json`; without that hook they stay in the strip.
+- Keys: `n` and `p` (or `j` and `k`) step to the next and the previous change, past a file's last or
+  first one into the neighbouring file. The current change is the one the cursor is in, with the
+  tinted bar: `a` accepts it in Pending and unaccepts it in Accepted, `r` opens a comment on the
+  selected text, or else on it. Reject has no key.
 - Files under `~/.claude` and temporary folders are listed apart, under "other".
 - The page follows the files: an edit by Claude or the user shows up within two seconds.
 

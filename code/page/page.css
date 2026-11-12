@@ -315,6 +315,21 @@ body.listHidden #splitter {
   font-size: 11px;
 }
 
+/* The current change, the one the keys act on: its bar, the keys after the buttons' words, and an
+   edge along its lines. */
+.changeBar.current {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.changeBar.current button[data-key]::after {
+  content: ' ' attr(data-key);
+  opacity: 0.55;
+}
+
+.currentEdge {
+  border-left: 2px solid var(--accent);
+}
+
 .commentedLine {
   background: var(--mark);
 }
