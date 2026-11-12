@@ -334,7 +334,7 @@ linked to its page, what it compares (the PR, or the repo with its revisions), i
 reviewed or accepted, then as the page's header counts them, drafts, on GitHub and open questions) and
 when it was last active. `--serve` starts the server
 in the background, apart from the command, so it outlives the command and the session that ran it; its
-log is `~/.docdiff/server.log`. It answers on `127.0.0.1` and, for spec renders, on `localhost`, and to
+log is `~/.redpen/server.log`. It answers on `127.0.0.1` and, for spec renders, on `localhost`, and to
 no other name for the address.
 
 The server runs docdiff's code as it is on disk: once `docdiff.py`, a plugin or `base/channel.py` changes, the next request
@@ -351,18 +351,18 @@ clones and the server's log in `<dir>` instead of `~/.docdiff`, so a test server
 sees nor writes the reviews in use, and `DOCDIFF_GITHUB_API=<url>` sends its GitHub API calls, reads and
 pushes, to a stand-in at url.
 
-**Keeping it running.** The server's `--install-agent` prints a LaunchAgent, `com.asurkov.docdiff`, which starts the
+**Keeping it running.** The server's `--install-agent` prints a LaunchAgent, `com.asurkov.redpen`, which starts the
 server at login and again whenever it stops, its PATH set to find pandoc and git, its output in the same
 log. It is not installed until the user says so, as it changes their Mac for good; then:
 
 ```bash
-python3 -I ~/.claude/skills/redpen/base/server.py --install-agent > ~/Library/LaunchAgents/com.asurkov.docdiff.plist
+python3 -I ~/.claude/skills/redpen/base/server.py --install-agent > ~/Library/LaunchAgents/com.asurkov.redpen.plist
 python3 -I ~/.claude/skills/redpen/base/server.py --stop
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.asurkov.docdiff.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.asurkov.redpen.plist
 ```
 
 Under it, `--restart` has launchd restart the server, and `--stop` amounts to a restart, as launchd
-starts it again. To remove it: `launchctl bootout gui/$(id -u)/com.asurkov.docdiff`, then delete the
+starts it again. To remove it: `launchctl bootout gui/$(id -u)/com.asurkov.redpen`, then delete the
 plist. launchd starts the server with none of the shell's environment, so a `GITHUB_TOKEN` set there does
 not reach it: to push comments to a PR or resolve its threads from it, the plist needs `GITHUB_TOKEN` under
 `EnvironmentVariables`, where the token then sits in plain text. An agent installed before
@@ -566,7 +566,8 @@ it and rerun docdiff with `--serve`.
 **Comments made elsewhere**, on GitHub or in the Google Docs, are counted on each doc's bar: "💬 N
 comments" opens the Review panel on that doc's entries alone ("Only <file> · show all" shows every doc's
 again, as the header's 💬 does), and each entry goes to its place in the doc. Below 840px wide the panel docks at the
-bottom, so the place it goes to stays in sight above it. The text each one is on is highlighted pale
+bottom, so the place it goes to stays in sight above it. The panel's own header line (Review, its
+counts, ×) stays pinned at its top as it scrolls, so it is always clear what the panel lists. The text each one is on is highlighted pale
 yellow, as Google Docs does, and darker while its card is open or just after going to it (the CSS Custom
 Highlight API, so the page's text is not wrapped in elements). One whose quote no longer reads anywhere
 (the text was edited after the comment was made) sits, dashed, at the end of the paragraph that shares

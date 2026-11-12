@@ -56,6 +56,8 @@ STYLE = '''
 .rvh{flex-wrap:wrap} .rvonly{flex-basis:100%;text-align:left;font-size:12px;padding:1px 8px}
 #rvp{position:fixed;right:0;bottom:0;width:min(420px,100vw);box-sizing:border-box;overflow:auto;overscroll-behavior:contain;background:var(--code);border-left:1px solid var(--line);box-shadow:-2px 0 10px rgba(0,0,0,.06);padding:8px 14px 24px;z-index:2;font-size:14px}
 .rvh{display:flex;gap:8px;align-items:center;margin-bottom:6px} .rvh .n{flex:1} .rvh button,.rvx{font-size:12px;padding:1px 8px}
+/* The panel's header stays in sight as it scrolls, so what it lists is always named. */
+#rvp>.rvh{position:sticky;top:-8px;z-index:3;margin:-8px -14px 6px;padding:6px 14px;background:var(--code);border-bottom:1px solid var(--line)} #rvp{scroll-padding-top:44px}
 .rvi{margin:6px 0;padding:8px 10px;background:var(--bg);border:1px solid var(--line);border-radius:6px;cursor:pointer} .rvi:hover{border-color:color-mix(in srgb,var(--muted) 55%,var(--line))}
 @media (prefers-color-scheme: dark){.rvi{background:color-mix(in srgb,var(--btn) 60%,var(--code))}}
 .rvm{font-size:12px;color:var(--muted)} .rvt{white-space:pre-wrap;margin:2px 0} .rvt,.rva{overflow-wrap:anywhere} .rvx{margin:4px 6px 0 0}
