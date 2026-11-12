@@ -142,7 +142,10 @@ The server writes both into the review's dir, `<out>`:
   says what the prompt is: `draft`, notes to write the reply from, or none (an empty prompt: draft it on your own judgment); `polish`, the user's own reply, to fix
   and tighten keeping their meaning and voice, the polished reply the first blockquote (the card marks its
   edits against what they wrote). With `weigh`, also say briefly, outside the blockquotes, whether you
-  would answer differently on substance, and if so give that reply as one more blockquote. A source
+  would answer differently on substance, and if so give that reply as one more blockquote. `ask` (its
+  text starting "Ask about this … thread") is a question about the thread or the replies drafted for it:
+  read the thread's requests and answers so far, answer the question, edit nothing, and use a blockquote
+  only for a reply to post, since each blockquote shows as a draft. A source
   with a shared store (`store()`: gdoc_comments.py's is `<export>-replies/`, beside the export) keeps
   its reply requests there, not in the page's out dir, so every page showing its comments shares the
   drafts: such a line has `store`, and its answer goes to `<store>/answers.jsonl`. Watch the store's
@@ -618,7 +621,11 @@ it), **✎ Revise** (a box under that draft) and **Dismiss**, as a draft for a c
 polished reply shows its edits against your text, struck and inserted; Copy takes it clean. Once a
 draft is ready to send (proposed), the thread shows only its latest one, with its actions, and folds the
 rest, the requests, Claude's notes and earlier drafts, under **▸ Discussion with Claude · N requests**,
-to open when needed (it stays open or shut as the page draws again). While a
+to open when needed (it stays open or shut as the page draws again). **✎ Ask**, beside Copy, ✎ Revise
+and Dismiss, opens the discussion with the cursor in the field that ends it: a question to Claude about
+the thread or its drafts (↵ or **Ask** sends, ⇧↵ adds a line), which stays there for the next one. A
+question changes no draft unless Claude's answer gives a new one; the thread says "question being
+answered", then "new answer", and the discussion opens on an answer not read yet. While a
 draft is pending the thread's mark is dashed, and a new one fills it until its card is opened; the
 header counts them with the revisits. Drafts belong to the thread, not the page: for Google Docs
 comments they are kept in one store beside the export, so the Google Docs page and the local edits page

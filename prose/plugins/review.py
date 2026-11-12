@@ -62,17 +62,19 @@ STYLE = '''
 @media (prefers-color-scheme: dark){.rvi{background:color-mix(in srgb,var(--btn) 60%,var(--code))}}
 .rvm{font-size:12px;color:var(--muted)} .rvt{white-space:pre-wrap;margin:2px 0} .rvt,.rva{overflow-wrap:anywhere} .rvx{margin:4px 6px 0 0}
 .rvch,.rvih{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px} .rvch .rvm,.rvih .rvm{flex:1 1 12em} .rvch .rvx,.rvih .rvx{margin:0}
+.rvx.rvcl{font-weight:600;border-color:color-mix(in srgb,var(--insb) 50%,var(--line))} .rvopen{font-size:12px;white-space:nowrap;margin-left:8px}
 .rvx.rvsec{font-size:11px;padding:0 6px;color:var(--muted)}
 .rvch{position:sticky;top:0;z-index:1;padding:6px 12px;background:var(--bg);border-bottom:1px solid var(--line)} .rvcb{padding:4px 12px 10px}
 .rvfold{max-height:9em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 60%,transparent);mask-image:linear-gradient(#000 60%,transparent)}
 #rvp .rvmore,#rvp .rvmore:hover{border:0;background:none;color:var(--link);padding:0;height:auto;font-size:12px;cursor:pointer}
 .rvpr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:2px 0 10px} .rvpr .rvx{margin:0} .rvpr .rvm{margin-right:2px}
-.rvdisc>summary{font-size:12px;color:var(--muted);cursor:pointer;margin:2px 0 6px} .rvdisc[open]{opacity:.85}
+.rvdisc>summary{font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;margin:8px 0 6px} .rvdisc>summary:hover{color:var(--fg)} .rvdisc[open]>:not(summary,.rvbox){opacity:.85}
 .rvgone{display:none} .rvstub{opacity:.65} .rvdup{opacity:.6} .rvrep>summary{font-size:12px;color:var(--muted);cursor:pointer} .rvrep[open]>blockquote{opacity:.7}
 .rvused{color:var(--insb)} #rvp .rvtwin,#rvc .rvtwin,#cp .rvtwin{color:var(--rw)}
 .rvok{display:inline-block;margin:0 3px;padding:0 5px;border-radius:9px;font:600 11px/15px -apple-system,BlinkMacSystemFont,sans-serif;vertical-align:2px;color:var(--insb);background:var(--ins);cursor:default;user-select:none;-webkit-user-select:none}
 .rvbox{margin:8px 0;padding:8px;border:1px solid var(--line);border-radius:6px;display:flex;flex-direction:column;gap:6px;background:var(--bg)}
 .rvbox textarea{width:100%;box-sizing:border-box;min-height:4.5em;font:inherit;padding:6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg)}
+.rvbox.rvq{margin:8px 0 2px} .rvbox.rvq textarea{min-height:2.6em}
 .rvboxb{display:flex;gap:6px;align-items:center;justify-content:flex-end} .rvboxb .hint{margin-right:auto;font-size:12px}
 .rvweigh{display:flex;gap:4px;align-items:center;color:var(--muted)}
 .rvpol del{color:var(--delb);text-decoration:line-through;background:none} .rvpol ins{color:var(--insb);text-decoration:none;background:var(--ins)}
@@ -431,7 +433,7 @@ catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server runnin
 function local(own){const r=mk('div',{className:'rvpr rvloc'}),e=act('edit','Edit the copy kept here; GitHub keeps the posted one',()=>{card.hidden=true;openCm(own);}),
 x=act('delete','Delete the copy kept here; the comment stays on GitHub',()=>{if(x.textContent==='delete'){x.textContent='delete?';return;}card.hidden=true;save({id:own.id,delete:true});});
 e.classList.add('rvsec');x.classList.add('rvsec');r.append(mk('span',{className:'rvm',textContent:'Local copy:'}),e,x);return r;}
-const ghOpen=it=>mk('a',{href:it.root.url,target:'_blank',rel:'noopener',textContent:it.src.open||'Open ↗'});
+const ghOpen=it=>mk('a',{href:it.root.url,target:'_blank',rel:'noopener',className:'rvopen',textContent:it.src.open||'Open ↗'});
 const gq=it=>{if(window.Highlight&&CSS.highlights)CSS.highlights.set('rvgq-on',new Highlight(...(it?.gqs||[])));};
 new MutationObserver(()=>{if(card.hidden){gq(null);fresh0.clear();}}).observe(card,{attributes:true,attributeFilter:['hidden']});
 // A thread from elsewhere, as Claude reads it in a request for a reply: the text it is on, then each comment.
@@ -445,15 +447,18 @@ const threadText=it=>(it.quote?'On “'+norm(it.quote)+'”:\\n':'')+it.members.
 // Each box is kept by its key while the page draws again, so text being typed survives.
 let replyMode=(()=>{try{return localStorage.getItem(sk('docdiff-reply-mode'))||'draft';}catch(e){return 'draft';}})();
 const boxes=new Map(),opened=new Set();
-const leadFor=(it,m,w,notes)=>(m==='polish'?'Polish my reply to this '+it.src.source+' thread on '+it.file+': fix the language and tighten it, keeping my meaning and voice':
+const leadFor=(it,m,w,notes)=>m==='ask'?'Ask about this '+it.src.source+' thread on '+it.file+', and the replies drafted for it':(m==='polish'?'Polish my reply to this '+it.src.source+' thread on '+it.file+': fix the language and tighten it, keeping my meaning and voice':
 'Draft a reply to this '+it.src.source+' thread on '+it.file+(notes?' from my notes':' on your own judgment (no notes)'))+(w?'; and weigh in, briefly, if you would answer differently':'');
-// A box for a reply (o.it: the thread) or for revising a draft (o.rev: the draft, o.t: its reply thread).
+// A box for a reply (o.it: the thread), for a question about the thread and its drafts (o.ask, with o.it:
+// it ends the Discussion with Claude, and stays there) or for revising a draft (o.rev: the draft, o.t: its
+// reply thread).
 function box(key,o){let x=boxes.get(key);if(x){x.o=o;return x.el;}
-const el=mk('div',{className:'rvbox ui'}),ta=mk('textarea'),btns=mk('div',{className:'rvboxb'});x={el,ta,o,weigh:false};boxes.set(key,x);
+const el=mk('div',{className:'rvbox ui'+(o.ask?' rvq':'')}),ta=mk('textarea'),btns=mk('div',{className:'rvboxb'});x={el,ta,o,weigh:false};boxes.set(key,x);
 const close=()=>{opened.delete(key);boxes.delete(key);el.remove();};x.close=close;
-btns.append(mk('span',{className:'hint n',textContent:'Esc closes · ⇧↵ new line'}));
+btns.append(mk('span',{className:'hint n',textContent:o.ask?'⇧↵ new line':'Esc closes · ⇧↵ new line'}));
 let go;
-if(o.rev){ta.placeholder='What should change? e.g. shorter';const b=mk('button',{className:'primary',textContent:'Revise'});b.onclick=()=>sendBox(x,'revise');btns.append(b);
+if(o.rev||o.ask){ta.placeholder=o.ask?'Ask Claude about this thread or its drafts':'What should change? e.g. shorter';
+const b=mk('button',{className:'primary',textContent:o.ask?'Ask':'Revise'});b.onclick=()=>sendBox(x,o.ask?'ask':'revise');btns.append(b);
 go=()=>b.click();}
 else{ta.placeholder='Notes for the reply, or your own reply to polish. Leave it empty and Claude drafts on its own.';
 const w=mk('input',{type:'checkbox'}),wl=mk('label',{className:'rvweigh',title:'Also say, briefly, whether Claude would answer differently'});
@@ -462,7 +467,7 @@ const pb=mk('button',{textContent:'Polish',title:'Polish the text, as your reply
 const set=()=>{pb.disabled=!ta.value.trim();const m=replyMode==='polish'&&!pb.disabled?'polish':'draft';pb.classList.toggle('primary',m==='polish');db.classList.toggle('primary',m==='draft');return m;};
 const send=m=>{replyMode=m;try{localStorage.setItem(sk('docdiff-reply-mode'),m);}catch(e){}sendBox(x,m);};
 pb.onclick=()=>send('polish');db.onclick=()=>send('draft');ta.addEventListener('input',set);btns.append(wl,pb,db);set();go=()=>send(set());}
-ta.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();go();}if(e.key==='Escape')close();});
+ta.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();go();}if(e.key==='Escape')o.ask?ta.blur():close();});
 el.append(ta,btns);return el;}
 // Sends a box's request as the revisit panel does; with nobody watching, the clipboard is the way in.
 async function sendBox(x,mode){const ask=x.ta.value.trim();if(!ask&&mode!=='draft')return;const o=x.o,it=o.it,
@@ -472,28 +477,30 @@ const r={file:(it||o.t).file,section:'',quote,view:cur,key:null,remote:o.rev?o.t
 // It goes to the store shared by every page showing the thread (see state()); the answer says whether
 // Claude is watching there (watched).
 let queued=true,seen=false;try{const{watched,...st}=await post('review',{reply:{...r,text}});take(st);seen=watched;}catch(e){queued=false;}
-x.close();
-// How it went shows in the thread's card for a few seconds: the header's own line is redrawn too often.
+if(o.ask)x.ta.value='';else x.close();
+// How it went shows under the thread for a few seconds: the header's own line is redrawn too often.
 const copied=!seen&&await copy(text);
 sentNote.set(r.remote,seen?'sent, Claude is watching':(queued?'saved, but nobody is watching: ':'not saved: ')+(copied?'copied, paste it in the chat':'tell Claude'));
-const g=items.find(i=>i.kind==='g'&&i.rid===r.remote);if(g)reshow(g);setTimeout(()=>{sentNote.delete(r.remote);const g=items.find(i=>i.kind==='g'&&i.rid===r.remote);if(g)reshow(g);},6000);}
-const sentNote=new Map();
-const reply=it=>act('✎ Draft a reply','Draft or polish a reply to this thread with Claude, to copy into '+it.src.source,()=>{
-if(opened.has(it.rid)){boxes.get(it.rid)?.close();return;}opened.add(it.rid);reshow(it);});
+const g=items.find(i=>i.kind==='g'&&i.rid===r.remote);if(g)reshow(g,!!o.ask);setTimeout(()=>{sentNote.delete(r.remote);const g=items.find(i=>i.kind==='g'&&i.rid===r.remote);if(g)reshow(g);},6000);}
+const sentNote=new Map(),sentLine=it=>sentNote.has(it.rid)?[mk('div',{className:'rvm rvsaid',textContent:sentNote.get(it.rid)})]:[];
+// A thread's ask box has one key in its card and one in its panel entry, so each place keeps its own.
+const askKey=(rid,incard)=>rid+(incard?'?card':'?');
+const reply=it=>{const b=act('✎ Draft a reply','Draft or polish a reply to this thread with Claude, to copy into '+it.src.source,()=>{
+if(opened.has(it.rid)){boxes.get(it.rid)?.close();return;}opened.add(it.rid);reshow(it);});b.classList.add('rvcl');return b;};
 // Draws the thread again where it shows, card or panel entry (unfolded, so a box is not cut off), with its
-// boxes, and brings the newest box into view with the cursor in it.
-function reshow(it){unfolded.add(it.id);if(inCard(it))refreshCard();else if(!lp.hidden)list();
-const x=[...boxes.values()].reverse().find(x=>x.el.isConnected);if(x){x.el.scrollIntoView({block:'nearest'});x.ta.focus({preventScroll:true});}}
+// boxes, and brings a box into view with the cursor in it: its ask box (ask), or else the newest one opened.
+function reshow(it,ask){unfolded.add(it.id);const incard=inCard(it);if(incard)refreshCard();else if(!lp.hidden)list();
+const x=ask?boxes.get(askKey(it.rid,incard)):[...boxes.values()].reverse().find(x=>x.el.isConnected&&!x.o.ask);if(x?.el.isConnected){x.el.scrollIntoView({block:'nearest'});x.ta.focus({preventScroll:true});}}
 // A box being typed in keeps the cursor where it was when what holds it is drawn again.
 function keepFocus(){const a=document.activeElement;if(!a?.closest?.('.rvbox'))return()=>{};const s=a.selectionStart,e=a.selectionEnd;
-return()=>{if(a.isConnected){a.focus();a.setSelectionRange(s,e);}};}
+return()=>{if(a.isConnected){a.focus();a.setSelectionRange?.(s,e);}};}
 // A thread from elsewhere in a card: the thread, its drafted replies (Copy, Revise, Dismiss), its reply box
 // while open, and Open in its source. A thread a posted comment of yours stands for (own) leads with that: its
 // header, the text it is on, GitHub's copy of it, the replies there, and its local copy last.
 function ghPart(it,h,bd){const own=items.find(i=>i.kind==='c'&&i.thread?.rid===it.rid),m=mk('span',{className:'rvm'});
 m.append(...(own?postedAs(own,it):line(tag(it),[ghLabel(it.root),it.near&&'its text has changed: here at the closest match',
 it.members.length+' comment'+(it.members.length>1?'s':''),it.done&&ghSettled(it)])));h.append(m,...(it.file&&!it.done?[reply(it)]:[]),...ghSettle(it),ghOpen(it));
-bd.append(...(own?[mk('blockquote',{textContent:own.quote})]:[]),...ghBodies(it,own),...drafts(it),...(sentNote.has(it.rid)?[mk('div',{className:'rvm rvsaid',textContent:sentNote.get(it.rid)})]:[]),
+bd.append(...(own?[mk('blockquote',{textContent:own.quote})]:[]),...ghBodies(it,own),...drafts(it,true),...sentLine(it),
 ...(opened.has(it.rid)&&!it.done?[box(it.rid,{it})]:[]),...(own?[local(own)]:[]));}
 // ✎ Ask Claude about a comment of yours not posted ("shorter", "as a question"): a revisit naming it as its
 // comment and quoting its text, in the thread of what you asked about it before; a reworked draft in the
@@ -501,16 +508,23 @@ bd.append(...(own?[mk('blockquote',{textContent:own.quote})]:[]),...ghBodies(it,
 const askDraft=c=>act('✎ Ask Claude','Ask Claude about this draft: “shorter”, “as a question”; a reworked draft comes back to use in its place',()=>{card.hidden=true;
 openRev({quote:c.body,el:elOf(c),key:c.key,fields:{comment:c.id,section:c.section,...(c.cts[0]?{thread:c.cts[0].time}:{})},context:'asks about your draft “'+short(c.body)+'”'});});
 const draftAsks=c=>c.cts.length?[mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:'✎ Asked Claude · private',title:'Between you and Claude'}),...discussion('c'+c.id,c.cts)]:[];
-const drafts=it=>it.rts.length?[mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:'✎ Drafted replies · private',title:'Between you and Claude, until you post one on '+it.src.source}),...discussion(it.rid,it.rts)]:[];
+const drafts=(it,incard)=>it.rts.length?[mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:'✎ Drafted replies · private',title:'Between you and Claude, until you post one on '+it.src.source}),...discussion(it.rid,it.rts,{it,incard})]:[];
 // With a draft ready to send (proposed), threads show the latest one, with its actions and its box while
 // open, and fold the rest, the requests, Claude's notes and the earlier drafts, into a Discussion with
-// Claude, to open when needed; it stays open or shut as the page draws again (discOpen).
+// Claude, to open when needed; it stays open or shut as the page draws again (discOpen). A thread from
+// elsewhere (g: it, and whether in its card) ends its discussion with a box to ask Claude about the thread
+// and its drafts: the question joins the requests, and its answer shows under it; one not read yet opens
+// the discussion and says so.
 const discOpen=new Set();
-function discussion(key,ts){const els=ts.flatMap(t=>asks(t)),w=mk('div');w.append(...els);const q=[...w.querySelectorAll('blockquote.rvcur')].pop();
-if(!q)return els;const keep=[q];for(let n=q.nextElementSibling;n&&n.matches('.rvpr,.rvbox');n=n.nextElementSibling)keep.push(n);
-const top=mk('div',{className:'rva'}),f=mk('details',{className:'rvdisc'}),n=ts.reduce((s,t)=>s+t.members.length,0),wait=ts.some(t=>t.wait);
-top.append(...keep);f.open=discOpen.has(key);f.ontoggle=()=>f.open?discOpen.add(key):discOpen.delete(key);
-f.append(mk('summary',{textContent:'Discussion with Claude · '+n+(n>1?' requests':' request')+(wait?' · one being answered':'')}),...w.childNodes);return[top,f];}
+function discussion(key,ts,g){const els=ts.flatMap(t=>asks(t)),w=mk('div');w.append(...els);const q=[...w.querySelectorAll('blockquote.rvcur')].pop(),
+ask=g?[box(askKey(key,g.incard),{it:g.it,ask:true})]:[];
+if(!q)return[...els,...ask];const keep=[q];for(let n=q.nextElementSibling;n&&n.matches('.rvpr,.rvbox');n=n.nextElementSibling)keep.push(n);
+const top=mk('div',{className:'rva'}),f=mk('details',{className:'rvdisc'}),ms=ts.flatMap(t=>t.members),n=ms.length,wait=ts.some(t=>t.wait),
+fresh=ms.some(m=>m.mode==='ask'&&m.answers.length>(m.seen||0)),
+s=mk('summary',{textContent:'Discussion with Claude · '+n+(n>1?' requests':' request')+(wait?' · one being answered':'')});
+if(fresh)s.append(mk('span',{className:'rvaud-new',textContent:' · new answer'}));
+top.append(...keep);f.open=discOpen.has(key)||fresh;f.ontoggle=()=>f.open?discOpen.add(key):discOpen.delete(key);
+f.append(s,...w.childNodes,...ask);return[top,f];}
 // When each source was last read, and why not since; ↻ asks that source again where it can be asked
 // (refresh). A source being read in the background (busy) says so until its new copy comes in.
 function ghStatus(){return(data.remotes||[]).map(g=>{const r=mk('div',{className:'rvgs rvm'});
@@ -533,7 +547,7 @@ const act=(t,title,f)=>{const b=mk('button',{className:'rvx',textContent:t,title
 const short=t=>(t=norm(t)).length>70?t.slice(0,70).replace(/\\s+\\S*$/,'')+'…':t;
 // A thread's requests, each with its answers, a revision with the draft it revises.
 const asks=(it,shown=new Set())=>it.members.flatMap(m=>[...(m.revises?[mk('div',{className:'rvm',textContent:'↻ revise the draft “'+short(m.quote)+'”'})]:[]),
-mk('div',{className:'rvt',textContent:m.remote&&!m.revises?(m.mode==='polish'?'Your reply: ':m.prompt?'Notes: ':'No notes: Claude drafts on its own')+m.prompt:m.prompt}),...answers(it,m,shown)]);
+mk('div',{className:'rvt',textContent:m.remote&&!m.revises&&m.mode!=='ask'?(m.mode==='polish'?'Your reply: ':m.prompt?'Notes: ':'No notes: Claude drafts on its own')+m.prompt:m.prompt}),...answers(it,m,shown)]);
 // Each drafted comment (a blockquote) shows as its proposal: with its state and actions under it, folded
 // to a stub when dismissed and into a summary when replaced; one proposed again (shown has it) shows once,
 // its repeats faded, or gone with it once it is dismissed or replaced.
@@ -564,6 +578,7 @@ const c=it.reply&&act('Copy','Copy this reply, to paste in the thread',async()=>
 r.append(...(p.revising?[mk('span',{className:'rvm',textContent:'revising…'})]:[]),c||(it.draftOf?act('Use','In place of your draft (↶ Undo brings it back)',()=>save({id:it.draftOf,body:p.text,uses:[p.id]})):
 act('💬 Use','A new comment of this draft, open to edit',()=>use(it,[p],p.text))),
 act('✎ Revise','Ask Claude to rework this draft',()=>{if(!it.reply)return revise(it,p);opened.add(it.remote+'#'+p.id);const g=items.find(i=>i.kind==='g'&&i.rid===it.remote);if(g)reshow(g);}),
+...(it.reply?[act('✎ Ask','Ask Claude about this thread or its drafts, in the Discussion with Claude',()=>{discOpen.add(it.remote);const g=items.find(i=>i.kind==='g'&&i.rid===it.remote);if(g)reshow(g,true);})]:[]),
 act('Dismiss','Fold it away',()=>setProposal(p,'dismissed')));q.after(r);q.classList.add('rvcur');
 // A drafted reply is revised in a box under it, as replies are asked for.
 if(it.reply&&opened.has(it.remote+'#'+p.id))r.after(box(it.remote+'#'+p.id,{rev:p,t:it}));}
@@ -641,12 +656,15 @@ function jump(it){const v=it.at[cur]?cur:vorder.find(x=>it.at[x]);if(!v)return;i
 const g=it.key&&groups.find(x=>x.view===cur&&x.file===it.file&&x.k===it.key),b=it.at[cur];
 if(g)focus(g);else{focus(null,false);b.scrollIntoView({block:'center',behavior:'smooth'});}
 b.classList.add('rvb-hit');if(it.kind==='g')gq(it);setTimeout(()=>{b.classList.remove('rvb-hit');if(it.kind==='g'&&card.hidden)gq(null);},1500);}
+// What a thread's drafted replies have going on, for its panel entry's line; a question to Claude says so.
+const draftsNow=it=>{const asked=it.rts.find(t=>t.wait)?.members.at(-1).mode==='ask',unread=it.rts.flatMap(t=>t.members).filter(m=>m.answers.length>(m.seen||0));
+return it.wait?(asked?'question being answered':'reply being drafted'):unread.length?(unread.every(m=>m.mode==='ask')?'new answer':'new drafted reply'):'drafted replies';};
 // A panel entry: its line (where, state, actions), then its body, folded to a few lines when long.
 function row(it,files){const r=it.kind==='r',d=mk('div',{className:'rvi'+((it.kind==='c'?it.thread||it.ask:it)?.unread&&!it.done?' rvi-new':'')}),h=mk('div',{className:'rvih'}),m=mk('span',{className:'rvm'}),bd=mk('div',{className:'rvib'}),w=where(it);
 d.dataset.id=r?'r'+it.time:it.kind==='g'?it.id:'c'+it.id;
-if(it.kind==='g'){m.append(...line(tag(it),[files>1&&it.file,ghLabel(it.root),it.fresh&&it.fresh+' new',it.done&&ghSettled(it),it.rts.length&&(it.wait?'reply being drafted':it.rts.some(x=>x.unread)?'new drafted reply':'drafted replies')]));
+if(it.kind==='g'){m.append(...line(tag(it),[files>1&&it.file,ghLabel(it.root),it.fresh&&it.fresh+' new',it.done&&ghSettled(it),it.rts.length&&draftsNow(it)]));
 h.append(m,...(it.file&&!it.done?[reply(it)]:[]),...ghSettle(it),ghOpen(it));
-bd.append(...ghBodies(it),...drafts(it),...(opened.has(it.rid)&&!it.done&&!inCard(it)?[box(it.rid,{it})]:[]));d.append(h,bd);
+bd.append(...ghBodies(it),...drafts(it),...sentLine(it),...(opened.has(it.rid)&&!it.done&&!inCard(it)?[box(it.rid,{it})]:[]));d.append(h,bd);
 d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);looked(it);for(const t of it.rts)if(t.unread)setThread(t,{seen:true});};return d;}
 const t=it.kind==='c'&&it.thread;m.append(...(t?postedAs(it,t):[...line(tag(it),[files>1&&it.file,it.section,r&&state(it)]),Object.keys(it.at).length?'':' · not in the page now']));
 if(w)m.append(' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗'}));if(!r&&!t)m.append(...twinLink(it));
@@ -654,7 +672,7 @@ if(it.quote)bd.append(mk('blockquote',{textContent:r?it.sent:it.quote}));
 if(r)h.append(m,...actions(it)),bd.append(...asks(it));else{const e=act('edit','',()=>openCm(it)),x=act('delete','',()=>x.textContent==='delete'?x.textContent='delete?':save({id:it.id,delete:true})),
 c=act('copy','Copy as Markdown: its file:line, the quoted text and the comment',async()=>{c.textContent=await copy(markdown([it]))?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
 // Posted, it shows as its thread on GitHub does, with its local copy's edit and delete under it.
-if(t){h.append(m,...(t.file&&!t.done?[reply(t)]:[]),...ghSettle(t),ghOpen(t));bd.append(...ghBodies(t,it),...drafts(t),...(opened.has(t.rid)&&!t.done&&!inCard(t)?[box(t.rid,{it:t})]:[]));
+if(t){h.append(m,...(t.file&&!t.done?[reply(t)]:[]),...ghSettle(t),ghOpen(t));bd.append(...ghBodies(t,it),...drafts(t),...sentLine(t),...(opened.has(t.rid)&&!t.done&&!inCard(t)?[box(t.rid,{it:t})]:[]));
 d.append(h,bd,local(it));d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);looked(t);for(const x of t.rts)if(x.unread)setThread(x,{seen:true});};return d;}
 h.append(m,askDraft(it),e,c,x);bd.append(mk('div',{className:'rvt',textContent:it.body}),...draftAsks(it));}
 d.append(h,bd);d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);for(const t of r?[it]:it.cts)if(t.unread)setThread(t,{seen:true});};return d;}
