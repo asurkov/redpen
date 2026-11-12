@@ -1,5 +1,5 @@
-// The diff editor: one file's two texts inline, a bar of buttons under each change, and the comment
-// button and box.
+// The diff editor: one file's two texts inline, a bar of buttons under each change, the comment
+// button and box, and under a commented line its thread: the comments and Claude's answers.
 
 const languageByEnding = {
   cc: 'cpp',
@@ -12,6 +12,8 @@ const languageByEnding = {
 };
 const languageByName = { DEPS: 'python' };
 const barHeight = 24;
+// What is said of a comment of the user's nothing has followed yet.
+const stateWords = { draft: 'not sent yet', sent: 'sent, Claude has not taken it yet', taken: 'Claude has it' };
 
 export function loaded() {
   return new Promise(resolve => {
@@ -36,7 +38,8 @@ export function spans(change) {
 }
 
 export class DiffView {
-  // handlers: act(action, spans) for a change's button, comment({side, start, end, quote, text}).
+  // handlers: act(action, spans) for a change's button, comment({side, start, end, quote, text}),
+  // uncomment(id) for a comment not sent yet, resolve(id) for a thread.
   constructor(element, handlers) {
     this.handlers = handlers;
     this.editor = monaco.editor.createDiffEditor(element, {
@@ -63,6 +66,15 @@ export class DiffView {
     this.marks = this.shown.createDecorationsCollection();
     this.currentEdge = this.shown.createDecorationsCollection();
     this.zoneIds = [];
+    // The threads' zones, what they were drawn from, and what follows their boxes' heights.
+    this.threadZones = [];
+    this.threadsDrawn = '';
+    this.threadSizes = new ResizeObserver(entries => this.sizeThreads(entries));
+    // The threads shown, and the reply being written in one of them: {thread, text}.
+    this.threads = [];
+    this.reply = null;
+    // Whether Claude's command waits for comments now: a comment's words say where it goes.
+    this.isWatched = false;
     this.bars = [];
     this.changes = [];
     // The current change, the one the keys act on: its place in changes, -1 with none.
@@ -85,7 +97,7 @@ export class DiffView {
   // bar, the key where a key carries the action out on the current change; sides: the names of the
   // two texts, {left, right}; place: 'kept' to stay where the view is, 'last' for the last change, a
   // line's number for that line, else the first change comes into view.
-  show({ path, left, right, changeActions, canSplice, sides, comments, place }) {
+  show({ path, left, right, changeActions, canSplice, sides, threads, place }) {
     const was = { top: this.viewTop(), position: this.shown.getPosition(), hadCurrent: this.current >= 0 };
     const language = languageOf(path);
     const old = this.editor.getModel();
@@ -105,7 +117,10 @@ export class DiffView {
     if (place === 'kept') {
       this.scrollTo(was.top);
     }
-    this.mark(comments);
+    // The editor dropped the threads' zones with the texts it showed.
+    this.threadsDrawn = '';
+    this.reply = null;
+    this.mark(threads);
   }
 
   // The view's place in the text: its first line and where that line's top is against the view's.
@@ -242,21 +257,178 @@ export class DiffView {
     return this.shown.hasTextFocus();
   }
 
-  // Marks the lines the waiting comments are on, those on the text shown.
-  mark(comments) {
-    const lineCount = this.shown.getModel()?.getLineCount() || 0;
-    this.marks.set(comments
-      .filter(comment => comment.side === this.sides.right && comment.start >= 1 && comment.start <= lineCount)
-      .map(comment => ({
-        range: new monaco.Range(comment.start, 1, Math.min(comment.end, lineCount), 1),
+  // Shows the file's threads, those with a place in the text shown: their lines marked, and under
+  // them what was said, in a zone. A poll that found nothing new leaves them alone.
+  mark(threads) {
+    const model = this.shown.getModel();
+    const drawing = JSON.stringify([threads, this.isWatched, this.reply?.thread, this.currentThread, this.openable?.()]);
+    if (!model || drawing === this.threadsDrawn) {
+      return;
+    }
+    this.threadsDrawn = drawing;
+    this.threads = threads;
+    const placed = threads.map(thread => ({ thread, lines: this.placeOf(thread, model) })).filter(({ lines }) => lines);
+    this.marks.set(placed.filter(({ lines }) => !lines.isRemoved).map(({ thread, lines }) => {
+      const kind = thread.entries.at(-1).by === 'claude' ? 'answered' : 'commented';
+      return {
+        range: new monaco.Range(lines.start, 1, lines.end, 1),
         options: {
           isWholeLine: true,
-          className: 'commentedLine',
-          linesDecorationsClassName: 'commentedEdge',
-          hoverMessage: { value: `Comment for Claude: ${comment.text}` },
-          overviewRuler: { color: '#d9a520', position: monaco.editor.OverviewRulerLane.Center },
+          className: `${kind}Line`,
+          linesDecorationsClassName: `${kind}Edge`,
+          overviewRuler: { color: kind === 'answered' ? '#8a8a8a' : '#d9a520', position: monaco.editor.OverviewRulerLane.Center },
         },
-      })));
+      };
+    }));
+    this.threadSizes.disconnect();
+    this.shown.changeViewZones(accessor => {
+      this.threadZones.forEach(zone => accessor.removeZone(zone.id));
+      this.threadZones = placed.map(({ thread, lines }) => {
+        const zone = {
+          afterLineNumber: lines.end,
+          // Under the change's bar, when both stand after one line.
+          ordinal: 10002,
+          heightInPx: 34 + 36 * thread.entries.length,
+          domNode: this.threadNode(thread, lines),
+          suppressMouseDown: true,
+        };
+        zone.id = accessor.addZone(zone);
+        return zone;
+      });
+    });
+    this.threadZones.forEach(zone => this.threadSizes.observe(zone.domNode.firstChild));
+    const input = this.threadZones.map(zone => zone.domNode.querySelector('textarea')).find(Boolean);
+    if (input) {
+      focusLaidOut(input);
+    }
+  }
+
+  // The keys of the files the page can open: set by the page.
+  openable() {
+    return [];
+  }
+
+  // Opens the reply of a thread, or with nothing closes the one open; what was typed is kept while
+  // the threads are drawn again around it.
+  replyIn(thread) {
+    this.reply = thread ? { thread, text: '' } : null;
+    this.mark(this.threads);
+  }
+
+  // Gives each thread's zone the height its box has now.
+  sizeThreads(entries) {
+    this.shown.changeViewZones(accessor => {
+      for (const { target } of entries) {
+        const zone = this.threadZones.find(candidate => candidate.domNode.firstChild === target);
+        const height = target.offsetHeight + 8;
+        if (zone && height > 8 && zone.heightInPx !== height) {
+          zone.heightInPx = height;
+          accessor.layoutZone(zone.id);
+        }
+      }
+    });
+  }
+
+  // Where a thread stands in the text shown: its lines there, moved with the first line it quotes
+  // when the text changed above them; for removed lines, the line they stood after. Nothing for a
+  // thread on another text.
+  placeOf(thread, model) {
+    const count = model.getLineCount();
+    const within = line => Math.max(1, Math.min(line, count));
+    if (thread.side !== this.sides.right) {
+      const isHere = thread.anchorSide === this.sides.right && thread.anchor >= 1;
+      return isHere ? { start: within(thread.anchor), end: within(thread.anchor), isRemoved: true } : null;
+    }
+    if (!(thread.start >= 1)) {
+      return null;
+    }
+    const quoted = (thread.quote || '').split('\n').find(line => line.trim())?.trim();
+    const has = line => line >= 1 && line <= count && model.getLineContent(line).includes(quoted);
+    let moved = 0;
+    if (quoted && !has(thread.start)) {
+      for (let far = 1; far < count && !moved; far++) {
+        moved = has(thread.start - far) ? -far : has(thread.start + far) ? far : 0;
+      }
+    }
+    return { start: within(thread.start + moved), end: within(thread.end + moved) };
+  }
+
+  // A thread's zone: what was said, the oldest first, then Reply and Resolve.
+  threadNode(thread, lines) {
+    // As a change's bar: the box is a child of the zone's node, lifted over the text layer.
+    const zone = document.createElement('div');
+    zone.style.zIndex = '10';
+    const box = zone.appendChild(document.createElement('div'));
+    const lastAnswer = thread.entries.findLastIndex(entry => entry.by === 'claude');
+    box.className = `thread${lastAnswer === thread.entries.length - 1 ? ' answered' : ''}${thread.id === this.currentThread ? ' current' : ''}`;
+    // The editor must not take the thread's keys and clicks for its own.
+    for (const name of ['keydown', 'keyup', 'keypress', 'mousedown', 'pointerdown']) {
+      box.addEventListener(name, event => event.stopPropagation());
+    }
+    thread.entries.forEach((entry, index) => {
+      const row = box.appendChild(document.createElement('div'));
+      row.className = `entry ${entry.by} ${entry.state || ''}`;
+      const head = row.appendChild(document.createElement('div'));
+      head.className = 'head';
+      const who = head.appendChild(document.createElement('b'));
+      who.textContent = entry.by === 'claude' ? 'Claude' : 'You';
+      const said = [new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })];
+      if (entry.by === 'user' && index > lastAnswer) {
+        said.push(entry.state === 'draft' && !this.isWatched ? 'goes with your next message' : stateWords[entry.state]);
+      }
+      head.append(said.join(' · '), spring());
+      if (entry.state === 'draft') {
+        button(head, '✕', () => this.handlers.uncomment(entry.id), 'quiet').title = 'Delete the comment';
+      }
+      row.appendChild(document.createElement('div')).textContent = entry.text;
+      // The change Claude made in answer: a way to it, while the page lists its file.
+      if (entry.change) {
+        const { key, path, line } = entry.change;
+        const name = `${path.slice(path.lastIndexOf('/') + 1)}${line ? `:${line}` : ''}`;
+        const way = row.appendChild(document.createElement('div'));
+        way.className = 'change';
+        if (this.openable().includes(key)) {
+          button(way, `Changed ${name} →`, () => this.handlers.open(entry.change), 'quiet').title = path;
+        } else {
+          way.textContent = `Changed ${name}`;
+        }
+      }
+    });
+    const foot = document.createElement('div');
+    foot.className = 'foot';
+    if (this.reply?.thread === thread.id) {
+      const input = box.appendChild(document.createElement('textarea'));
+      input.placeholder = 'Reply to Claude';
+      input.value = this.reply.text;
+      input.addEventListener('input', () => {
+        this.reply.text = input.value;
+      });
+      const send = () => {
+        if (input.value.trim()) {
+          const { side, start, end, quote, anchor, anchorSide } = thread;
+          this.handlers.comment({ side, start, end, quote, anchor, anchorSide, text: input.value, thread: thread.id });
+          this.replyIn(null);
+        }
+      };
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+          event.preventDefault();
+          send();
+        } else if (event.key === 'Escape') {
+          this.replyIn(null);
+        }
+      });
+      foot.append(this.isWatched ? 'Send now, at the bottom, hands it to Claude' : 'Goes with your next message', spring());
+      button(foot, 'Cancel', () => this.replyIn(null), 'quiet');
+      button(foot, 'Add reply', send, 'main');
+    } else if (thread.entries.some(entry => entry.state !== 'draft')) {
+      button(foot, 'Reply', () => this.replyIn(thread.id), 'quiet');
+      button(foot, 'Resolve', () => this.handlers.resolve(thread.id), 'quiet').title = 'Take the thread off the page';
+    }
+    if (foot.childNodes.length) {
+      box.appendChild(foot);
+    }
+    return zone;
   }
 
   drawBars() {
@@ -366,10 +538,18 @@ export class DiffView {
     input.placeholder = 'What should change here?';
     const foot = box.appendChild(document.createElement('div'));
     foot.className = 'foot';
-    foot.append('Goes with your next message', spring());
+    foot.append(this.isWatched ? 'Send now, at the bottom, hands it to Claude' : 'Goes with your next message', spring());
     const send = () => {
       if (input.value.trim()) {
-        this.handlers.comment({ side: target.side, start: target.start, end: target.end, quote: target.quote, text: input.value });
+        this.handlers.comment({
+          side: target.side,
+          start: target.start,
+          end: target.end,
+          quote: target.quote,
+          text: input.value,
+          // Removed lines are not in the text shown: the comment stands at the line they followed.
+          ...(target.isRemoved ? { anchor: target.anchor, anchorSide: this.sides.right } : {}),
+        });
         this.dropWidget('box');
       }
     };

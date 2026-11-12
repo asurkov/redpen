@@ -35,15 +35,22 @@ What to tell the user when it matters:
 - **All** is everything the session changed, pending or accepted, with no buttons.
 - **History** lists every accept, reject and unaccept with Undo/Redo. An entry whose text changed
   since is greyed out.
-- A comment (select text → Comment, or Comment under a change) waits in the strip at the bottom.
-  While Claude's waiting command runs (below), the strip has **Send now**, which hands the comments to
-  Claude at once. Otherwise they go to Claude with the user's next message in that session, through
-  the `UserPromptSubmit` hook `python3 ~/.claude/skills/redpen/code/review.py --prompt-hook` in
-  `~/.claude/settings.json`; without that hook they stay in the strip.
+- A comment (select text → Comment, or Comment under a change) stays under its lines as a thread,
+  which says whether it is sent and whether Claude has it, and shows Claude's answer under it.
+  **Reply** adds to the thread, **Resolve** takes it off the page. An answer that came with a change
+  links to that change. The header counts the open threads, with how many Claude answered last, and
+  steps to the next one on a click; the strip at the bottom lists the threads of every file. While Claude's waiting command runs (below), the strip has **Send now**,
+  which hands the comments not sent yet to Claude at once. Otherwise they go to Claude with the user's
+  next message in that session, through the `UserPromptSubmit` hook
+  `python3 ~/.claude/skills/redpen/code/review.py --prompt-hook` in `~/.claude/settings.json`; without
+  that hook they stay unsent.
 - Keys: `n` and `p` (or `j` and `k`) step to the next and the previous change, past a file's last or
   first one into the neighbouring file. The current change is the one the cursor is in, with the
   tinted bar: `a` accepts it in Pending and unaccepts it in Accepted, `r` opens a comment on the
-  selected text, or else on it. Reject has no key.
+  selected text, or else on it. Reject has no key. `t` and `Shift+t` step to the next and the
+  previous thread, through every file's.
+- The header says how many files are reviewed (nothing of them pending) of those the review has; in
+  the list such a file has ✓, and one accepted in part ◐.
 - Files under `~/.claude` and temporary folders are listed apart, under "other".
 - The page follows the files: an edit by Claude or the user shows up within two seconds.
 
@@ -54,13 +61,29 @@ What to tell the user when it matters:
 python3 ~/.claude/skills/redpen/code/review.py --wait
 ```
 
-It prints the comments sent with Send now and ends; those sent between one wait and the next are
-printed by the next as it starts. When it ends with comments, start it again at once, then answer or
-act on each. A comment reaches you once: from this command, or from the `UserPromptSubmit` hook with
-the user's next message.
+It waits on the session's page and on the git reviews made from the session (below), those made
+while it waits too. It prints the comments sent with Send now and ends; those sent between one wait
+and the next are printed by the next as it starts. When it ends with comments, start it again at once,
+then answer or act on each. A comment reaches you once: from this command, or from the
+`UserPromptSubmit` hook with the user's next message. While a git review of the session's has no
+command waiting, the hook says so with the prompt: start the command then.
 
-Each comment names its file and lines and quotes them as the user saw them. A comment "of the accepted
-text" or "of the file as it was before your edits" is on lines the file may no longer have.
+Each comment names its file and lines and quotes them as the user saw them, and carries its id. A
+comment "of the accepted text" or "of the file as it was before your edits" is on lines the file may
+no longer have. A reply names the thread it is in.
+
+**Answering on the page.** Besides what you say in the chat or change in the files, put a short answer
+in plain text under each comment, so the user reads it where they asked:
+
+```bash
+python3 ~/.claude/skills/redpen/code/review.py --answer <comment id> <<'EOF'
+The answer.
+EOF
+```
+
+After a change made in answer to the comment, add `--change <file>:<line>` (the line in the file as
+it is now, or the file alone): the answer then links to the change, and the user goes to it with
+one click and resolves the thread.
 
 `--session <id>` prints another session's page; the server's index lists every session with a record.
 
@@ -82,11 +105,11 @@ uncommitted work, `--base origin/main` for a branch with its commits. The script
   git's index and commits are never written.
 - What was accepted stays accepted while the base commit is the same; another base commit (after a
   commit with `--base HEAD`, or a rebase) is another review, with nothing accepted.
-- A file that changes after the page was opened appears when the page is reloaded or the command is
-  run again.
-- Comments reach the session that ran the command last, with the user's next message there. To take
-  them at once, keep `review.py --wait --session git-<…>` (the name in the URL) in the background,
-  beside the session's own wait.
+- The page shows the files the record has at once and looks for others behind it (the header says
+  so while it does). A file that changes after the page was opened appears when the page is reloaded
+  or the command is run again.
+- Comments reach the session that ran the command last: at once while its `review.py --wait` runs
+  (the one command waits on the git reviews too), else with the user's next message there.
 The page's editor is Monaco, in `code/vendor/monaco/`; `code/vendor/fetch_monaco.py` fetches it where it
 is missing.
 
@@ -190,8 +213,9 @@ path, and whether the session created the file) and `base/<key>` (the file's bas
 the session's first edit to it, or as last kept or accepted; a file the session created has none until
 then). The title is the one the desktop app shows, else the session's first prompt. Edits made through
 Bash are not recorded. The review page keeps its own state beside them, in the record's `review/`
-folder; of the comments: `comments.json`, those waiting to be sent, `sent.jsonl`, the batches sent, and
-`handed.jsonl`, which of the batches Claude was handed and how (`base/channel.py` keeps it).
+folder; of the comments: `comments.json`, those waiting to be sent, `sent.jsonl`, the batches sent,
+`handed.jsonl`, which of the batches Claude was handed and how (`base/channel.py` keeps it), and
+`answers.jsonl`, Claude's answers and the threads the user resolved.
 
 A git review's record, `~/.redpen/code/git-<…>/`, has the same files, made by `review.py --git` from a
 commit, and `git.json` (repository, base commit, title, the session its comments reach) in place of

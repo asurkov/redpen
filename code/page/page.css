@@ -102,8 +102,18 @@ button.main:hover:not(:disabled) {
   font-weight: 600;
 }
 
+#progress {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
 #views {
   display: flex;
+  flex: none;
   border: 1px solid var(--line);
   border-radius: 6px;
   overflow: hidden;
@@ -196,6 +206,18 @@ body.listHidden #splitter {
   font-size: 11px;
   direction: rtl;
   text-align: left;
+}
+
+/* How far the file is: nothing of it pending, or a part of it accepted. */
+.file .mark {
+  flex: none;
+  width: 10px;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.file .mark.done {
+  color: var(--added);
 }
 
 .file .state {
@@ -339,6 +361,95 @@ body.listHidden #splitter {
   margin-left: 3px;
 }
 
+/* A thread Claude answered last: quiet, as nothing waits in it. */
+.answeredLine {
+  background: color-mix(in srgb, var(--dim) 14%, transparent);
+}
+
+.answeredEdge {
+  border-left: 3px solid var(--dim);
+  margin-left: 3px;
+}
+
+/* A thread: a view zone under the lines it is on. */
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(620px, 80vw);
+  margin: 3px 0 5px 14px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-left: 3px solid #d9a520;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font: 12px/1.4 system-ui, -apple-system, sans-serif;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: auto;
+}
+
+.thread.answered {
+  border-left-color: var(--dim);
+}
+
+/* The thread stepped to. */
+.thread.current {
+  box-shadow: 0 0 0 2px color-mix(in srgb, #d9a520 55%, transparent);
+}
+
+#threadsButton {
+  flex: none;
+}
+
+.thread .entry .change {
+  margin-top: 3px;
+}
+
+.thread .head,
+.thread .foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+  font-size: 11px;
+  white-space: normal;
+}
+
+.thread .head b {
+  color: var(--ink);
+}
+
+.thread .entry.claude .head b {
+  color: var(--accent);
+}
+
+/* A comment of the user's that Claude has, or answered: said, so quieter than what waits. */
+.thread .entry.user.taken > div:last-child {
+  color: var(--dim);
+}
+
+.thread textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 52px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--ground);
+  color: var(--ink);
+  font: inherit;
+  resize: vertical;
+}
+
+.thread button {
+  padding: 0 8px;
+  line-height: 18px;
+  font-size: 11px;
+}
+
 /* The comment button and box: content widgets at the selection or the change. */
 .commentWidget {
   z-index: 40;
@@ -460,10 +571,15 @@ body.listHidden #splitter {
   padding: 3px 6px;
 }
 
-#waitingList .where {
+#waitingList .where,
+#waitingList .state {
   flex: none;
   color: var(--dim);
   font-size: 11px;
+}
+
+#waitingList .state.claude {
+  color: var(--accent);
 }
 
 #waitingList .text {

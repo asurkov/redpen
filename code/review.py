@@ -5,9 +5,11 @@ Reject per change and per file. Or a git work tree's changes against a commit, w
 Usage: review.py [--session ID] [--port N]   start the server unless it runs; print the page's URL
        review.py --git [REPO] [--base REV]   make or refresh the git review of REPO's work tree (the
                                              current folder's) against REV (HEAD); print its page's URL
-       review.py --wait [--session ID]       print the comments the page sent that nobody took, or
-                                             else wait for the next ones; Claude keeps it running in
-                                             the background
+       review.py --wait [--session ID]       print the comments nobody took that the pages of the
+                                             session and of its git reviews sent, or else wait for
+                                             the next ones; Claude keeps it running in the background
+       review.py --answer ID                 put Claude's answer, read from stdin, under the comment
+                                             on its page
        review.py --prompt-hook               UserPromptSubmit hook: hands the session's comments to
                                              the model, those no waiting command took
 
@@ -28,6 +30,8 @@ measured from. Beside them, in the record's review/ folder, the page keeps:
                     command Claude keeps waiting (--wait), or else by the hook, with the session's
                     next message
   handed.jsonl      which of them Claude was handed, and how (see ../base/channel.py)
+  answers.jsonl     Claude's answers, each naming the comment it is under, and the threads the user
+                    resolved, one per line
 
 So a file has three texts: orig, base and disk (the file itself). Pending changes are base → disk:
 Accept moves one into base, Reject writes base's lines back into the file. Accepted changes are
@@ -54,6 +58,11 @@ other_roots = (f'{home}/.claude/', '/tmp/', '/private/tmp/', '/var/folders/', '/
 shown_bytes = 16 << 20
 # A git review of more changed files than this is refused: the base is not the one meant.
 scanned_files = 5000
+# A git review nothing was done in for this many seconds is not one the model is told to wait on.
+active_seconds = 12 * 3600
+# The git reviews whose files are being found now, and the lock that set is read and written under.
+scans = set()
+scans_lock = threading.Lock()
 
 # What each action reads and writes: the two texts the change lies between, the one written, and
 # whether the left text's lines go into the right one (else the right one's into the left).
@@ -265,8 +274,11 @@ class Review:
         channel = shared('channel')
         return {'session': self.session, 'title': info.get('title') or 'Claude session', 'files': files,
                 'comments': self.comments(),
+                'threads': self.threads(),
                 # Whether Claude's command waits for comments now, and how many sent ones nobody took.
                 'isWatched': channel.watching(self.sent) == 'wait',
+                # Whether a git review's files are still being found.
+                'isScanning': self.session in scans,
                 'untaken': sum(len(ask.get('comments') or []) for ask in channel.waiting(self.sent))}
 
     def opened(self, key):
@@ -399,6 +411,13 @@ class Review:
             'quote': str(body.get('quote') or '')[:4000],
             'text': text.strip()[:4000],
         }
+        # A comment on removed lines: the line of the text shown that they stood after, and that text.
+        if isinstance(body.get('anchor'), int) and body.get('anchorSide') in sides:
+            comment.update(anchor=body['anchor'], anchorSide=body['anchorSide'])
+        if body.get('thread'):
+            if not any(thread['id'] == body['thread'] for thread in self.threads()):
+                raise Refusal(404, 'No such thread.')
+            comment['thread'] = body['thread']
         # Under the channel's lock, as the hook and Send now empty the file under it.
         with shared('channel').locked(self.sent):
             write_atomic(self.folder / 'comments.json', json.dumps(self.comments() + [comment], indent=1).encode())
@@ -423,6 +442,61 @@ class Review:
             write_atomic(self.folder / 'comments.json', b'[]')
         return {'sent': len(comments)}
 
+    def threads(self):
+        """The comments as the page shows them, each first one with what followed it: the user's
+        replies and Claude's answers, the oldest first, and of each of the user's whether Claude has
+        it ('draft', 'sent' and not taken, 'taken'). A thread the user resolved is left out."""
+        channel = shared('channel')
+        handed = {line.get('ask') for line in channel.records(self.folder / 'handed.jsonl')}
+        said = [dict(comment, state='taken' if ask.get('id') in handed else 'sent')
+                for ask in channel.records(self.sent) for comment in ask.get('comments') or []
+                if isinstance(comment, dict)]
+        said += [dict(comment, state='draft') for comment in self.comments() if isinstance(comment, dict)]
+        notes = channel.records(self.folder / 'answers.jsonl')
+        threads, firsts = {}, {}
+        for comment in said:
+            first = comment.get('thread') if comment.get('thread') in threads else comment.get('id')
+            firsts[comment.get('id')] = first
+            where = {name: comment.get(name) for name in ('key', 'path', 'side', 'start', 'end', 'quote', 'anchor', 'anchorSide')}
+            thread = threads.setdefault(first, {**where, 'id': first, 'entries': []})
+            thread['entries'].append({'id': comment.get('id'), 'by': 'user', 'time': comment.get('time'),
+                                      'text': comment.get('text'), 'state': comment['state']})
+        for note in notes:
+            thread = threads.get(firsts.get(note.get('comment')))
+            if thread and isinstance(note.get('text'), str):
+                thread['entries'].append({'by': 'claude', 'time': note.get('time'), 'text': note['text'],
+                                          'change': note.get('change')})
+        resolved = {note.get('comment') for note in notes if note.get('resolved')}
+        for thread in threads.values():
+            thread['entries'].sort(key=lambda entry: str(entry.get('time')))
+        return [thread for first, thread in threads.items() if first not in resolved]
+
+    def resolve(self, thread_id):
+        """Takes a thread off the page; the log keeps what was said in it."""
+        if not any(thread['id'] == thread_id for thread in self.threads()):
+            raise Refusal(404, 'No such thread.')
+        channel = shared('channel')
+        with channel.locked(self.sent):
+            channel.add_line(self.folder / 'answers.jsonl', {'comment': thread_id, 'time': now(), 'resolved': True})
+
+    def answer(self, comment_id, text, change=None):
+        """Puts Claude's answer under a comment that was sent to it, with the change made in answer,
+        {key, path, line}, if one was; says whether the comment is this record's."""
+        channel = shared('channel')
+        with channel.locked(self.sent):
+            sent = [comment.get('id') for ask in channel.records(self.sent) for comment in ask.get('comments') or []
+                    if isinstance(comment, dict)]
+            if comment_id not in sent:
+                return False
+            note = {'comment': comment_id, 'time': now(), 'text': text}
+            # The file as the record names it, if it does under the path's other spelling.
+            for path in (change['path'], os.path.realpath(change['path'])) if change else ():
+                if (self.record / 'files' / f'{key(path)}.json').exists():
+                    change = dict(change, key=key(path), path=path)
+                    break
+            channel.add_line(self.folder / 'answers.jsonl', dict(note, change=change) if change else note)
+        return True
+
 
 def fenced(text):
     longest = max((len(run) for run in re.findall(r'`+', text)), default=0)
@@ -440,10 +514,14 @@ def described(comments, git=None):
         side = sides.get(comment.get('side'), '')
         if git and comment.get('side') == 'orig':
             side = ' (of the file as it was at the base commit)'
-        out += ['', f"{comment['path']}, {lines}{side}:"]
+        reply = f", a reply in the thread of comment {comment['thread']}" if comment.get('thread') else ''
+        out += ['', f"{comment['path']}, {lines}{side} (comment {comment.get('id')}{reply}):"]
         if comment.get('quote'):
             out.append(fenced(comment['quote']))
         out.append(f"Comment: {comment['text']}")
+    out += ['', 'Besides what you say or do about each, put a short answer in plain text under it on the page: '
+            f"`python3 {here / 'review.py'} --answer <comment id>`, the answer on stdin; after a change made "
+            'in answer, add `--change <file>:<line>`, and the answer links to it.']
     return '\n'.join(out)
 
 
@@ -457,8 +535,6 @@ def prompt_hook():
             return
         folders = [store / name / 'review' for name in [session] + owned(session)]
         commented = [f for f in folders if (f / 'comments.json').is_file() or (f / 'sent.jsonl').is_file()]
-        if not commented:
-            return
         channel = shared('channel')
         found = []
         for review in [Review(folder.parent.name) for folder in commented]:
@@ -467,9 +543,10 @@ def prompt_hook():
                 told = [comment for ask in asks for comment in ask.get('comments') or []] + comments
                 if told:
                     found.append((review, comments, asks, described(told, review.git)))
-        if not found:
+        unwaited = unwaited_reviews(session)
+        if not found and not unwaited:
             return
-        context = '\n\n'.join(text for *_, text in found)
+        context = '\n\n'.join([text for *_, text in found] + unwaited)
         print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': context}}))
         sys.stdout.flush()
         for review, comments, asks, _ in found:
@@ -485,15 +562,75 @@ def prompt_hook():
         print(f'redpen review hook: {e!r}', file=sys.stderr)
 
 
+def unwaited_reviews(session):
+    """What tells the model to start its waiting command: said while a git review of the session's
+    that something was done in lately has no command waiting for its comments."""
+    channel = shared('channel')
+    titles = []
+    for name in owned(session):
+        folder = store / name / 'review'
+        marks = [store / name / 'git.json', folder / 'journal.json', folder / 'comments.json',
+                 folder / 'sent.jsonl', folder / 'answers.jsonl']
+        last = max((mark.stat().st_mtime for mark in marks if mark.exists()), default=0)
+        if time.time() - last < active_seconds and channel.watching(folder / 'sent.jsonl') != 'wait':
+            titles.append(git_info(store / name)['title'])
+    if not titles:
+        return []
+    return [f"No command of yours waits for the comments of the review page of {'; '.join(titles)}. Run "
+            f"`python3 {here / 'review.py'} --wait` in the background now, and again each time it ends: a "
+            'comment the user sends from the page then reaches you at once.']
+
+
+def waited_reviews(session):
+    """The records one waiting command of the session's watches: its own and its git reviews'."""
+    found = []
+    for name in dict.fromkeys([session] + (owned(session) if session else [])):
+        try:
+            found.append(Review(name))
+        except Refusal:
+            pass
+    return found
+
+
 def wait(session):
-    """Prints the comments the page sent that nobody took, or else waits for the next ones, and ends:
-    Claude keeps it running in the background while the user reviews, and starts it again each time."""
-    try:
-        review = Review(session)
-    except Refusal:
+    """Prints the comments nobody took that the pages of the session and of its git reviews sent, or
+    else waits for the next ones, and ends: Claude keeps it running in the background while the user
+    reviews, and starts it again each time. A git review made while it waits is waited on too."""
+    if not waited_reviews(session):
         sys.exit(f'No record of session {session!r}: it edited no file yet, or --session names no session.')
-    review.folder.mkdir(parents=True, exist_ok=True)
-    shared('channel').wait([review.sent], lambda ask: print(described(ask.get('comments') or [], review.git)))
+    channel = shared('channel')
+    while True:
+        handed = 0
+        for review in waited_reviews(session):
+            review.folder.mkdir(parents=True, exist_ok=True)
+            channel.beat(review.sent)
+            handed += channel.hand_over(review.sent, 'wait',
+                                        lambda ask: print(described(ask.get('comments') or [], review.git)))
+        if handed:
+            return
+        time.sleep(1)
+
+
+def answer(session, comment_id, where=None):
+    """Puts the answer on stdin under the comment on its page: Claude's, to a comment it was handed.
+    where, PATH or PATH:LINE, is the change made in answer. The session's own records are looked in
+    first."""
+    text = sys.stdin.read().strip()[:8000]
+    if not text:
+        sys.exit('No answer on stdin.')
+    change = None
+    if where:
+        path, _, line = where.rpartition(':') if re.search(r':\d+$', where) else (where, '', '')
+        path = os.path.abspath(path)
+        change = {'key': key(path), 'path': path, 'line': int(line) if line else None}
+    names = [review.session for review in waited_reviews(session)] + [s['session'] for s in sessions()]
+    for name in dict.fromkeys(names):
+        try:
+            if Review(name).answer(comment_id, text, change):
+                return print(f'Answered under comment {comment_id} on the page of {name}.')
+        except Refusal:
+            pass
+    sys.exit(f'No comment {comment_id!r} was sent from a review page.')
 
 
 def git(repo, *args):
@@ -571,6 +708,25 @@ def scanned(record, info):
         write_atomic(entry, json.dumps({'path': str(place), 'new': old is None}).encode())
         added += 1
     return added
+
+
+def rescan(review):
+    """Finds a git review's files anew behind the page, one search at a time; a failure leaves those
+    it has."""
+    def run():
+        try:
+            scanned(review.record, review.git)
+        except Refusal:
+            pass
+        finally:
+            with scans_lock:
+                scans.discard(review.session)
+
+    with scans_lock:
+        if review.session in scans:
+            return
+        scans.add(review.session)
+    threading.Thread(target=run, daemon=True).start()
 
 
 def owned(session):
@@ -682,11 +838,9 @@ def get(h, path):
             h.end_headers()
             return
         if review.git:
-            # A git review's files are found anew as its page loads; a failure leaves those it has.
-            try:
-                scanned(review.record, review.git)
-            except Refusal:
-                pass
+            # A git review's files are found anew as its page loads: the page shows those it has
+            # at once, and the others as they are found.
+            rescan(review)
         return send_file(h, here / 'page', 'page.html')
     found = re.fullmatch(r'/api/([\w-]+)/(files|journal|file/([0-9a-f]{16}))', path)
     if not found:
@@ -701,7 +855,7 @@ def get(h, path):
 
 
 def post(h, path, body):
-    found = re.fullmatch(r'/api/([\w-]+)/(apply|flip|comment|uncomment|send)', path)
+    found = re.fullmatch(r'/api/([\w-]+)/(apply|flip|comment|uncomment|send|resolve)', path)
     if not found:
         raise Refusal(404, 'Not found.')
     review = Review(found.group(1))
@@ -713,6 +867,9 @@ def post(h, path, body):
         return send_json(h, review.comment(body))
     if found.group(2) == 'send':
         return send_json(h, review.send_now())
+    if found.group(2) == 'resolve':
+        review.resolve(body.get('id'))
+        return send_json(h, {})
     review.uncomment(body.get('id'))
     send_json(h, {})
 
@@ -723,6 +880,8 @@ def main():
     parser.add_argument('--port', type=int)
     parser.add_argument('--prompt-hook', action='store_true')
     parser.add_argument('--wait', action='store_true')
+    parser.add_argument('--answer', metavar='ID')
+    parser.add_argument('--change', metavar='PATH[:LINE]')
     parser.add_argument('--git', nargs='?', const='.', metavar='REPO')
     parser.add_argument('--base', default='HEAD', metavar='REV')
     args = parser.parse_args()
@@ -731,6 +890,8 @@ def main():
         return prompt_hook()
     if args.wait:
         return wait(args.session)
+    if args.answer:
+        return answer(args.session, args.answer, args.change)
     server = shared('server')
     port = args.port or server.default_port
     if not server.running(port):
