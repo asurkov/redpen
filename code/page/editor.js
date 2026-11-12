@@ -41,8 +41,31 @@ export function spans(change) {
   return { leftStart, leftEnd, rightStart, rightEnd };
 }
 
+// The part of a change that lies in the lines start to end of the text shown, as line ranges like
+// spans(); nothing when none of it does. A changed line goes with the old line at the same place in
+// the change, and the change's last line with the old lines left over. Removed lines alone are
+// taken when the lines on both sides of them are.
+export function spansWithin(change, start, end) {
+  const whole = spans(change);
+  if (change.modifiedEndLineNumber === 0) {
+    return start <= change.modifiedStartLineNumber && change.modifiedStartLineNumber < end ? whole : null;
+  }
+  const [first, last] = [Math.max(start, change.modifiedStartLineNumber), Math.min(end, change.modifiedEndLineNumber)];
+  if (first > last) {
+    return null;
+  }
+  const leftAt = line => Math.min(whole.leftStart + line - change.modifiedStartLineNumber, whole.leftEnd);
+  return {
+    leftStart: leftAt(first),
+    leftEnd: last === change.modifiedEndLineNumber ? whole.leftEnd : leftAt(last + 1),
+    rightStart: first - 1,
+    rightEnd: last,
+  };
+}
+
 export class DiffView {
-  // handlers: act(action, spans) for a change's button, comment({side, start, end, quote, text}),
+  // handlers: act(action, spans) for a change's button, or with a list of spans for the selected
+  // lines, comment({side, start, end, quote, text}),
   // uncomment(id) for a comment not sent yet, resolve(id) for a thread.
   constructor(element, handlers) {
     this.handlers = handlers;
@@ -232,13 +255,26 @@ export class DiffView {
     return this.shown.getVisibleRanges().some(range => range.startLineNumber <= line && line <= range.endLineNumber);
   }
 
-  // Carries out the current change's action that has the key, if there is such a one.
+  // Carries out the action that has the key, if there is such a one: on the selected lines of the
+  // changes, or else on the current change.
   actByKey(key) {
     const change = this.changes[this.current];
     const [action] = this.changeActions.find(([, , actionKey]) => actionKey === key) || [];
-    if (change && action) {
+    const selected = this.selectedSpans();
+    if (action && selected.length) {
+      this.handlers.act(action, selected);
+    } else if (change && action) {
       this.handlers.act(action, spans(change));
     }
+  }
+
+  // The parts of the changes that lie in the selected lines; none with no text selected.
+  selectedSpans() {
+    const target = this.selectionTarget();
+    if (!target) {
+      return [];
+    }
+    return this.changes.map(change => spansWithin(change, target.start, target.end)).filter(Boolean);
   }
 
   // Opens the comment box on the selected text, or else on the current change; says whether there
@@ -546,7 +582,11 @@ export class DiffView {
     }
     const node = document.createElement('div');
     node.className = 'commentWidget';
-    button(node, 'Comment', () => this.openBox(target));
+    const selected = this.selectedSpans();
+    for (const [action, label] of selected.length ? this.changeActions : []) {
+      button(node, `${label} selection`, () => this.handlers.act(action, selected));
+    }
+    button(node, 'Comment', () => this.openBox(target), selected.length ? 'quiet' : '');
     const { lineNumber, column } = this.shown.getSelection().getPosition();
     this.addWidget('offer', node, { lineNumber, column }, true);
   }

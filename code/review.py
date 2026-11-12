@@ -183,23 +183,33 @@ def count(a, b):
 
 
 def spliced(left, right, change, is_left_taken):
-    """The right text with the change's lines replaced by the left text's, or the other way round."""
+    """The right text with the change's lines replaced by the left text's, or the other way round.
+    A list of changes, the parts of them the user selected, is taken as one."""
     try:
         lefts, rights = (left or b'').decode().split('\n'), (right or b'').decode().split('\n')
     except UnicodeDecodeError:
         raise Refusal(422, 'The file is not text.')
     try:
-        spans = [int(change[name]) for name in ('leftStart', 'leftEnd', 'rightStart', 'rightEnd')]
+        parts = change if isinstance(change, list) else [change]
+        spans = sorted([int(part[name]) for name in ('leftStart', 'leftEnd', 'rightStart', 'rightEnd')]
+                       for part in parts)
     except (KeyError, TypeError, ValueError):
         raise Refusal(400, 'The change names no line ranges.')
-    left_start, left_end, right_start, right_end = spans
-    if not (0 <= left_start <= left_end <= len(lefts) and 0 <= right_start <= right_end <= len(rights)):
-        raise Refusal(409, 'The change lies outside the file.')
-    if is_left_taken:
-        rights[right_start:right_end] = lefts[left_start:left_end]
-        return '\n'.join(rights).encode()
-    lefts[left_start:left_end] = rights[right_start:right_end]
-    return '\n'.join(lefts).encode()
+    if not spans:
+        raise Refusal(400, 'The change names no line ranges.')
+    left_floor = right_floor = 0
+    for left_start, left_end, right_start, right_end in spans:
+        if not (left_floor <= left_start <= left_end <= len(lefts)
+                and right_floor <= right_start <= right_end <= len(rights)):
+            raise Refusal(409, 'The change lies outside the file.')
+        left_floor, right_floor = left_end, right_end
+    # From the last one up: the lines of those above stay where they were.
+    for left_start, left_end, right_start, right_end in reversed(spans):
+        if is_left_taken:
+            rights[right_start:right_end] = lefts[left_start:left_end]
+        else:
+            lefts[left_start:left_end] = rights[right_start:right_end]
+    return '\n'.join(rights if is_left_taken else lefts).encode()
 
 
 class Review:
@@ -293,8 +303,9 @@ class Review:
         return {'key': key, 'path': file['path'], 'texts': texts}
 
     def apply(self, key, action, change, expected):
-        """Carries out accept, reject or unaccept, for one change or, with no change named, the whole
-        file, if the two texts are still the ones the page showed."""
+        """Carries out accept, reject or unaccept, for one change, for the selected parts of some (a
+        list) or, with no change named, the whole file, if the two texts are still the ones the page
+        showed."""
         file = self.file(key)
         if action not in actions:
             raise Refusal(400, 'No such action.')

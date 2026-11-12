@@ -528,6 +528,10 @@ body.listHidden #splitter {
   box-shadow: 0 1px 6px #0003;
 }
 
+.commentWidget > button + button {
+  margin-left: 4px;
+}
+
 .commentBox {
   display: flex;
   flex-direction: column;

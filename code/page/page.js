@@ -198,7 +198,16 @@ async function show(key, place) {
   }
 }
 
-// Carries out an action on a change of the open file, or on the whole file with no change named.
+// What an action was on: a change, the selected lines of some (a list), or the whole file.
+function whatOf(change) {
+  if (Array.isArray(change)) {
+    return 'the selected lines';
+  }
+  return change ? 'a change' : 'the file';
+}
+
+// Carries out an action on a change of the open file, on the selected lines of its changes (a
+// list), or on the whole file with no change named.
 function act(action, change) {
   const view = views[state.view];
   const { key, opened } = state;
@@ -212,7 +221,7 @@ function act(action, change) {
     try {
       const expected = { left: opened.texts[view.left].sha, right: opened.texts[view.right].sha };
       const entry = await asked('/apply', { key, action, change, expected });
-      toast(`${doneWords[action]} ${change ? 'a change in' : ''} ${name}`, 'Undo', () => flip(entry.id));
+      toast(`${doneWords[action]} ${change ? `${whatOf(change)} in` : ''} ${name}`, 'Undo', () => flip(entry.id));
     } catch (error) {
       toast(error.message);
       // The file is not what was shown: show it as it is.
@@ -432,7 +441,7 @@ async function drawJournal() {
   const rows = entries.map(entry => {
     const row = document.createElement('li');
     row.className = entry.isUndone ? 'undone' : '';
-    const what = row.appendChild(span('what', `${doneWords[entry.action]} ${entry.change ? 'a change' : 'the file'}`));
+    const what = row.appendChild(span('what', `${doneWords[entry.action]} ${whatOf(entry.change)}`));
     what.append(span('where', nameOf(entry.path)), span('when', new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
     const flipButton = button(row, entry.isUndone ? 'Redo' : 'Undo', () => flip(entry.id));
     flipButton.disabled = !entry.canFlip;
