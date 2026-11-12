@@ -1,0 +1,6 @@
+{
+  "name": "edit-review",
+  "version": "0.1.0",
+  "description": "Reviews the files this session edited against their text before its first edit: diffs, Keep and Undo per file or change, comments that go with the next message",
+  "types": "./types/index.d.ts"
+}

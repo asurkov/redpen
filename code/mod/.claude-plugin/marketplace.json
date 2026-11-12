@@ -1,0 +1,5 @@
+{
+  "name": "redpen",
+  "owner": { "name": "Alexander Surkov" },
+  "plugins": [{ "name": "edit-review", "source": "./" }]
+}

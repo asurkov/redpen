@@ -121,6 +121,26 @@ installs it into every Cursor profile (each has its own extensions; `--profile <
 reload the window. Cursor's Agents Window runs only Cursor's built-in extensions, so the view shows only
 in editor windows. `install.py --uninstall` removes it.
 
+## In Claude Code: the Claude Edits pane
+
+The mod in `code/mod/` (the plugin `edit-review`) shows the same record inside Claude Code, in the
+terminal and in the desktop app: `/edits` opens a pane listing the files this session edited, each
+opening as its changes, removed lines red and added lines green, with Keep and Undo per file or change.
+Comments on changes and on single lines go to the model with the next message, and the status line
+counts the files with pending changes.
+
+The folder is its own marketplace, `redpen`, and the plugin is read from it as it is on disk, so an edit
+there reaches a session with `/reload-plugins`. It loads in every session once the user has installed it
+(the commands change `~/.claude/settings.json`, so they are the user's to run, from a terminal):
+
+```bash
+claude plugin marketplace add ~/.claude/skills/redpen/code/mod
+claude plugin install edit-review@redpen --scope user
+```
+
+`claude plugin uninstall edit-review@redpen` removes it. Its tests: `claude plugin test
+~/.claude/skills/redpen/code/mod`.
+
 ## The server
 
 `base/server.py` is one server for both parts, on `127.0.0.1:7878`: the review pages under `/code/`,
