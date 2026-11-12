@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Review a Claude Code session's edits on a page: each file whole, its changes inline, with Accept and
-Reject per change and per file.
+Reject per change and per file. Or a git work tree's changes against a commit, whoever made them.
 
 Usage: review.py [--session ID] [--port N]   start the server unless it runs; print the page's URL
+       review.py --git [REPO] [--base REV]   make or refresh the git review of REPO's work tree (the
+                                             current folder's) against REV (HEAD); print its page's URL
        review.py --wait [--session ID]       print the comments the page sent that nobody took, or
                                              else wait for the next ones; Claude keeps it running in
                                              the background
@@ -33,6 +35,11 @@ orig → base: Unaccept puts orig's lines back into base, which makes the change
 
 A change is named by line ranges of the two texts it lies between, counted the way the page's editor
 counts lines: a text split at every "\\n", so a text that ends in a newline has an empty last line.
+
+A git review is a record of the same shape that no hook keeps, ~/.redpen/code/git-<name>/: git.json
+names the repository, the base commit and the session that made it, in place of session.json, and
+each file that differs from the base commit has that commit's text as its orig and as its first
+baseline. Its files are found when the command runs and each time its page loads; git is only read.
 """
 import argparse, datetime, filecmp, hashlib, importlib.util, json, os, pathlib, re, subprocess, sys
 import tempfile, threading, time, urllib.parse
@@ -45,6 +52,8 @@ here = pathlib.Path(__file__).resolve().parent
 other_roots = (f'{home}/.claude/', '/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/')
 # A text past this is not sent to the page.
 shown_bytes = 16 << 20
+# A git review of more changed files than this is refused: the base is not the one meant.
+scanned_files = 5000
 
 # What each action reads and writes: the two texts the change lies between, the one written, and
 # whether the left text's lines go into the right one (else the right one's into the left).
@@ -81,6 +90,11 @@ class Refusal(Exception):
 
 def now():
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds')
+
+
+def key(path):
+    """A file's name in a record, as recorder.py makes it."""
+    return hashlib.sha256(path.encode()).hexdigest()[:16]
 
 
 def sha(data):
@@ -187,6 +201,8 @@ class Review:
             raise Refusal(404, 'No such session.')
         self.session = session
         self.record = store / session
+        # What a git review is of: {repo, base, spec, title, owner, updated}; None for a session.
+        self.git = git_info(self.record)
         self.folder = self.record / 'review'
         # The log of the comments sent to Claude, kept by redpen's channel (../base/channel.py).
         self.sent = self.folder / 'sent.jsonl'
@@ -243,9 +259,9 @@ class Review:
                 'pending': compared(places['base'], signatures['base'], places['disk'], signatures['disk']),
                 'accepted': compared(places['orig'], signatures['orig'], places['base'], signatures['base']),
                 'all': compared(places['orig'], signatures['orig'], places['disk'], signatures['disk']),
-                'isOther': any(file['path'].startswith(root) for root in other_roots),
+                'isOther': not self.git and any(file['path'].startswith(root) for root in other_roots),
             })
-        info = read_json(self.record / 'session.json', {})
+        info = self.git or read_json(self.record / 'session.json', {})
         channel = shared('channel')
         return {'session': self.session, 'title': info.get('title') or 'Claude session', 'files': files,
                 'comments': self.comments(),
@@ -414,12 +430,17 @@ def fenced(text):
     return f'{fence}\n{text}\n{fence}'
 
 
-def described(comments):
-    out = ['The user left these comments on your changes on the Claude Edits review page; each quotes the '
+def described(comments, git=None):
+    """The comments as the model is told them; git is what a git review is of."""
+    changes = f"the changes in {git['repo']} against {git['spec']}" if git else 'your changes'
+    out = [f'The user left these comments on {changes} on the Claude Edits review page; each quotes the '
            'lines it is on as they saw them.']
     for comment in comments:
         lines = f"line {comment['start']}" if comment['start'] == comment['end'] else f"lines {comment['start']}-{comment['end']}"
-        out += ['', f"{comment['path']}, {lines}{sides.get(comment.get('side'), '')}:"]
+        side = sides.get(comment.get('side'), '')
+        if git and comment.get('side') == 'orig':
+            side = ' (of the file as it was at the base commit)'
+        out += ['', f"{comment['path']}, {lines}{side}:"]
         if comment.get('quote'):
             out.append(fenced(comment['quote']))
         out.append(f"Comment: {comment['text']}")
@@ -428,28 +449,38 @@ def described(comments):
 
 def prompt_hook():
     """Hands the session's comments to the model with the prompt being submitted: the waiting ones,
-    and the sent ones no waiting command took. A failure never blocks the prompt: it goes to stderr
-    and the exit status stays 0."""
+    and the sent ones no waiting command took, of the session's own record and of the git reviews
+    made from it. A failure never blocks the prompt: it goes to stderr and the exit status stays 0."""
     try:
         session = json.load(sys.stdin).get('session_id', '')
         if not re.fullmatch(r'[\w-]+', session):
             return
-        folder = store / session / 'review'
-        if not (folder / 'comments.json').is_file() and not (folder / 'sent.jsonl').is_file():
+        folders = [store / name / 'review' for name in [session] + owned(session)]
+        commented = [f for f in folders if (f / 'comments.json').is_file() or (f / 'sent.jsonl').is_file()]
+        if not commented:
             return
-        review, channel = Review(session), shared('channel')
-        with channel.locked(review.sent):
-            comments, asks = review.comments(), channel.waiting(review.sent)
-            told = [comment for ask in asks for comment in ask.get('comments') or []] + comments
-            if not told:
-                return
-            print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': described(told)}}))
-            sys.stdout.flush()
-            # Kept in the log, so a batch the prompt did not carry after all can be read back.
-            if comments:
-                asks.append(channel.append(review.sent, {'comments': comments}))
-                write_atomic(review.folder / 'comments.json', b'[]')
-            channel.mark(review.sent, asks, 'prompt')
+        channel = shared('channel')
+        found = []
+        for review in [Review(folder.parent.name) for folder in commented]:
+            with channel.locked(review.sent):
+                comments, asks = review.comments(), channel.waiting(review.sent)
+                told = [comment for ask in asks for comment in ask.get('comments') or []] + comments
+                if told:
+                    found.append((review, comments, asks, described(told, review.git)))
+        if not found:
+            return
+        context = '\n\n'.join(text for *_, text in found)
+        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': context}}))
+        sys.stdout.flush()
+        for review, comments, asks, _ in found:
+            with channel.locked(review.sent):
+                # Kept in the log, so a batch the prompt did not carry after all can be read back.
+                if comments:
+                    told = {comment.get('id') for comment in comments}
+                    asks.append(channel.append(review.sent, {'comments': comments}))
+                    left = [comment for comment in review.comments() if comment.get('id') not in told]
+                    write_atomic(review.folder / 'comments.json', json.dumps(left, indent=1).encode())
+                channel.mark(review.sent, asks, 'prompt')
     except Exception as e:
         print(f'redpen review hook: {e!r}', file=sys.stderr)
 
@@ -462,13 +493,96 @@ def wait(session):
     except Refusal:
         sys.exit(f'No record of session {session!r}: it edited no file yet, or --session names no session.')
     review.folder.mkdir(parents=True, exist_ok=True)
-    shared('channel').wait([review.sent], lambda ask: print(described(ask.get('comments') or [])))
+    shared('channel').wait([review.sent], lambda ask: print(described(ask.get('comments') or [], review.git)))
+
+
+def git(repo, *args):
+    """What a git command prints, run in the repository without writing there (no index refresh);
+    None when it fails."""
+    try:
+        ran = subprocess.run(['git', '-C', str(repo), *args], capture_output=True,
+                             env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
+    except OSError:
+        return None
+    return None if ran.returncode else ran.stdout
+
+
+def git_info(record):
+    """What the git review in the record is of; None for a session's record."""
+    info = read_json(record / 'git.json')
+    return info if isinstance(info, dict) and all(isinstance(info.get(n), str) for n in ('repo', 'base', 'spec')) else None
+
+
+def git_review(folder, spec, owner):
+    """Makes the git review of the folder's repository against the commit its work tree and spec both
+    come from, or refreshes the one there is, and makes owner the session its comments reach.
+    Returns the record's name."""
+    top = git(folder, 'rev-parse', '--show-toplevel')
+    if top is None:
+        raise Refusal(404, f'{folder} is in no git work tree.')
+    top = pathlib.Path(os.fsdecode(top).rstrip('\n'))
+    base = git(top, 'merge-base', spec, 'HEAD')
+    if base is None:
+        raise Refusal(404, f'{spec} names no commit that HEAD comes from.')
+    base = base.decode().strip()
+    branch = (git(top, 'rev-parse', '--abbrev-ref', 'HEAD') or b'').decode().strip()
+    name = f"git-{re.sub(r'[^A-Za-z0-9_-]', '_', top.name)}-{sha(str(top).encode())[:6]}-{base[:10]}"
+    info = {
+        'repo': str(top),
+        'base': base,
+        'spec': spec,
+        'title': f'{top.name}: {branch} against {spec} ({base[:10]})',
+        'owner': owner,
+        'updated': now(),
+    }
+    scanned(store / name, info)
+    (store / name / 'files').mkdir(parents=True, exist_ok=True)
+    write_atomic(store / name / 'git.json', json.dumps(info, indent=1).encode())
+    return name
+
+
+def scanned(record, info):
+    """Adds to a git review's record each file that differs from the base commit now, tracked or not
+    (ignored ones apart), with that commit's text as its orig and its baseline. A file the record has
+    stays as it is, so what was accepted stays accepted. Returns how many it added."""
+    top = pathlib.Path(info['repo'])
+    changed = git(top, 'diff', '--name-only', '-z', '--no-renames', '--ignore-submodules', info['base'], '--')
+    untracked = git(top, 'ls-files', '--others', '--exclude-standard', '-z')
+    if changed is None or untracked is None:
+        raise Refusal(404, f'git could not compare {top} with {info["base"][:10]}.')
+    names = sorted({os.fsdecode(name) for name in (changed + untracked).split(b'\0') if name})
+    if len(names) > scanned_files:
+        raise Refusal(413, f'{len(names)} files differ from {info["spec"]}: not a change to review file by file.')
+    added = 0
+    for name in names:
+        place = top / name
+        k = key(str(place))
+        entry = record / 'files' / f'{k}.json'
+        if entry.exists() or place.is_symlink() or place.is_dir():
+            continue
+        old = git(top, 'cat-file', 'blob', f'{info["base"]}:{name}')
+        if old is None and not place.is_file():
+            continue
+        if old is None:
+            write_atomic(record / 'review/orig' / f'{k}.none', b'')
+        else:
+            write_atomic(record / 'review/orig' / k, old)
+            write_atomic(record / 'base' / k, old)
+        write_atomic(entry, json.dumps({'path': str(place), 'new': old is None}).encode())
+        added += 1
+    return added
+
+
+def owned(session):
+    """The git reviews made from the session: their comments reach it as its own do."""
+    return [info.parent.name for info in sorted(store.glob('git-*/git.json'))
+            if (git_info(info.parent) or {}).get('owner') == session]
 
 
 def sessions():
-    """Every session with a record, the one edited last first."""
+    """Every session and git review with a record, the one edited last first."""
     found = []
-    for info in store.glob('*/session.json'):
+    for info in [*store.glob('*/session.json'), *store.glob('git-*/git.json')]:
         data = read_json(info, {})
         if (info.parent / 'files').is_dir():
             found.append({'session': info.parent.name, 'title': data.get('title') or 'Claude session',
@@ -477,18 +591,19 @@ def sessions():
 
 
 def listed_reviews():
-    """The sessions with a record, for the server's index: each one's title, where its page is, how
-    many files it edited, and when it was last active (edited, reviewed or commented)."""
+    """The sessions and git reviews with a record, for the server's index: each one's title, where
+    its page is, how many files it changed, and when it was last active (edited, reviewed or
+    commented)."""
     rows = []
     for s in sessions():
         folder = store / s['session']
-        marks = [folder / 'session.json', folder / 'review/journal.json', folder / 'review/comments.json',
-                 folder / 'review/sent.jsonl']
+        marks = [folder / 'session.json', folder / 'git.json', folder / 'review/journal.json',
+                 folder / 'review/comments.json', folder / 'review/sent.jsonl']
         rows.append({'name': s['title'], 'href': f's/{s["session"]}/',
                      'counts': [f'{s["files"]} file{"" if s["files"] == 1 else "s"}'],
                      'when': max((f.stat().st_mtime for f in marks if f.exists()), default=0)})
     return {'title': "Claude's edits", 'rows': rows,
-            'note': 'Every session with a record in ~/.redpen/code, the last active first.'}
+            'note': 'Every session and git review with a record in ~/.redpen/code, the last active first.'}
 
 
 def shared(name):
@@ -559,13 +674,19 @@ def get(h, path):
         return send_file(h, here / 'vendor/monaco', path[1:], 'public, max-age=86400')
     found = re.fullmatch(r'/s/([\w-]+)(/?)', path)
     if found:
-        Review(found.group(1))
+        review = Review(found.group(1))
         if not found.group(2):
             h.send_response(301)
             h.send_header('Location', f'{found.group(1)}/')
             h.send_header('Content-Length', '0')
             h.end_headers()
             return
+        if review.git:
+            # A git review's files are found anew as its page loads; a failure leaves those it has.
+            try:
+                scanned(review.record, review.git)
+            except Refusal:
+                pass
         return send_file(h, here / 'page', 'page.html')
     found = re.fullmatch(r'/api/([\w-]+)/(files|journal|file/([0-9a-f]{16}))', path)
     if not found:
@@ -602,6 +723,8 @@ def main():
     parser.add_argument('--port', type=int)
     parser.add_argument('--prompt-hook', action='store_true')
     parser.add_argument('--wait', action='store_true')
+    parser.add_argument('--git', nargs='?', const='.', metavar='REPO')
+    parser.add_argument('--base', default='HEAD', metavar='REV')
     args = parser.parse_args()
     # The hook reads the record alone, and no change to the server's code can fail it.
     if args.prompt_hook:
@@ -613,6 +736,11 @@ def main():
     if not server.running(port):
         server.start(port)
     session = args.session or next((s['session'] for s in sessions()), '')
+    if args.git:
+        try:
+            session = git_review(args.git, args.base, args.session)
+        except Refusal as e:
+            sys.exit(str(e))
     if session and (store / session / 'files').is_dir():
         print(f'http://127.0.0.1:{port}{server.mounts["code"]}/s/{session}/')
     else:

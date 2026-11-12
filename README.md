@@ -23,6 +23,9 @@ before the session's first edit), and `prose/` reviews what git has. The ends ar
 | How a comment reaches the agent | `review.py --wait`, a command the skill has Claude keep waiting: the page's Send now hands it over at once; else `review.py --prompt-hook`, a Claude Code hook, with the user's next message | `base/channel.py --wait`, a command the skill has Claude keep waiting on the review's `revisit.jsonl` |
 | Where the state is kept | `~/.redpen/code/<session>/`, under Claude Code's session id | `~/.docdiff/<name>/` |
 
+`review.py --git` needs neither end to show a page: it reviews a git work tree against a commit, whoever
+changed the files (`~/.redpen/code/git-<…>/`).
+
 For another agent those ends have to be written: something that saves a file's text before the agent's
 first edit to it, which does not exist yet, and a way to hand the agent a comment: `base/channel.py
 --wait` prints them for any agent that can keep a command running.

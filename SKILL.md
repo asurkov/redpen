@@ -1,7 +1,7 @@
 ---
 name: redpen
-description: "Review this Claude Code session's file edits, change by change: on a page in the desktop app's Browser pane, the way Cursor shows its agent's edits (each file whole with red and green lines, Accept/Reject per change and per file, an Accepted view to revisit and unaccept, undo history, comments on lines that reach Claude at once or with the next message), or in Cursor itself as its own inline diffs with Undo/Keep. Use when the user invokes /redpen, or asks to review, accept or reject Claude's edits in Claude's own UI, or to see or review them in Cursor, \"Cursor style\", or as Cursor inline diffs."
-argument-hint: "[cursor] [--session ID] [--workspace ID] [--clear]"
+description: "Review this Claude Code session's file edits, change by change: on a page in the desktop app's Browser pane, the way Cursor shows its agent's edits (each file whole with red and green lines, Accept/Reject per change and per file, an Accepted view to revisit and unaccept, undo history, comments on lines that reach Claude at once or with the next message), or in Cursor itself as its own inline diffs with Undo/Keep; the page also reviews a git work tree's whole change against a commit (a CL made over several sessions, shell-made changes included). Use when the user invokes /redpen, or asks to review, accept or reject Claude's edits in Claude's own UI, or to see or review them in Cursor, \"Cursor style\", or as Cursor inline diffs."
+argument-hint: "[cursor | --git [REPO] [--base REV]] [--session ID] [--workspace ID] [--clear]"
 ---
 
 # redpen
@@ -23,7 +23,8 @@ this session, `http://127.0.0.1:7878/code/s/<session>/`. Open that URL in the Br
 (`preview_start` with `url`, or `navigate`) and tell the user it is open. Do not click Accept, Reject or
 Unaccept there yourself, nor press `a`: those are the user's.
 
-The page shows what the session's Edit and Write calls changed, not what a shell command changed.
+The page shows what the session's Edit and Write calls changed, not what a shell command changed;
+a [git review](#a-git-review) shows a work tree's every change.
 
 What to tell the user when it matters:
 - **Pending** is what is not accepted yet (accepted text → the file). **Accept** records a change as
@@ -62,6 +63,30 @@ Each comment names its file and lines and quotes them as the user saw them. A co
 text" or "of the file as it was before your edits" is on lines the file may no longer have.
 
 `--session <id>` prints another session's page; the server's index lists every session with a record.
+
+### A git review
+
+```bash
+python3 ~/.claude/skills/redpen/code/review.py --git [REPO] [--base REV]
+```
+
+The same page for a git work tree: every file that differs from a commit, whoever changed it and how
+(any session, a shell command, the user), untracked files included and ignored ones not. Use it for a
+whole change, such as a CL made over several sessions. `REPO` is a folder in the work tree (default: the
+current one). The base is the commit the work tree and `REV` both come from: `HEAD` (the default) for
+uncommitted work, `--base origin/main` for a branch with its commits. The script prints the page's URL,
+`http://127.0.0.1:7878/code/s/git-<folder>-<path hash>-<commit>/`; open it as above.
+
+- Pending, Accept, Reject, Accepted, Unaccept, History, comments and keys work as for a session, with
+  the base commit's text in place of the text before the session. Reject writes into the work tree;
+  git's index and commits are never written.
+- What was accepted stays accepted while the base commit is the same; another base commit (after a
+  commit with `--base HEAD`, or a rebase) is another review, with nothing accepted.
+- A file that changes after the page was opened appears when the page is reloaded or the command is
+  run again.
+- Comments reach the session that ran the command last, with the user's next message there. To take
+  them at once, keep `review.py --wait --session git-<…>` (the name in the URL) in the background,
+  beside the session's own wait.
 The page's editor is Monaco, in `code/vendor/monaco/`; `code/vendor/fetch_monaco.py` fetches it where it
 is missing.
 
@@ -167,3 +192,7 @@ then). The title is the one the desktop app shows, else the session's first prom
 Bash are not recorded. The review page keeps its own state beside them, in the record's `review/`
 folder; of the comments: `comments.json`, those waiting to be sent, `sent.jsonl`, the batches sent, and
 `handed.jsonl`, which of the batches Claude was handed and how (`base/channel.py` keeps it).
+
+A git review's record, `~/.redpen/code/git-<…>/`, has the same files, made by `review.py --git` from a
+commit, and `git.json` (repository, base commit, title, the session its comments reach) in place of
+`session.json`, so the Cursor sidebar and the Claude Edits pane do not list it.
