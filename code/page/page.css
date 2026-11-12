@@ -432,6 +432,29 @@ body.listHidden #splitter {
   color: var(--dim);
 }
 
+/* Claude's answer, while it is waited for. */
+.thread .entry.awaited > div:last-child {
+  color: var(--dim);
+  font-style: italic;
+}
+
+.thread .entry.awaited.taken > div:last-child::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: awaitedPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes awaitedPulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
 .thread textarea {
   box-sizing: border-box;
   width: 100%;

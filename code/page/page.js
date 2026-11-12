@@ -335,7 +335,7 @@ function drawViews() {
 }
 
 // How far the review is, in the work's own files: how many have nothing pending, of those the
-// review has; and the threads, with how many Claude answered last.
+// review has; and the threads, with how many Claude answered last and how many wait for its answer.
 function drawProgress() {
   const files = state.files.filter(file => !file.isOther && (file.pending || file.accepted));
   const done = files.filter(file => !file.pending).length;
@@ -344,7 +344,8 @@ function drawProgress() {
   byId('progress').textContent = [counted, state.isScanning ? 'looking for changed files…' : ''].filter(Boolean).join(' · ');
   const answered = state.threads.filter(thread => thread.entries.at(-1).by === 'claude').length;
   byId('threadsButton').hidden = !state.threads.length;
-  byId('threadsButton').textContent = `${state.threads.length} thread${state.threads.length === 1 ? '' : 's'}${answered ? `, ${answered} answered` : ''}`;
+  const awaited = state.threads.filter(thread => ['sent', 'taken'].includes(thread.entries.at(-1).state)).length;
+  byId('threadsButton').textContent = `${state.threads.length} thread${state.threads.length === 1 ? '' : 's'}${answered ? `, ${answered} answered` : ''}${awaited ? `, ${awaited} waiting` : ''}`;
 }
 
 // What the list and the waiting comments were last drawn from: a poll that found nothing new

@@ -14,6 +14,8 @@ const languageByName = { DEPS: 'python' };
 const barHeight = 24;
 // What is said of a comment of the user's nothing has followed yet.
 const stateWords = { draft: 'not sent yet', sent: 'sent, Claude has not taken it yet', taken: 'Claude has it' };
+// What stands in a thread for Claude's answer until it comes.
+const awaitedWords = { sent: 'Waiting for Claude to take it…', taken: 'Claude is answering…' };
 
 export function loaded() {
   return new Promise(resolve => {
@@ -394,6 +396,14 @@ export class DiffView {
         }
       }
     });
+    const last = thread.entries.at(-1);
+    if (last.by === 'user' && awaitedWords[last.state]) {
+      const row = box.appendChild(document.createElement('div'));
+      row.className = `entry claude awaited ${last.state}`;
+      row.appendChild(document.createElement('div')).className = 'head';
+      row.lastChild.appendChild(document.createElement('b')).textContent = 'Claude';
+      row.appendChild(document.createElement('div')).textContent = awaitedWords[last.state];
+    }
     const foot = document.createElement('div');
     foot.className = 'foot';
     if (this.reply?.thread === thread.id) {
