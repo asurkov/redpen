@@ -1600,15 +1600,11 @@ def main():
                    help='count what changed since REV as new since your last review (once: it is not kept for reruns)')
     p.add_argument('--serve', action='store_true')
     p.add_argument('--port', type=int, default=server.default_port, help="the server's port")
-    p.add_argument('--umbrella', action='store_true',
-                   help="run redpen's server here: what a LaunchAgent installed before ../base/server.py runs")
     p.add_argument('paths', nargs='*')
     for m in PLUGINS:
         if hasattr(m, 'add_args'):
             m.add_args(p)
     a = p.parse_args()
-    if a.umbrella:
-        return server.serve(a.port)
     if not shutil.which('pandoc'):
         sys.exit('pandoc not found: brew install pandoc')
     top = git(pathlib.Path(a.repo), 'rev-parse', '--show-toplevel').stdout.decode().strip()
