@@ -72,6 +72,8 @@ export class DiffView {
     this.threadZones = [];
     this.threadsDrawn = '';
     this.threadSizes = new ResizeObserver(entries => this.sizeThreads(entries));
+    // The height each thread's box was last seen with: what its zone starts from when drawn again.
+    this.threadHeights = new Map();
     // The threads shown, and the reply being written in one of them: {thread, text}.
     this.threads = [];
     this.reply = null;
@@ -283,14 +285,17 @@ export class DiffView {
       };
     }));
     this.threadSizes.disconnect();
+    // The zones are made again: the text must stay where the user has it.
+    const top = this.shown.getScrollTop();
     this.shown.changeViewZones(accessor => {
       this.threadZones.forEach(zone => accessor.removeZone(zone.id));
       this.threadZones = placed.map(({ thread, lines }) => {
         const zone = {
+          thread: thread.id,
           afterLineNumber: lines.end,
           // Under the change's bar, when both stand after one line.
           ordinal: 10002,
-          heightInPx: 34 + 36 * thread.entries.length,
+          heightInPx: this.threadHeights.get(thread.id) ?? 34 + 36 * thread.entries.length,
           domNode: this.threadNode(thread, lines),
           suppressMouseDown: true,
         };
@@ -299,9 +304,10 @@ export class DiffView {
       });
     });
     this.threadZones.forEach(zone => this.threadSizes.observe(zone.domNode.firstChild));
+    this.shown.setScrollTop(top);
     const input = this.threadZones.map(zone => zone.domNode.querySelector('textarea')).find(Boolean);
     if (input) {
-      focusLaidOut(input);
+      focusLaidOut(input, () => this.bringUp(input));
     }
   }
 
@@ -317,6 +323,14 @@ export class DiffView {
     this.mark(this.threads);
   }
 
+  // Scrolls the text up as far as an input under the editor's lower edge needs to be seen whole.
+  bringUp(input) {
+    const hidden = input.getBoundingClientRect().bottom + 40 - this.shown.getDomNode().getBoundingClientRect().bottom;
+    if (hidden > 0) {
+      this.shown.setScrollTop(this.shown.getScrollTop() + hidden);
+    }
+  }
+
   // Gives each thread's zone the height its box has now.
   sizeThreads(entries) {
     this.shown.changeViewZones(accessor => {
@@ -324,6 +338,7 @@ export class DiffView {
         const zone = this.threadZones.find(candidate => candidate.domNode.firstChild === target);
         const height = target.offsetHeight + 8;
         if (zone && height > 8 && zone.heightInPx !== height) {
+          this.threadHeights.set(zone.thread, height);
           zone.heightInPx = height;
           accessor.layoutZone(zone.id);
         }
@@ -611,11 +626,14 @@ export function button(parent, label, act, kind) {
 }
 
 // The editor lays a widget out a frame or two after it is added, and until then its input cannot
-// take the focus.
-function focusLaidOut(input, triesLeft = 30) {
-  input.focus();
-  if (document.activeElement !== input && triesLeft > 0) {
-    requestAnimationFrame(() => focusLaidOut(input, triesLeft - 1));
+// take the focus. The browser must not scroll the editor's own layers to the input: the editor
+// scrolls itself. Calls focused() a frame after the input has the focus.
+function focusLaidOut(input, focused, triesLeft = 30) {
+  input.focus({ preventScroll: true });
+  if (document.activeElement === input) {
+    requestAnimationFrame(() => focused?.());
+  } else if (triesLeft > 0) {
+    requestAnimationFrame(() => focusLaidOut(input, focused, triesLeft - 1));
   }
 }
 
