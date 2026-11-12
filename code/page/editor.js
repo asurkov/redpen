@@ -582,11 +582,14 @@ export class DiffView {
     }
     const node = document.createElement('div');
     node.className = 'commentWidget';
+    // One row of choices: the widget itself is as narrow as the editor lets it be.
+    const row = node.appendChild(document.createElement('div'));
+    row.className = 'offerRow';
     const selected = this.selectedSpans();
     for (const [action, label] of selected.length ? this.changeActions : []) {
-      button(node, `${label} selection`, () => this.handlers.act(action, selected));
+      button(row, label, () => this.handlers.act(action, selected));
     }
-    button(node, 'Comment', () => this.openBox(target), selected.length ? 'quiet' : '');
+    button(row, 'Comment', () => this.openBox(target));
     const { lineNumber, column } = this.shown.getSelection().getPosition();
     this.addWidget('offer', node, { lineNumber, column }, true);
   }

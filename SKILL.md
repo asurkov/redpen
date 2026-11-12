@@ -48,8 +48,8 @@ What to tell the user when it matters:
 - Keys: `n` and `p` (or `j` and `k`) step to the next and the previous change, past a file's last or
   first one into the neighbouring file. The current change is the one the cursor is in, with the
   tinted bar: `a` accepts it in Pending and unaccepts it in Accepted, `r` opens a comment on the
-  selected text, or else on it. Reject has no key. With lines selected, `a` and the "Accept
-  selection" / "Reject selection" buttons at the selection take only the selected lines of the
+  selected text, or else on it. Reject has no key. With lines selected, `a` and the Accept and
+  Reject buttons at the selection, beside Comment, take only the selected lines of the
   changes, whole lines; removed lines go with the lines on both sides of them. `t` and `Shift+t` step to the next and the
   previous thread, through every file's.
 - The header says how many files are reviewed (nothing of them pending) of those the review has; in

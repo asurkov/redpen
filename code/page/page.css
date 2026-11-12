@@ -524,12 +524,27 @@ body.listHidden #splitter {
   font: 1rem/1.5 system-ui, -apple-system, sans-serif;
 }
 
-.commentWidget > button {
+/* What the selection offers: one strip of choices with lines between them. */
+.offerRow {
+  display: flex;
+  width: max-content;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--ground);
   box-shadow: 0 1px 6px #0003;
 }
 
-.commentWidget > button + button {
-  margin-left: 4px;
+.offerRow button {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 1px 10px;
+  font-size: 12px;
+}
+
+.offerRow button + button {
+  border-left: 1px solid var(--line);
 }
 
 .commentBox {
