@@ -551,7 +551,8 @@ Claude's answers, show under the comment as **✎ Asked Claude · private** (not
 and its mark and the drafts count say when one waits or an answer is unread; a comment with asks opens in
 its card rather than its editor. A reworked draft in an answer offers **Use**, which puts it in place of
 the comment's text (✓ used), and **↶ Undo**, which brings that text back; ✎ Revise and Dismiss work as
-for any proposal.
+for any proposal. While a reworked draft is proposed, the asks fold under Discussion with Claude, as a
+drafted reply's do.
 
 `review.json` keeps each revisit's state by its time, `revisits: {<time>: {resolved, resolved_by, seen}}`,
 `resolved_by` `accept` when its change's accept resolved it, `seen` how many of its answers were read, and each proposal's by the time of the revisit that first proposed it and
@@ -584,7 +585,10 @@ says for a few seconds whether Claude is watching (or that it was copied to past
 request as Notes, Your reply or No notes. Claude's answer shows in the card under **✎ Drafted replies · private**,
 each draft with **Copy** (to paste as the reply there; Open in Google Docs ↗ or on GitHub ↗ goes to
 it), **✎ Revise** (a box under that draft) and **Dismiss**, as a draft for a comment of yours has Use. A
-polished reply shows its edits against your text, struck and inserted; Copy takes it clean. While a
+polished reply shows its edits against your text, struck and inserted; Copy takes it clean. Once a
+draft is ready to send (proposed), the thread shows only its latest one, with its actions, and folds the
+rest, the requests, Claude's notes and earlier drafts, under **▸ Discussion with Claude · N requests**,
+to open when needed (it stays open or shut as the page draws again). While a
 draft is pending the thread's mark is dashed, and a new one fills it until its card is opened; the
 header counts them with the revisits. Drafts belong to the thread, not the page: for Google Docs
 comments they are kept in one store beside the export, so the Google Docs page and the local edits page

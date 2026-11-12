@@ -65,6 +65,7 @@ STYLE = '''
 .rvfold{max-height:9em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 60%,transparent);mask-image:linear-gradient(#000 60%,transparent)}
 #rvp .rvmore,#rvp .rvmore:hover{border:0;background:none;color:var(--link);padding:0;height:auto;font-size:12px;cursor:pointer}
 .rvpr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:2px 0 10px} .rvpr .rvx{margin:0} .rvpr .rvm{margin-right:2px}
+.rvdisc>summary{font-size:12px;color:var(--muted);cursor:pointer;margin:2px 0 6px} .rvdisc[open]{opacity:.85}
 .rvgone{display:none} .rvstub{opacity:.65} .rvdup{opacity:.6} .rvrep>summary{font-size:12px;color:var(--muted);cursor:pointer} .rvrep[open]>blockquote{opacity:.7}
 .rvused{color:var(--insb)} #rvp .rvtwin,#rvc .rvtwin,#cp .rvtwin{color:var(--rw)}
 .rvok{display:inline-block;margin:0 3px;padding:0 5px;border-radius:9px;font:600 11px/15px -apple-system,BlinkMacSystemFont,sans-serif;vertical-align:2px;color:var(--insb);background:var(--ins);cursor:default;user-select:none;-webkit-user-select:none}
@@ -497,8 +498,17 @@ bd.append(...(own?[mk('blockquote',{textContent:own.quote})]:[]),...ghBodies(it,
 // answer offers Use, in its place. What you asked shows under the comment, private.
 const askDraft=c=>act('✎ Ask Claude','Ask Claude about this draft: “shorter”, “as a question”; a reworked draft comes back to use in its place',()=>{card.hidden=true;
 openRev({quote:c.body,el:elOf(c),key:c.key,fields:{comment:c.id,section:c.section,...(c.cts[0]?{thread:c.cts[0].time}:{})},context:'asks about your draft “'+short(c.body)+'”'});});
-const draftAsks=c=>c.cts.length?[mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:'✎ Asked Claude · private',title:'Between you and Claude'}),...c.cts.flatMap(t=>asks(t))]:[];
-const drafts=it=>it.rts.length?[mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:'✎ Drafted replies · private',title:'Between you and Claude, until you post one on '+it.src.source}),...it.rts.flatMap(t=>asks(t))]:[];
+const draftAsks=c=>c.cts.length?[mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:'✎ Asked Claude · private',title:'Between you and Claude'}),...discussion('c'+c.id,c.cts)]:[];
+const drafts=it=>it.rts.length?[mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:'✎ Drafted replies · private',title:'Between you and Claude, until you post one on '+it.src.source}),...discussion(it.rid,it.rts)]:[];
+// With a draft ready to send (proposed), threads show the latest one, with its actions and its box while
+// open, and fold the rest, the requests, Claude's notes and the earlier drafts, into a Discussion with
+// Claude, to open when needed; it stays open or shut as the page draws again (discOpen).
+const discOpen=new Set();
+function discussion(key,ts){const els=ts.flatMap(t=>asks(t)),w=mk('div');w.append(...els);const q=[...w.querySelectorAll('blockquote.rvcur')].pop();
+if(!q)return els;const keep=[q];for(let n=q.nextElementSibling;n&&n.matches('.rvpr,.rvbox');n=n.nextElementSibling)keep.push(n);
+const top=mk('div',{className:'rva'}),f=mk('details',{className:'rvdisc'}),n=ts.reduce((s,t)=>s+t.members.length,0),wait=ts.some(t=>t.wait);
+top.append(...keep);f.open=discOpen.has(key);f.ontoggle=()=>f.open?discOpen.add(key):discOpen.delete(key);
+f.append(mk('summary',{textContent:'Discussion with Claude · '+n+(n>1?' requests':' request')+(wait?' · one being answered':'')}),...w.childNodes);return[top,f];}
 // When each source was last read, and why not since; ↻ asks that source again where it can be asked
 // (refresh). A source being read in the background (busy) says so until its new copy comes in.
 function ghStatus(){return(data.remotes||[]).map(g=>{const r=mk('div',{className:'rvgs rvm'});
@@ -552,7 +562,7 @@ const c=it.reply&&act('Copy','Copy this reply, to paste in the thread',async()=>
 r.append(...(p.revising?[mk('span',{className:'rvm',textContent:'revising…'})]:[]),c||(it.draftOf?act('Use','In place of your draft (↶ Undo brings it back)',()=>save({id:it.draftOf,body:p.text,uses:[p.id]})):
 act('💬 Use','A new comment of this draft, open to edit',()=>use(it,[p],p.text))),
 act('✎ Revise','Ask Claude to rework this draft',()=>{if(!it.reply)return revise(it,p);opened.add(it.remote+'#'+p.id);const g=items.find(i=>i.kind==='g'&&i.rid===it.remote);if(g)reshow(g);}),
-act('Dismiss','Fold it away',()=>setProposal(p,'dismissed')));q.after(r);
+act('Dismiss','Fold it away',()=>setProposal(p,'dismissed')));q.after(r);q.classList.add('rvcur');
 // A drafted reply is revised in a box under it, as replies are asked for.
 if(it.reply&&opened.has(it.remote+'#'+p.id))r.after(box(it.remote+'#'+p.id,{rev:p,t:it}));}
 const state=it=>it.done?'resolved':it.wait?'pending':it.unread?'new answer':it.handled?'drafts handled':'answered';
