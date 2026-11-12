@@ -3,8 +3,11 @@
 Reject per change and per file.
 
 Usage: review.py [--session ID] [--port N]   start the server unless it runs; print the page's URL
-       review.py --prompt-hook               UserPromptSubmit hook: hands the session's waiting
-                                             comments to the model
+       review.py --wait [--session ID]       print the comments the page sent that nobody took, or
+                                             else wait for the next ones; Claude keeps it running in
+                                             the background
+       review.py --prompt-hook               UserPromptSubmit hook: hands the session's comments to
+                                             the model, those no waiting command took
 
 The server is redpen's (../base/server.py): it has the pages under /code/, lists the sessions in its
 index, and runs this file as it is on disk at each request.
@@ -18,8 +21,11 @@ measured from. Beside them, in the record's review/ folder, the page keeps:
   journal.json      what was accepted, rejected and unaccepted here, oldest first, each naming the text
                     it replaced and the text it wrote, so it can be undone and redone
   blobs/<sha256>    those texts
-  comments.json     the comments waiting for the session's next message
-  sent.json         the batches of comments the hook handed over, the last 50
+  comments.json     the comments waiting to be sent to Claude
+  sent.jsonl        the batches of comments sent, one per line: by the page's Send now, for the
+                    command Claude keeps waiting (--wait), or else by the hook, with the session's
+                    next message
+  handed.jsonl      which of them Claude was handed, and how (see ../base/channel.py)
 
 So a file has three texts: orig, base and disk (the file itself). Pending changes are base → disk:
 Accept moves one into base, Reject writes base's lines back into the file. Accepted changes are
@@ -182,6 +188,8 @@ class Review:
         self.session = session
         self.record = store / session
         self.folder = self.record / 'review'
+        # The log of the comments sent to Claude, kept by redpen's channel (../base/channel.py).
+        self.sent = self.folder / 'sent.jsonl'
 
     def entries(self):
         for entry in sorted((self.record / 'files').glob('*.json')):
@@ -238,8 +246,12 @@ class Review:
                 'isOther': any(file['path'].startswith(root) for root in other_roots),
             })
         info = read_json(self.record / 'session.json', {})
+        channel = shared('channel')
         return {'session': self.session, 'title': info.get('title') or 'Claude session', 'files': files,
-                'comments': self.comments()}
+                'comments': self.comments(),
+                # Whether Claude's command waits for comments now, and how many sent ones nobody took.
+                'isWatched': channel.watching(self.sent) == 'wait',
+                'untaken': sum(len(ask.get('comments') or []) for ask in channel.waiting(self.sent))}
 
     def opened(self, key):
         file = self.file(key)
@@ -371,12 +383,29 @@ class Review:
             'quote': str(body.get('quote') or '')[:4000],
             'text': text.strip()[:4000],
         }
-        write_atomic(self.folder / 'comments.json', json.dumps(self.comments() + [comment], indent=1).encode())
+        # Under the channel's lock, as the hook and Send now empty the file under it.
+        with shared('channel').locked(self.sent):
+            write_atomic(self.folder / 'comments.json', json.dumps(self.comments() + [comment], indent=1).encode())
         return comment
 
     def uncomment(self, comment_id):
-        left = [c for c in self.comments() if c.get('id') != comment_id]
-        write_atomic(self.folder / 'comments.json', json.dumps(left, indent=1).encode())
+        with shared('channel').locked(self.sent):
+            left = [c for c in self.comments() if c.get('id') != comment_id]
+            write_atomic(self.folder / 'comments.json', json.dumps(left, indent=1).encode())
+
+    def send_now(self):
+        """Sends the waiting comments to the command Claude keeps waiting for them (review.py --wait);
+        with none waiting, they stay for the session's next message."""
+        channel = shared('channel')
+        with channel.locked(self.sent):
+            comments = self.comments()
+            if not comments:
+                raise Refusal(409, 'No comment is waiting.')
+            if channel.watching(self.sent) != 'wait':
+                raise Refusal(409, 'Claude is not waiting for comments now: they go with your next message.')
+            channel.append(self.sent, {'comments': comments})
+            write_atomic(self.folder / 'comments.json', b'[]')
+        return {'sent': len(comments)}
 
 
 def fenced(text):
@@ -398,24 +427,42 @@ def described(comments):
 
 
 def prompt_hook():
-    """Hands the session's waiting comments to the model with the prompt being submitted, and clears
-    them. A failure never blocks the prompt: it goes to stderr and the exit status stays 0."""
+    """Hands the session's comments to the model with the prompt being submitted: the waiting ones,
+    and the sent ones no waiting command took. A failure never blocks the prompt: it goes to stderr
+    and the exit status stays 0."""
     try:
         session = json.load(sys.stdin).get('session_id', '')
-        if not re.fullmatch(r'[\w-]+', session) or not (store / session / 'review' / 'comments.json').is_file():
+        if not re.fullmatch(r'[\w-]+', session):
             return
-        review = Review(session)
-        waiting = review.comments()
-        if not waiting:
+        folder = store / session / 'review'
+        if not (folder / 'comments.json').is_file() and not (folder / 'sent.jsonl').is_file():
             return
-        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': described(waiting)}}))
-        sys.stdout.flush()
-        # Kept, so a batch the prompt did not carry after all can be read back.
-        sent = read_json(review.folder / 'sent.json', []) + [{'time': now(), 'comments': waiting}]
-        write_atomic(review.folder / 'sent.json', json.dumps(sent[-50:], indent=1).encode())
-        write_atomic(review.folder / 'comments.json', b'[]')
+        review, channel = Review(session), shared('channel')
+        with channel.locked(review.sent):
+            comments, asks = review.comments(), channel.waiting(review.sent)
+            told = [comment for ask in asks for comment in ask.get('comments') or []] + comments
+            if not told:
+                return
+            print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': described(told)}}))
+            sys.stdout.flush()
+            # Kept in the log, so a batch the prompt did not carry after all can be read back.
+            if comments:
+                asks.append(channel.append(review.sent, {'comments': comments}))
+                write_atomic(review.folder / 'comments.json', b'[]')
+            channel.mark(review.sent, asks, 'prompt')
     except Exception as e:
         print(f'redpen review hook: {e!r}', file=sys.stderr)
+
+
+def wait(session):
+    """Prints the comments the page sent that nobody took, or else waits for the next ones, and ends:
+    Claude keeps it running in the background while the user reviews, and starts it again each time."""
+    try:
+        review = Review(session)
+    except Refusal:
+        sys.exit(f'No record of session {session!r}: it edited no file yet, or --session names no session.')
+    review.folder.mkdir(parents=True, exist_ok=True)
+    shared('channel').wait([review.sent], lambda ask: print(described(ask.get('comments') or [])))
 
 
 def sessions():
@@ -435,7 +482,8 @@ def listed_reviews():
     rows = []
     for s in sessions():
         folder = store / s['session']
-        marks = [folder / 'session.json', folder / 'review/journal.json', folder / 'review/comments.json']
+        marks = [folder / 'session.json', folder / 'review/journal.json', folder / 'review/comments.json',
+                 folder / 'review/sent.jsonl']
         rows.append({'name': s['title'], 'href': f's/{s["session"]}/',
                      'counts': [f'{s["files"]} file{"" if s["files"] == 1 else "s"}'],
                      'when': max((f.stat().st_mtime for f in marks if f.exists()), default=0)})
@@ -532,7 +580,7 @@ def get(h, path):
 
 
 def post(h, path, body):
-    found = re.fullmatch(r'/api/([\w-]+)/(apply|flip|comment|uncomment)', path)
+    found = re.fullmatch(r'/api/([\w-]+)/(apply|flip|comment|uncomment|send)', path)
     if not found:
         raise Refusal(404, 'Not found.')
     review = Review(found.group(1))
@@ -542,6 +590,8 @@ def post(h, path, body):
         return send_json(h, review.flip(body.get('id')))
     if found.group(2) == 'comment':
         return send_json(h, review.comment(body))
+    if found.group(2) == 'send':
+        return send_json(h, review.send_now())
     review.uncomment(body.get('id'))
     send_json(h, {})
 
@@ -551,10 +601,13 @@ def main():
     parser.add_argument('--session', default=os.environ.get('CLAUDE_CODE_SESSION_ID', ''))
     parser.add_argument('--port', type=int)
     parser.add_argument('--prompt-hook', action='store_true')
+    parser.add_argument('--wait', action='store_true')
     args = parser.parse_args()
     # The hook reads the record alone, and no change to the server's code can fail it.
     if args.prompt_hook:
         return prompt_hook()
+    if args.wait:
+        return wait(args.session)
     server = shared('server')
     port = args.port or server.default_port
     if not server.running(port):

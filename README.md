@@ -10,7 +10,7 @@ comments handed back to the agent. Written for Claude Code and packaged as its s
 | `prose/` | the changes to a repo's documents: Markdown, ReSpec specs, a GitHub PR | a local page; its own skill, `/docdiff` |
 
 `base/` is what the two share: so far the server, one for both parts' pages (127.0.0.1:7878), with one
-index of every review.
+index of every review, and the channel that hands a page's comments and requests to the agent.
 
 ## What is tied to Claude Code
 
@@ -20,18 +20,19 @@ before the session's first edit), and `prose/` reviews what git has. The ends ar
 | | `code/` | `prose/` |
 |---|---|---|
 | What records the changes | `recorder.py`, a Claude Code hook on its edit tools | nothing: git has them |
-| How a comment reaches the agent | `review.py --prompt-hook`, a Claude Code hook: the comment goes with the user's next message | a command the skill has Claude keep waiting on the review's `revisit.jsonl` |
+| How a comment reaches the agent | `review.py --wait`, a command the skill has Claude keep waiting: the page's Send now hands it over at once; else `review.py --prompt-hook`, a Claude Code hook, with the user's next message | `base/channel.py --wait`, a command the skill has Claude keep waiting on the review's `revisit.jsonl` |
 | Where the state is kept | `~/.claude/cursordiff/<session>/`, under Claude Code's session id | `~/.docdiff/<name>/` |
 
 For another agent those ends have to be written: something that saves a file's text before the agent's
-first edit to it, and a way to hand the agent a comment. Neither exists yet.
+first edit to it, which does not exist yet, and a way to hand the agent a comment: `base/channel.py
+--wait` prints them for any agent that can keep a command running.
 
 ## code/
 
 | File | What |
 |---|---|
 | `recorder.py` | the hook that records a session's edits: each file's baseline, in `~/.claude/cursordiff/<session>/` |
-| `review.py` | answers the review page's requests (`/code/…` on the server), and is the hook that hands the page's comments to Claude |
+| `review.py` | answers the review page's requests (`/code/…` on the server), and hands the page's comments to Claude: `--wait`, the command Claude keeps waiting, and `--prompt-hook`, the hook |
 | `page/` | the review page |
 | `cursor.py` | writes the record into Cursor as its inline diffs |
 | `extension/` | the Claude Edits sidebar for Cursor |
@@ -52,6 +53,7 @@ reviews' addresses and its state.
 | File | What |
 |---|---|
 | `server.py` | the server (127.0.0.1:7878): the index of every review, `/code/…` handed to `code/review.py` and the rest to `prose/docdiff.py`, each run as it is on disk; `--restart`, `--stop`, and `--install-agent` for a LaunchAgent that keeps it running |
+| `channel.py` | the channel from a page to the agent: the asks a page sends, kept in a log (`prose/`'s `revisit.jsonl`, `code/`'s `sent.jsonl`), each handed over once, with `handed.jsonl` beside it saying by what; `--wait` prints the asks nobody was handed, or waits for the next |
 
 ## Setup
 

@@ -35,6 +35,9 @@ const state = {
   view: 'pending',
   files: [],
   comments: [],
+  // Whether Claude's command waits for comments now, and how many sent ones it has not taken.
+  isWatched: false,
+  untaken: 0,
   // The open file: its key, what the server sent for it, and its signature then.
   key: null,
   opened: null,
@@ -84,6 +87,8 @@ async function refresh() {
   const listing = await asked('/files');
   state.files = listing.files.sort((a, b) => a.isOther - b.isOther || a.path.localeCompare(b.path));
   state.comments = listing.comments;
+  state.isWatched = listing.isWatched;
+  state.untaken = listing.untaken;
   byId('title').textContent = listing.title;
   document.title = `${listing.title} · Claude Edits`;
   drawViews();
@@ -265,14 +270,20 @@ async function drawJournal() {
   byId('journal').replaceChildren(...rows);
 }
 
-// The comments waiting for the next message to Claude.
+// The comments waiting for the next message to Claude, with Send now while Claude's command waits
+// for them, and how many of the sent ones Claude has not taken.
 function drawWaiting() {
-  const { comments } = state;
-  if (JSON.stringify(comments) === drawn.waiting) {
+  const { comments, isWatched, untaken } = state;
+  const drawing = JSON.stringify({ comments, isWatched, untaken });
+  if (drawing === drawn.waiting) {
     return;
   }
-  drawn.waiting = JSON.stringify(comments);
-  byId('waiting').hidden = !comments.length;
+  drawn.waiting = drawing;
+  byId('waiting').hidden = !comments.length && !untaken;
+  byId('sendButton').hidden = !isWatched || !comments.length;
+  byId('untaken').hidden = !untaken;
+  byId('untaken').textContent = `${untaken} sent, not taken by Claude yet`;
+  byId('waitingButton').hidden = !comments.length;
   byId('waitingButton').textContent = `${comments.length} comment${comments.length === 1 ? '' : 's'} for Claude: sent with your next message`;
   byId('waitingList').replaceChildren(...comments.map(comment => {
     const row = document.createElement('li');
@@ -291,6 +302,18 @@ function drawWaiting() {
     }), 'quiet').title = 'Delete the comment';
     return row;
   }));
+}
+
+function sendNow() {
+  return queued(async () => {
+    try {
+      const { sent } = await asked('/send', {});
+      toast(`Sent ${sent} comment${sent === 1 ? '' : 's'} to Claude`);
+    } catch (error) {
+      toast(error.message);
+    }
+    await refresh();
+  });
 }
 
 function comment(target) {
@@ -386,6 +409,7 @@ async function main() {
   }));
   byId('historyClose').addEventListener('click', () => (byId('history').hidden = true));
   byId('waitingButton').addEventListener('click', () => (byId('waitingList').hidden = !byId('waitingList').hidden));
+  byId('sendButton').addEventListener('click', sendNow);
   document.addEventListener('keydown', event => {
     if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp') && state.key) {
       event.preventDefault();

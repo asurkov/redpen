@@ -1,6 +1,6 @@
 ---
 name: redpen
-description: "Review this Claude Code session's file edits, change by change: on a page in the desktop app's Browser pane, the way Cursor shows its agent's edits (each file whole with red and green lines, Accept/Reject per change and per file, an Accepted view to revisit and unaccept, undo history, comments on lines that reach Claude with the next message), or in Cursor itself as its own inline diffs with Undo/Keep. Use when the user invokes /redpen, or asks to review, accept or reject Claude's edits in Claude's own UI, or to see or review them in Cursor, \"Cursor style\", or as Cursor inline diffs."
+description: "Review this Claude Code session's file edits, change by change: on a page in the desktop app's Browser pane, the way Cursor shows its agent's edits (each file whole with red and green lines, Accept/Reject per change and per file, an Accepted view to revisit and unaccept, undo history, comments on lines that reach Claude at once or with the next message), or in Cursor itself as its own inline diffs with Undo/Keep. Use when the user invokes /redpen, or asks to review, accept or reject Claude's edits in Claude's own UI, or to see or review them in Cursor, \"Cursor style\", or as Cursor inline diffs."
 argument-hint: "[cursor] [--session ID] [--workspace ID] [--clear]"
 ---
 
@@ -34,16 +34,28 @@ What to tell the user when it matters:
 - **All** is everything the session changed, pending or accepted, with no buttons.
 - **History** lists every accept, reject and unaccept with Undo/Redo. An entry whose text changed
   since is greyed out.
-- A comment (select text → Comment, or Comment under a change) waits in the strip at the bottom and
-  goes to Claude with the user's next message in that session, through the `UserPromptSubmit` hook
-  `python3 ~/.claude/skills/redpen/code/review.py --prompt-hook` in `~/.claude/settings.json`.
-  Without that hook the comments stay in the strip.
+- A comment (select text → Comment, or Comment under a change) waits in the strip at the bottom.
+  While Claude's waiting command runs (below), the strip has **Send now**, which hands the comments to
+  Claude at once. Otherwise they go to Claude with the user's next message in that session, through
+  the `UserPromptSubmit` hook `python3 ~/.claude/skills/redpen/code/review.py --prompt-hook` in
+  `~/.claude/settings.json`; without that hook they stay in the strip.
 - Files under `~/.claude` and temporary folders are listed apart, under "other".
 - The page follows the files: an edit by Claude or the user shows up within two seconds.
 
-When a `UserPromptSubmit` hook hands you comments from this page, each names its file and lines and
-quotes them as the user saw them; answer or act on each. A comment "of the accepted text" or "of the
-file as it was before your edits" is on lines the file may no longer have.
+**Waiting for comments.** After opening the page, keep one background Bash command
+(`run_in_background`) waiting for the comments the user sends from it:
+
+```bash
+python3 ~/.claude/skills/redpen/code/review.py --wait
+```
+
+It prints the comments sent with Send now and ends; those sent between one wait and the next are
+printed by the next as it starts. When it ends with comments, start it again at once, then answer or
+act on each. A comment reaches you once: from this command, or from the `UserPromptSubmit` hook with
+the user's next message.
+
+Each comment names its file and lines and quotes them as the user saw them. A comment "of the accepted
+text" or "of the file as it was before your edits" is on lines the file may no longer have.
 
 `--session <id>` prints another session's page; the server's index lists every session with a record.
 The page's editor is Monaco, in `code/vendor/monaco/`; `code/vendor/fetch_monaco.py` fetches it where it
@@ -109,8 +121,8 @@ in editor windows. `install.py --uninstall` removes it.
 
 `base/server.py` is one server for both parts, on `127.0.0.1:7878`: the review pages under `/code/`,
 docdiff's reviews under `/<name>/`, and at http://127.0.0.1:7878/ one index of both, the last active
-first. It runs a part's code as it is on disk, loading a changed script again at the next request, so
-only a change to `base/server.py` itself needs a restart:
+first. It runs a part's code as it is on disk, loading a changed script, plugin or other module of
+`base/` again at the next request, so only a change to `base/server.py` itself needs a restart:
 
 ```bash
 python3 -I ~/.claude/skills/redpen/base/server.py --restart
@@ -129,4 +141,5 @@ path, and whether the session created the file) and `base/<key>` (the file's bas
 the session's first edit to it, or as last kept or accepted; a file the session created has none until
 then). The title is the one the desktop app shows, else the session's first prompt. Edits made through
 Bash are not recorded. The review page keeps its own state beside them, in the record's `review/`
-folder.
+folder; of the comments: `comments.json`, those waiting to be sent, `sent.jsonl`, the batches sent, and
+`handed.jsonl`, which of the batches Claude was handed and how (`base/channel.py` keeps it).

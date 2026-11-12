@@ -428,6 +428,11 @@ body.listHidden #splitter {
   padding: 3px 6px;
 }
 
+#untaken {
+  padding: 0 9px;
+  color: var(--dim);
+}
+
 #waitingList {
   max-height: 30vh;
   overflow: auto;

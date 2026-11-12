@@ -17,8 +17,9 @@ A part answers through functions of its script:
                        when} and, where the part has them, what, link, counts and where
   framed(path)         optional: whether a GET of path is also answered under the name localhost
 
-The server runs a part's code as it is on disk: once the part's script or one of its plugins changes,
-the next request loads it again (see live()). Only a change to this file needs a restart.
+The server runs a part's code as it is on disk: once the part's script, one of its plugins or another
+module of the base changes, the next request loads it again (see live()). Only a change to this file
+needs a restart.
 """
 import argparse, html, http.server, importlib.util, json, os, pathlib, plistlib, shlex, shutil, signal
 import subprocess, sys, threading, time, traceback, urllib.parse, urllib.request
@@ -56,20 +57,24 @@ def stamp():
 
 
 def sources(part):
-    """A part's script and its plugins, each with its time: when these change, live() loads the code
-    again."""
+    """A part's script, its plugins and the base's other modules, each with its time: when these
+    change, live() loads the code again."""
     script = scripts[part]
-    return [(str(f), f.stat().st_mtime_ns) for f in [script, *sorted((script.parent / 'plugins').glob('*.py'))]]
+    shared = [f for f in sorted((root / 'base').glob('*.py')) if f.name != 'server.py']
+    return [(str(f), f.stat().st_mtime_ns) for f in [script, *sorted((script.parent / 'plugins').glob('*.py')), *shared]]
 
 
 def live(part):
-    """A part's code as it is on disk now: its script as a module, loaded again once the script or a
-    plugin has changed, or a plugin came or went, so new code runs without a restart. Code that does
+    """A part's code as it is on disk now: its script as a module, loaded again once one of its
+    sources() has changed, or one came or went, so new code runs without a restart. Code that does
     not load goes to the log, and the code before it goes on; None while there is none."""
     now = sources(part)
     with loading:
         was = loaded.get(part)
         if not was or was[0] != now:
+            # The base's modules a part has loaded (see shared() there) are loaded again with it.
+            for name in [name for name in sys.modules if name.startswith('redpen_base_') and name != module_name]:
+                del sys.modules[name]
             spec = importlib.util.spec_from_file_location(f'redpen_{part}', now[0][0])
             module = importlib.util.module_from_spec(spec)
             # A script's plugins find it there.

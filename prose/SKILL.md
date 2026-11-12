@@ -123,7 +123,7 @@ The server writes both into the review's dir, `<out>`:
   `seen` yet, gets one on the next build, unchanged; on a base move it carries over by its changes' words
   around them once more. (`accepted.json`, the older store of accepted change keys, seeds the copy once
   with the changes that still match.)
-- `revisit.jsonl` — one request per line: `time`, `file`, `section`, `quote`, `view`, `prompt`, `key` (the
+- `revisit.jsonl` — one request per line: `time`, `id`, `file`, `section`, `quote`, `view`, `prompt`, `key` (the
   change's, for a revisit of a change) and `text` (the prompt as copied to the clipboard). One asked from a
   thread ([Review comments](#review-comments)) also has `thread`, its thread's first revisit's time: a
   follow-up (Ask more) quotes the thread's text, a revision of a drafted comment also has `revises` (the
@@ -146,7 +146,7 @@ The server writes both into the review's dir, `<out>`:
   with a shared store (`store()`: gdoc_comments.py's is `<export>-replies/`, beside the export) keeps
   its reply requests there, not in the page's out dir, so every page showing its comments shares the
   drafts: such a line has `store`, and its answer goes to `<store>/answers.jsonl`. Watch the store's
-  revisit.jsonl for them, besides each page's.
+  revisit.jsonl for them, besides each page's: it is one more argument of the waiting command.
   Open each reply with the request as sent, since the chat does not show it: the section and the quote
   as a blockquote, then the prompt, e.g. `> **Terms** · "visits a monetized document."` and
   `> monetized document or monetized page?`.
@@ -166,14 +166,19 @@ The server writes both into the review's dir, `<out>`:
   ([Review comments](#review-comments)), and what was pushed to the PR ([GitHub PR](#github-pr), Pushing). When the user says they left comments, read them there.
 
 **Watching for revisits.** While the user reviews, keep one background Bash command (`run_in_background`)
-waiting for the next request. It has no time limit, unlike Monitor, and it touches `<out>/watcher` every
-second: on Send the page checks that file, says "sent, Claude is watching" while it is fresh, and
-otherwise copies the prompt for the user to paste. The command exits with the new request; handle it,
-append the answer to `answers.jsonl`, then start the next wait at once.
+waiting for the next request. It has no time limit, unlike Monitor. It prints each request nobody was
+handed, as its line of `revisit.jsonl`, and exits; one sent between a wait and the next is printed by
+the next as it starts. While it waits, the page says "sent, Claude is watching" on Send; with nobody
+waiting, the page copies the prompt for the user to paste, and no later wait prints that request. When
+the command exits, start the next wait at once, then handle each request and append its answer to
+`answers.jsonl`.
 
 ```bash
-sh -c 'd=$HOME/.docdiff/<name>; f=$d/revisit.jsonl; touch "$f"; n=$(($(wc -l < "$f"))); while [ $(($(wc -l < "$f"))) -le $n ]; do touch "$d/watcher"; sleep 1; done; tail -n +$((n+1)) "$f"'
+python3 -I ~/.claude/skills/redpen/base/channel.py --wait ~/.docdiff/<name>/revisit.jsonl
 ```
+
+The command is redpen's channel (`base/channel.py`), which keeps `handed.jsonl` beside each
+`revisit.jsonl`: which requests were handed over, and how.
 
 ## Review rounds
 
@@ -332,7 +337,7 @@ in the background, apart from the command, so it outlives the command and the se
 log is `~/.docdiff/server.log`. It answers on `127.0.0.1` and, for spec renders, on `localhost`, and to
 no other name for the address.
 
-The server runs docdiff's code as it is on disk: once `docdiff.py` or a plugin changes, the next request
+The server runs docdiff's code as it is on disk: once `docdiff.py`, a plugin or `base/channel.py` changes, the next request
 loads it again (code that does not load goes to the log, and the code before it goes on). Only a change
 to the server itself (`base/server.py`) needs a restart:
 

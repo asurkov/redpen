@@ -887,13 +887,11 @@ catch(e){const a=document.createElement('textarea');a.value=t;body.append(a);a.s
 // The request as Claude reads it: what it is about (a plugin may lead it its own way: lead), the quote, the ask.
 async function send(){const ask=rt.value.trim();if(!ask||!req)return;
 const text=(req.lead||W.prompt+repo+'/'+req.file+(req.section?', section "'+req.section+'"':'')+(req.view==='old'?' (old version)':''))+':\\n> '+req.quote.replace(/\\n/g,'\\n> ')+'\\n\\n'+ask;
-let queued=true;try{await post('revisit',{...req,prompt:ask,text});}catch(e){queued=false;}
-// A watcher touches the file every second while it waits; with none, the clipboard is the way in.
-const watched=queued&&await watching();
+let queued=true,got={};try{got=await post('revisit',{...req,prompt:ask,text});}catch(e){queued=false;}
+// The server says whether Claude is watching (watched); with nobody, the clipboard is the way in.
+const watched=queued&&got.watched;
 closeRev();pos.textContent=W.sent+': '+(watched?'sent, Claude is watching':await copy(text)?
 'copied; nobody is watching, paste it in the chat':'not sent: nobody is watching and copying failed');}
-async function watching(){try{const r=await fetch('watcher',{method:'HEAD'});
-return r.ok&&Date.now()-new Date(r.headers.get('Last-Modified'))<5000;}catch(e){return false;}}
 rev.onmousedown=e=>e.preventDefault();rev.onclick=()=>openRev(grab());
 $('rs').onclick=send;$('rc').onclick=closeRev;
 rt.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send();}if(e.key==='Escape')closeRev();});
@@ -1508,9 +1506,9 @@ def review_post(h, out, lock):
                 return h.send_error(409, str(e))
             reply = {}
         elif h.path == '/revisit':
-            with open(out / 'revisit.jsonl', 'a') as f:
-                f.write(json.dumps({'time': time.strftime('%Y-%m-%dT%H:%M:%S'), **req}, ensure_ascii=False) + '\n')
-            reply = {}
+            # Through redpen's channel (../base/channel.py), which knows who hands it to Claude.
+            _, watcher = shared('channel').asked(out / 'revisit.jsonl', req, unwatched='clipboard')
+            reply = {'watched': bool(watcher)}
         elif h.path == '/commit':
             try:
                 data, code = commit_accepted(out, req).encode(), 200

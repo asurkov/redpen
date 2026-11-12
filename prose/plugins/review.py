@@ -466,11 +466,12 @@ async function sendBox(x,mode){const ask=x.ta.value.trim();if(!ask&&mode!=='draf
 quote=o.rev?o.rev.text:threadText(it),lead=o.rev?'Revise this reply drafted for a thread on '+o.t.file:leadFor(it,mode,x.weigh,!!ask);
 const r={file:(it||o.t).file,section:'',quote,view:cur,key:null,remote:o.rev?o.t.remote:it.rid,thread:o.rev?o.t.time:it.rts[0]?.time,lead,prompt:ask,
 ...(o.rev?{revises:o.rev.id}:{mode,weigh:x.weigh})},text=lead+':\\n> '+quote.replace(/\\n/g,'\\n> ')+(ask?'\\n\\n'+ask:'');
-// It goes to the store shared by every page showing the thread (see state()), where Claude watches.
-let queued=true,st=null;try{st=await post('review',{reply:{...r,text}});take(st);}catch(e){queued=false;}
+// It goes to the store shared by every page showing the thread (see state()); the answer says whether
+// Claude is watching there (watched).
+let queued=true,seen=false;try{const{watched,...st}=await post('review',{reply:{...r,text}});take(st);seen=watched;}catch(e){queued=false;}
 x.close();
 // How it went shows in the thread's card for a few seconds: the header's own line is redrawn too often.
-const src=r.remote.split(':')[0],seen=queued&&(st.stores?.[src]?st.stores[src].watched:await watching()),copied=!seen&&await copy(text);
+const copied=!seen&&await copy(text);
 sentNote.set(r.remote,seen?'sent, Claude is watching':(queued?'saved, but nobody is watching: ':'not saved: ')+(copied?'copied, paste it in the chat':'tell Claude'));
 const g=items.find(i=>i.kind==='g'&&i.rid===r.remote);if(g)reshow(g);setTimeout(()=>{sentNote.delete(r.remote);const g=items.find(i=>i.kind==='g'&&i.rid===r.remote);if(g)reshow(g);},6000);}
 const sentNote=new Map();
@@ -799,9 +800,8 @@ def post(out, path, req):
     if req.get('reply'):
         r = dict(req['reply'])
         d = stores(run).get(str(r.get('remote') or '').partition(':')[0]) or out
-        with open(d / 'revisit.jsonl', 'a') as f:
-            f.write(json.dumps({'time': time.strftime('%Y-%m-%dT%H:%M:%S'), **r, 'store': str(d)}, ensure_ascii=False) + '\n')
-        return state(run)
+        _, watcher = docdiff.shared('channel').asked(d / 'revisit.jsonl', {**r, 'store': str(d)}, unwatched='clipboard')
+        return {**state(run), 'watched': bool(watcher)}
     with lock:
         doc = load(out)
         cs = doc['comments']
@@ -874,7 +874,8 @@ def state(run, refresh=None, source=None):
                                                     'thread', 'revises', 'remote', 'mode', 'weigh', 'comment')},
                           'answers': answers.get(r.get('time'), []), **doc['revisits'].get(r.get('time'), {})}
                          for r in revisit_records(run)],
-            # Whether Claude is watching each shared store, for a reply request sent there.
+            # Whether Claude is watching each shared store: read by the pages built before a reply request's
+            # answer said so itself (watched).
             'stores': {src: {'watched': (d / 'watcher').exists() and time.time() - (d / 'watcher').stat().st_mtime < 5}
                        for src, d in stores(run).items()}}
 
