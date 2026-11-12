@@ -2,7 +2,8 @@
 """Render a repo's uncommitted Markdown changes against a base revision as one inline-diff page.
 
 Usage: docdiff.py [--repo PATH] [--base REV] [--head REV] [--name NAME] [--out DIR] [--new-label TEXT]
-                  [--publish CMD] [--reviewed-at REV] [--serve] [--port N] [plugins' options] [paths...]
+                  [--publish CMD] [--reviewed-at REV] [--project NAME --link PART FROM TO] [--serve] [--port N]
+                  [plugins' options] [paths...]
 
 paths are pathspecs relative to the repo root (default: every *.md, and the files plugins make docs of).
 
@@ -23,6 +24,12 @@ The page's header says what is compared (a plugin's title(), or else commits or 
 and names both sides: a revision with its commit, or the working tree; --new-label TEXT names the new
 side instead, for a working tree that stands for something else.
 
+--project NAME with --link PART FROM TO makes the review one link between two versions of a project's docs,
+FROM and TO in words ("my edits", "committed", "Google Docs"). A project's reviews are one page, /<NAME>/:
+each link's diff is at /<NAME>/<PART>/, under a strip of the versions that says what each link has left
+(see links(), flow()), and a change accepted on one link before it is committed comes to the next link
+accepted (see hand_on()). A rerun without the two keeps the review in its project.
+
 --publish CMD puts "publish accepted" in the header while any file has accepted changes; it publishes
 each such file in turn. For each, it writes the accepted copy as Markdown and runs CMD in a shell, {file} replaced by the file's name and {target} by
 that Markdown's path; CMD is to publish it and bring the base up to date, after which the accepted copy
@@ -32,7 +39,7 @@ Plugins, the modules in plugins/, add their own arguments, docs and buttons (see
 respec.py diffs ReSpec specs, gdoc_comments.py shows a Google Doc's comments (--comments), github_pr.py
 links changes to a GitHub PR (--pr), review.py keeps review comments and shows revisits' answers.
 """
-import argparse, base64, difflib, hashlib, html, http.server, importlib.util, json, mimetypes, os, pathlib
+import argparse, base64, difflib, hashlib, html, http.server, importlib.util, itertools, json, mimetypes, os, pathlib
 import re, shlex, shutil, subprocess, sys, threading, time, urllib.parse, webbrowser
 
 # Every review's dir, <name>, and the clones of PRs' repos (clones/); the server's log. DOCDIFF_HOME
@@ -41,6 +48,9 @@ HOME = pathlib.Path(os.environ.get('DOCDIFF_HOME') or pathlib.Path.home() / '.do
 NAME = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_.-]*')
 # No review's names: the clones' dir, and where the server has the reviews of code (/code/…).
 RESERVED = ('clones', 'code')
+# A link's part of its project's address: no dot, so it is no file of a review's dir; and not src, which
+# localhost may read (see framed()).
+PART = re.compile(r'(?!src$)[A-Za-z0-9_][A-Za-z0-9_-]*')
 
 # Tags, entities, words and single punctuation marks, each with its trailing space: "nothing," and
 # "nothing" share the word.
@@ -70,7 +80,8 @@ ALGORITHM = re.compile(r'<div\s(?:[^>]*?\s)?class="(?:[^"]*\s)?algorithm[\s"]')
 
 
 def git(repo, *args, check=True):
-    r = subprocess.run(['git', '-C', str(repo), *args], capture_output=True)
+    # No optional locks: a page's polls must not hold the index against a command that needs it.
+    r = subprocess.run(['git', '--no-optional-locks', '-C', str(repo), *args], capture_output=True)
     if check and r.returncode:
         sys.exit(f'git {" ".join(args)}: {r.stderr.decode().strip()}')
     return r
@@ -609,11 +620,21 @@ def by_key(ps, side=3):
     return out
 
 
-def carry(copy, seen, old_html, new_html):
+def back(ps, x, end):
+    """Where position x of a diff's new side is on its old side, as across() through the text the diff left
+    alone; inside a change, where that change starts there, or ends, for the end of a stretch."""
+    at = [p for p in ps if p[3] <= x <= p[4]]
+    near = [p for p in at if p[3] == p[4] or (p[3] < x if end else x < p[4])] or at
+    return (max if end else min)(min(o0 + x - n0, o1) if not k else o1 if end else o0 for k, o0, o1, n0, n1 in near)
+
+
+def carry(copy, seen, old_html, new_html, agreed=False):
     """The accepted copy once the head (or the base) has moved from seen: each change of base to head that
     the move left alone, and that was reviewed at seen, stays reviewed, found by where it is (its text
     traced back through what the move left alone) rather than by its words; one the move touched comes
-    back to review, whole, and so does one that was still to review."""
+    back to review, whole, and so does one that was still to review. A move that was itself reviewed and
+    accepted (agreed: see arrived()) brings its changes in accepted: a change it touched is reviewed too,
+    unless it reaches into text that was still to review at seen."""
     moved = places(block_diff(seen, new_html, 'x'))
     hit = [(s, e) for k, _, _, s, e in moved if k]
     todo = [(s, e) for k, _, _, s, e in places(block_diff(copy, seen, 'x')) if k]
@@ -621,7 +642,9 @@ def carry(copy, seen, old_html, new_html):
     keep = set()
     for k, ss in by_key(places(diffed)).items():
         then = [(across(moved, s), across(moved, e)) for s, e in ss]
-        if not meets(ss, hit) and all(None not in t for t in then) and not meets(then, todo):
+        if meets(ss, hit):
+            then = [(back(moved, s, False), back(moved, e, True)) for s, e in ss] if agreed else [(None, None)]
+        if all(None not in t for t in then) and not meets(then, todo):
             keep.add(k)
     return apply(diffed[2], 'old', keep)
 
@@ -655,6 +678,10 @@ body{background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSy
 main{max-width:920px;margin:0 auto;padding:16px 16px 40vh;overflow-wrap:anywhere}
 header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);padding:8px 16px;z-index:1;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:14px}
 .what a,.files a{color:var(--fg);font-weight:600} .n{color:var(--muted)}
+.flow{flex:1 0 100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.flow .node{font-weight:600} .flow .ln{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted);text-decoration:none}
+.flow .ln b{color:var(--fg);font-weight:600} .flow .ln i{font-style:normal} .flow .ln:hover{border-color:var(--muted)}
+.flow .ln.on{background:var(--fg);border-color:var(--fg);color:var(--bg)} .flow .ln.on b{color:var(--bg)}
 .what{display:flex;align-items:baseline;gap:10px;padding:10px 16px 0;font-size:13px;white-space:nowrap} .what b{flex:none;font-size:15px}
 .what .n{min-width:0;overflow:hidden;text-overflow:ellipsis} .files{padding:2px 16px 8px;font-size:14px} .files:empty{display:none}
 button:disabled{opacity:.4;cursor:default}
@@ -841,7 +868,18 @@ const web=/^https?:/.test(a.getAttribute('href'));
 if(web&&!['127.0.0.1','localhost'].includes(new URL(a.href).hostname)){e.preventDefault();
 fetch('open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:a.href})})
 .then(r=>{if(!r.ok)throw new Error(r.status);}).catch(()=>window.open(a.href,'_blank','noopener'));return;}
-if(!a.closest('main'))return;e.preventDefault();if(web)window.open(a.href,'_blank','noopener');},true);
+if(!a.closest('main')||a.classList.contains('lnk'))return;e.preventDefault();if(web)window.open(a.href,'_blank','noopener');},true);
+// A link to another of the project's links (class lnk: the strip of versions, a doc's counts) opens it at
+// the doc being read, at the paragraph on the reading line (near: how it starts; by: how far the line is
+// into it), or else as far into the doc.
+const leaves=s=>[...s.querySelectorAll('.v-'+cur+' :is(p,li,h1,h2,h3,h4,h5,h6,pre,tr)')].filter(x=>x.offsetParent&&!x.querySelector('p,li,pre,tr'));
+const reads=(x,drop)=>{const y=x.cloneNode(true);y.querySelectorAll(drop).forEach(z=>z.remove());return y.textContent.replace(/\\s+/g,' ').trim();};
+document.addEventListener('click',e=>{const a=e.target.closest('a.lnk');if(!a)return;a.dataset.href=a.dataset.href||a.getAttribute('href');
+if(a.dataset.href.includes('#'))return;const at=place();let to='';
+if(at&&at.r>0){const s=[...document.querySelectorAll('section')].find(s=>s.dataset.file===at.file);
+const x=leaves(s).find(x=>x.getBoundingClientRect().bottom>80),near=x&&(reads(x,'del')||reads(x,'ins')).slice(0,48);
+to='#file='+encodeURIComponent(at.file)+'&at='+at.r.toFixed(3)+(near?'&near='+encodeURIComponent(near)+'&by='+Math.round(80-x.getBoundingClientRect().top):'');}
+a.setAttribute('href',a.dataset.href+to);},true);
 // Clicks on the page's controls (plugins mark theirs .ui) are not clicks on the text.
 document.addEventListener('click',e=>{if(e.target.closest('header,.what,.files,#pop,.panel,.ui')||!getSelection().isCollapsed)return;
 // A removed block's summary only folds and unfolds it.
@@ -923,11 +961,16 @@ document.readyState==='complete'?back():addEventListener('load',back);}
 setInterval(()=>fetch('build.json').then(r=>r.json()).then(b=>{if(b.id!==body.dataset.build&&!document.querySelector('.panel:not([hidden])'))location.reload();}).catch(()=>{}),1500);
 restore();filter(filt);
 // A link to #file=<name> (from gdocsync's docs list, say) opens the page at that doc, just below the header,
-// and &view=<view> in that view, or with the filter that view was before (review, acc, diff).
+// or &at=<part of it, 0 to 1> into it, or at its paragraph that starts &near, the reading line &by pixels
+// into it (of the ones that start so, the one nearest &at); and &view=<view> in that view, or with the
+// filter that view was before (review, acc, diff).
 {const at=()=>{const q=new URLSearchParams(location.hash.slice(1)),want=q.get('file')||'',s=want&&[...document.querySelectorAll('section')].find(s=>s.dataset.file===want);
 if(!want)return;history.replaceState(null,'',location.pathname);const v=q.get('view');
 if(was[v]){view('diff');filter(was[v],false);}else if(views.includes(v))view(v);
-const go=()=>scrollTo(0,s.getBoundingClientRect().top+scrollY-document.querySelector('header').offsetHeight-8);
+const r=Math.min(1,Math.max(0,parseFloat(q.get('at'))||0)),near=q.get('near');
+const go=()=>{const sb=s.getBoundingClientRect(),off=x=>Math.abs((x.getBoundingClientRect().top-sb.top)/Math.max(1,sb.height)-r);
+const x=near&&leaves(s).filter(x=>['del','ins','none'].some(d=>reads(x,d).startsWith(near))).sort((a,b)=>off(a)-off(b))[0];
+scrollTo(0,scrollY+(x?x.getBoundingClientRect().top+(parseFloat(q.get('by'))||0)-80:sb.top+(r?r*sb.height-80:-document.querySelector('header').offsetHeight-8)));};
 if(s)document.readyState==='complete'?go():addEventListener('load',go);};at();addEventListener('hashchange',at);}
 '''
 
@@ -1006,12 +1049,36 @@ def next_round(repo, base, head, out, name, old, new, rnd, seen, old_html, new_h
     if 'last' not in rnd:
         rnd['last'] = rnd['seen']
         (acc / f'{name}.last.html').write_text(seen)
-    text = carry(copy, seen, old_html, new_html)
+    text = carry(copy, seen, old_html, new_html, arrived(out, name, seen, new_html))
     save_copy(repo, base, out, name, text)
     rnd['seen'] = {'id': head_id(repo, head, new_html), 'time': now()}
     (acc / f'{name}.seen.html').write_text(new_html)
     save_round(out, name, rnd)
     return text, None
+
+
+def ident(page):
+    """A rendered version by its words alone: the same for one text rendered two ways, as a repo's Markdown
+    and an export's plain text of it are."""
+    return hashlib.sha1(''.join(re.findall(r'\w+', text(page))).encode()).hexdigest()
+
+
+def arrived(out, name, seen, new_html):
+    """Whether the file's move from seen to new_html is one reviewed and accepted on the link before this one
+    (accept once: see hand_on(), which notes such moves in accepted/<file>.arrived.json). It is when the
+    moves noted lead from seen to new_html; those are then done with. A move to anything else drops the
+    note; one of the base alone leaves it."""
+    mark = out / 'accepted' / f'{name}.arrived.json'
+    if not mark.exists() or ident(seen) == ident(new_html):
+        return False
+    chain = json.loads(mark.read_text())
+    led = bool(chain) and chain[0]['old'] == ident(seen) and all(a['new'] == b['old'] for a, b in zip(chain, chain[1:]))
+    at = next((i for i, x in enumerate(chain) if x['new'] == ident(new_html)), None) if led else None
+    if at is None or not chain[at + 1:]:
+        mark.unlink()
+    else:
+        mark.write_text(json.dumps(chain[at + 1:]))
+    return at is not None
 
 
 def round_of(out, name):
@@ -1067,8 +1134,9 @@ def see(repo, head, out, name, new_html):
         save_round(out, name, rnd)
 
 
-# What a file's accepted copy and round are kept in, beside each other in accepted/.
-COPY_FILES = ('.html', '.base', '.round.json', '.seen.html', '.last.html')
+# What a file's accepted copy and round are kept in, beside each other in accepted/, with the moves that
+# come to it accepted (see hand_on()).
+COPY_FILES = ('.html', '.base', '.round.json', '.seen.html', '.last.html', '.arrived.json')
 # Rounds' backups kept, the last ones.
 BACKUPS = 20
 
@@ -1162,7 +1230,7 @@ def plugin_actions(actors, old, new, pieces):
 
 
 def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=None, publish=False, actors=()):
-    sections, nav, words, pubs, commits, waiting, counts = [], [], WORDS[bool(head)], [], [], [], [0, 0]
+    sections, nav, words, pubs, commits, waiting, counts, per = [], [], WORDS[bool(head)], [], [], [], [0, 0], {}
     waiting_for = lambda k, name, wait: (f'<section id="f{k}" data-file="{html.escape(name)}"><div class="file">{html.escape(name)}'
                                          f' <span class=state>· {html.escape(wait[0])}</span></div>{wait[1]}</section>')
     for k, (old, new) in enumerate(files):
@@ -1190,6 +1258,7 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         fresh, boxes, since = news(last, new_html, k, diffed) if last is not None else ({}, {}, '')
         counts[0] += todo
         counts[1] += accepted
+        per[name] = [todo, accepted]
         state = 'new file' if not old else 'deleted' if not new else f'renamed from {old}' if old != new else ''
         sid = f'f{k}'
         label = html.escape(name)
@@ -1221,6 +1290,8 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
                         f'{f"<span class=fbar>{bar}</span>" if bar else ""}</div>'
                         f'{view("diff", body)}{view("old", plain(old_html, "new file"))}{view("new", plain(new_html, "deleted"))}'
                         f'</section>')
+    # This build's counts, for what is made of the run from here on: the strip of versions, plugins' tops.
+    run['counted'] = {'todo': counts[0], 'done': counts[1], 'files': per}
     what, href = compared(run)
     shown = f'<a href="{html.escape(href)}" target="_blank" rel="noopener">{html.escape(what)}</a>' if href else html.escape(what)
     # The two sides in short (the old one's subject and the working tree's path only in the title).
@@ -1250,7 +1321,7 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
 <title>{html.escape(title)}</title><style>{STYLE}{"".join(getattr(m, 'STYLE', '') for m in PLUGINS)}</style></head><body class="show-diff" data-view="diff" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
 <div class="what"><b>{shown}</b><span class="n" title="{html.escape(sides_title)}">{html.escape(sides)}</span></div>
 <div class="files">{files}</div>
-<header><span id="filt" class="seg step">{filt}</span><button id="fresh" class="step" aria-pressed="false"></button><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑<span class="lbl"> prev</span></button><button id="next" class="step" data-key="n" title="Next change (n or j)"><span class="lbl">next change </span>↓</button></span>
+<header>{flow(run)}<span id="filt" class="seg step">{filt}</span><button id="fresh" class="step" aria-pressed="false"></button><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑<span class="lbl"> prev</span></button><button id="next" class="step" data-key="n" title="Next change (n or j)"><span class="lbl">next change </span>↓</button></span>
 <span id="pos" class="n"></span><button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button>{pub}{cmt}
 <span id="views" class="seg" data-key="v" title="v cycles the views: the diff, and the old and new versions clean">{seg}</span></header>
 <main>{page_top(run)}{"".join(sections)}</main>
@@ -1261,7 +1332,7 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
 <div id="pop" hidden><button id="pa">✓</button><button id="pr" title="{words['revisit_key']}">✎</button><button id="psn" hidden></button></div>
 <div id="since" class="ui" hidden></div>
 <script type="application/json" id="words">{json.dumps(words, ensure_ascii=False)}</script>
-<script>{SCRIPT}{"".join(getattr(m, 'SCRIPT', '') for m in PLUGINS)}</script></body></html>''', len(sections), counts
+<script>{SCRIPT}{"".join(getattr(m, 'SCRIPT', '') for m in PLUGINS)}</script></body></html>''', len(sections), counts, per
 
 
 def compared(run):
@@ -1293,12 +1364,13 @@ def rebuild(out):
     files, named = files_for(repo, run['base'], run.get('head'), run['paths'])
     build_id = str(time.time_ns())
     actors = [f for f in (m.actions(run) for m in PLUGINS if hasattr(m, 'actions')) if f]
-    page, shown, (todo, done) = build(repo, run['base'], run.get('head'), files, build_id, out, named, run,
-                                      run.get('new_label'), bool(run.get('publish')), actors)
+    page, shown, (todo, done), per = build(repo, run['base'], run.get('head'), files, build_id, out, named, run,
+                                           run.get('new_label'), bool(run.get('publish')), actors)
     # Each written whole and then swapped in, so a page that reloads meanwhile never gets half of one. The
-    # counts are for the index of reviews.
-    for name, text in (('index.html', page), ('build.json', json.dumps({'id': build_id, 'from': fingerprint(run),
-                                                                        'todo': todo, 'done': done}))):
+    # counts, each file's too, are for the index of reviews and for the project's other links, whose counts
+    # this page was made with (see refresh()).
+    for name, text in (('index.html', page), ('build.json', json.dumps(
+            {'id': build_id, 'from': fingerprint(run), 'todo': todo, 'done': done, 'files': per, 'with': beside(run)}))):
         (out / f'{name}.tmp').write_text(text)
         (out / f'{name}.tmp').replace(out / name)
     return repo, run['base'], shown
@@ -1320,6 +1392,152 @@ def fingerprint(run):
         except OSError:
             marks.append(line)
     return ' '.join(revs) + '|' + '|'.join(marks)
+
+
+def reviews():
+    """Every review in HOME, (dir, run), by name: one whose dir is elsewhere (--out) once, by the name its
+    link in HOME has; one whose run cannot be read is left out."""
+    for d in sorted(HOME.iterdir()) if HOME.is_dir() else []:
+        try:
+            run = json.loads((d / '.run.json').read_text())
+        except (OSError, ValueError):
+            continue
+        if NAME.fullmatch(d.name) and run.get('name', d.name) == d.name:
+            yield d, run
+
+
+def built(out):
+    """A review's last build, as build.json keeps it; {} before the first."""
+    try:
+        return json.loads((out / 'build.json').read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def links(project):
+    """A project's reviews, [(dir, run)], each a link between two versions of the project's docs (--link PART
+    FROM TO), as the versions flow: a link into a version before the links out of it, and the project's
+    own review first among the links into one. A review whose repo is gone (a session's worktree,
+    removed) is no link any more."""
+    found = [(d, run) for d, run in reviews() if run.get('project') == project and run.get('link')
+             and pathlib.Path(run['repo']).is_dir()] if project else []
+    to = {run['link'][1]: run['link'][2] for _, run in found}
+
+    def ahead(v, seen=()):
+        return 0 if v not in to or v in seen else 1 + ahead(to[v], (*seen, v))
+    return sorted(found, key=lambda x: (-ahead(x[1]['link'][1]), x[1]['link'][2], x[0].name != project, x[0].name))
+
+
+def linked(run):
+    """The links of the run's project in that order, for the strip of versions and for plugins: each one's
+    part of the address, its two versions, whether it is the run's own, what it does with accepted changes
+    (commit, publish or nothing), and its counts, each file's too ({file: [to review, accepted]}): the
+    run's own from the build being made, the others' from their last (None before it). A link with
+    nothing left gives way to another into the same version, unless it is the run's own."""
+    found, first = [], {}
+    for d, r in links(run.get('project')):
+        mine = r.get('name') == run.get('name')
+        b = run.get('counted') if mine and run.get('counted') else built(d)
+        b = b if 'files' in b else {}
+        found.append({'part': r['link'][0], 'from': r['link'][1], 'to': r['link'][2], 'current': mine,
+                      'action': 'commit' if r.get('commit') and not r.get('head') else 'publish' if r.get('publish') else None,
+                      'commits': bool(r.get('head')), 'todo': b.get('todo'), 'done': b.get('done'), 'files': b.get('files', {})})
+        first.setdefault(r['link'][2], found[-1])
+    return [x for x in found if x['current'] or x['todo'] or x['done'] or first[x['to']] is x]
+
+
+def left(x, name=None):
+    """What a link (of linked()) has left, in words, of all its docs or of the one named: what is to review,
+    then what is accepted, by what comes of it next: 'to commit' once its doc has nothing to review (a
+    commit takes whole docs), 'to publish'; 'in step' with neither."""
+    if x['todo'] is None:
+        return ['not built yet']
+    per = [x['files'].get(name, [0, 0])] if name else list(x['files'].values())
+    todo, done = (sum(c[i] for c in per) for i in (0, 1))
+    ready = sum(d for t, d in per if not t) if x['action'] == 'commit' else done if x['action'] == 'publish' else 0
+    counts = [(todo, 'to review'), (ready, f'to {x["action"]}'), (done - ready, WORDS[x['commits']]['accepted'])]
+    return [f'{n} {w}' for n, w in counts if n] or ['in step']
+
+
+def flow(run):
+    """The strip of a project's versions, first in the page's header: each link a chip from its version to
+    the next, with what it has left (see left()), the page's own filled; a click swaps the diff below for
+    that link's. Nothing for a review in no project."""
+    e, out, last = html.escape, [], None
+    for to, group in itertools.groupby(linked(run), key=lambda x: x['to']):
+        for x in group:
+            words = e(', '.join(left(x)))
+            # A link out of the version just named needs no name of its own.
+            source = f'<b>{e(x["from"])}</b>' if x['from'] != last else ''
+            out.append(f'<a class="ln lnk{" on" if x["current"] else ""}" href="../{e(x["part"])}/" '
+                       f'title="{e(x["from"])} → {e(to)}: {words}">{source}<span>{words}</span><i>→</i></a>')
+        out.append(f'<span class="node">{e(to)}</span>')
+        last = to
+    return f'<nav class="flow ui">{"".join(out)}</nav>' if out else ''
+
+
+def beside(run):
+    """What a page shows of its project's other links, which its build is made with too: their counts."""
+    return [[x['part'], x['from'], x['to'], x['todo'], x['done'], x['files']] for x in linked(run) if not x['current']]
+
+
+def refresh(out, run):
+    """Rebuilds the review's page when its repo has moved on since the build (a commit, an edit, a new
+    export), or, in a project, when another link's counts have: those links first, each when its own
+    repo has moved on, so the strip shows no count that link's page would not."""
+    for d, r in links(run.get('project')):
+        if r.get('name') != run.get('name') and ('files' not in built(d) or built(d).get('from') != fingerprint(r)):
+            # One link that cannot be built (its base gone, say) leaves the others their pages.
+            try:
+                rebuild(d)
+            except (Exception, SystemExit):
+                pass
+    b = built(out)
+    if b.get('from') != fingerprint(run) or b.get('with', []) != beside(run):
+        rebuild(out)
+
+
+def opening(project):
+    """The part a project's page opens on: its first link, as the versions flow, that has changes to review
+    or accepted ones to hand on; the last one when none has."""
+    found = links(project)
+    return next((r for d, r in found if built(d).get('todo') or built(d).get('done')), found[-1][1])['link'][0]
+
+
+def hand_on(run, moves):
+    """Accept once: the files a commit just moved from one text to another, every change accepted (moves:
+    {file: (ident() before, after)}), are noted on the project's next links, the ones out of the version
+    this link leads to, in accepted/<file>.arrived.json. When the move shows up there (after an export,
+    say), its changes come accepted (see arrived(), carry()), so what was reviewed before the commit is
+    not reviewed again before it is published. A next link takes the note when its new side is the text
+    the move starts from, or its last note ends there; its accepted copy and round are started for it,
+    as the note is about the text that round has seen. Any other loses its note."""
+    for d, r in links(run.get('project')):
+        if r.get('name') == run.get('name') or r['link'][1] != run['link'][2]:
+            continue
+        try:
+            repo, base, head = pathlib.Path(r['repo']), r['base'], r.get('head')
+            files = {new or old: (old, new) for old, new in files_for(repo, base, head, r['paths'])[0]}
+            for name, (was, then) in moves.items():
+                mark = d / 'accepted' / f'{name}.arrived.json'
+                chain = json.loads(mark.read_text()) if mark.exists() else []
+                if name not in files:
+                    continue
+                if not chain or chain[-1]['new'] != was:
+                    old, new = files[name]
+                    old_html, new_html, wait = htmls(repo, base, head, old, new, d)
+                    copy, wait = (None, wait) if wait else accepted_html(repo, base, head, d, old, new, old_html, new_html)
+                    if wait or ident(new_html) != was:
+                        mark.unlink(missing_ok=True)
+                        continue
+                    if not (d / 'accepted' / f'{name}.html').exists():
+                        save_copy(repo, base, d, name, copy)
+                    see(repo, head, d, name, new_html)
+                    chain = []
+                mark.write_text(json.dumps(chain + [{'old': was, 'new': then, 'time': now()}]))
+        # One link that cannot be read leaves the commit, and the other links, as they are.
+        except (Exception, SystemExit):
+            continue
 
 
 def move(out, req, accept):
@@ -1401,7 +1619,7 @@ def commit_accepted(out, req):
     repo, base, head = pathlib.Path(run['repo']), run['base'], run.get('head')
     if not run.get('commit') or head:
         raise LookupError('this page does not commit')
-    names = [str(n) for n in req.get('files') or []]
+    names, moves = [str(n) for n in req.get('files') or []], {}
     files = {new or old: (old, new) for old, new in files_for(repo, base, head, run['paths'])[0]}
     for n in names:
         if n not in files:
@@ -1411,6 +1629,7 @@ def commit_accepted(out, req):
         copy, wait = (None, wait) if wait else accepted_html(repo, base, head, out, old, new, old_html, new_html)
         if wait or block_diff(copy, new_html, 'c')[1] or not block_diff(old_html, copy, 'c')[1]:
             raise LookupError(f'{n}: not every change in it is accepted')
+        moves[n] = (ident(old_html), ident(new_html))
     if not names:
         raise LookupError('nothing to commit')
     message = str(req.get('message') or '').strip() or 'Update ' + ', '.join(names)
@@ -1418,7 +1637,7 @@ def commit_accepted(out, req):
         r = subprocess.run(['git', '-C', str(repo), *args], capture_output=True, text=True)
         if r.returncode:
             raise RuntimeError((r.stdout + r.stderr).strip() or f'git {args[0]} failed')
-    done = f"committed {git(repo, 'log', '-1', '--format=%h %s').stdout.decode().strip()}"
+    done, landed = f"committed {git(repo, 'log', '-1', '--format=%h %s').stdout.decode().strip()}", True
     if run.get('commit_into'):
         into, sha = run['commit_into'], git(repo, 'rev-parse', 'HEAD').stdout.decode().strip()
         r = subprocess.run(['git', '-C', into, 'cherry-pick', sha], capture_output=True, text=True)
@@ -1426,8 +1645,11 @@ def commit_accepted(out, req):
             subprocess.run(['git', '-C', into, 'cherry-pick', '--abort'], capture_output=True)
             why = [l for l in (r.stdout + r.stderr).splitlines() if l.startswith(('CONFLICT', 'error', 'fatal'))]
             done += f'; not landed on {into}, it stays on this session\'s branch: ' + (why[0] if why else 'git cherry-pick failed')
+            landed = False
         else:
             done += f"; landed on {into} as {git(pathlib.Path(into), 'log', '-1', '--format=%h').stdout.decode().strip()}"
+    if landed and run.get('project'):
+        hand_on(run, moves)
     if run.get('after_commit'):
         with open(out / 'after-commit.log', 'w') as log:
             subprocess.Popen(run['after_commit'], shell=True, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -1437,44 +1659,83 @@ def commit_accepted(out, req):
 
 def framed(path):
     """Whether a GET of path is answered on localhost too, where specs render (respec.py): a review's
-    sources alone, so a spec's own scripts read no review's state. Only the page posts: a spec's render
+    sources alone (/<name>/src/…, or /<project>/<part>/src/… of a project's link, no part being src), so a
+    spec's own scripts read no review's state. Only the page posts: a spec's render
     frame is on localhost, another origin, though the same server."""
-    return bool(re.fullmatch(r'/[^/]*/src/.*', path))
+    m = re.fullmatch(r'/([^/]*)/([^/]*)/src/.*', path)
+    return bool(re.fullmatch(r'/[^/]*/src/.*', path) or m and any(r['link'][0] == m.group(2) for _, r in links(m.group(1))))
 
 
 def respond(h, method):
     """A request redpen's server (../base/server.py) hands on, in docdiff's code as it is now: /<name>/… is
-    a review's: the files in its dir and its routes (see review_get(), review_post()). Where the request
-    comes from, the server has checked (see framed())."""
+    a review's: the files in its dir and its routes (see review_get(), review_post()). A project's reviews
+    (--project, --link) are at /<project>/<part>/… instead, each link at its part, and /<project>/ opens
+    the first of them with work (see opening()); a link's review asked for by its own name leads there
+    too. Where the request comes from, the server has checked (see framed())."""
     url = urllib.parse.urlsplit(h.path)
+    query = f'?{url.query}' if url.query else ''
     m = re.fullmatch(r'/([^/]*)(/.*)?', url.path)
-    out = HOME / m.group(1) if m and NAME.fullmatch(m.group(1)) else None
-    if not out or not (out / '.run.json').is_file():
+    if not m or not NAME.fullmatch(m.group(1)):
         return h.send_error(404, 'no such review')
-    if m.group(2) is None:
-        h.send_response(301)
-        h.send_header('Location', f'{url.path}/' + (f'?{url.query}' if url.query else ''))
+
+    def lead(code, where):
+        h.send_response(code)
+        h.send_header('Location', where + query)
         h.send_header('Content-Length', '0')
-        return h.end_headers()
-    h.path, h.directory = m.group(2) + (f'?{url.query}' if url.query else ''), str(out)
-    # Rebuilds and posts take turns, per review.
-    lock = h.server.locks.setdefault(out.name, threading.Lock())
+        h.end_headers()
+
+    def moved(path, where):
+        """What is left at an address a review had before it was a project's link: its page leads to the
+        link's, and a page still open there reloads into that (it asks for build.json)."""
+        if path in ('/', '/index.html'):
+            return lead(302, where())
+        if path == '/build.json':
+            return send(h, 200, json.dumps({'id': 'moved'}).encode(), 'application/json')
+        h.send_error(404, 'no such review')
+    first, rest = m.group(1), m.group(2)
+    if rest is None:
+        return lead(301, f'{url.path}/')
+    found = links(first)
+    if found:
+        part, slash, rest = rest[1:].partition('/')
+        out = next((d for d, r in found if r['link'][0] == part), None)
+        lock = h.server.locks.setdefault(first, threading.Lock())
+        if not out:
+            def where():
+                # The counts that pick the link are the repos' as they are now.
+                with lock:
+                    refresh(*found[0])
+                return f'/{first}/{opening(first)}/'
+            return moved(f'/{part}', where)
+        if not slash:
+            return lead(301, f'{url.path}/')
+        rest = f'/{rest}'
+    else:
+        out = HOME / first
+        try:
+            run = json.loads((out / '.run.json').read_text())
+        except (OSError, ValueError):
+            return h.send_error(404, 'no such review')
+        if any(d.name == first for d, _ in links(run.get('project'))):
+            return moved(rest, lambda: f'/{run["project"]}/{run["link"][0]}/')
+        # Rebuilds and posts take turns, per review, or per project: a link's page shows the other links' counts.
+        lock = h.server.locks.setdefault(first, threading.Lock())
+    h.path, h.directory = rest + query, str(out)
     if method == 'HEAD':
         return http.server.SimpleHTTPRequestHandler.do_HEAD(h)
     (review_post if method == 'POST' else review_get)(h, out, lock)
 
 
 def review_get(h, out, lock):
-    """A GET in a review: build.json, rebuilt first if the repo has moved on; a plugin's route (see
-    load_plugins); or else a file in its dir."""
+    """A GET in a review: its page or build.json, rebuilt first if the repo has moved on (see refresh());
+    a plugin's route (see load_plugins); or else a file in its dir."""
     url = urllib.parse.urlsplit(h.path)
     run = json.loads((out / '.run.json').read_text())
     # An open page asks for build.json every second or two: when the repo has moved on since the
     # build, rebuild first, so the page reloads into what the repo now holds.
-    if url.path == '/build.json':
+    if url.path in ('/', '/index.html', '/build.json'):
         with lock:
-            if json.loads((out / 'build.json').read_text()).get('from') != fingerprint(run):
-                rebuild(out)
+            refresh(out, run)
     got = next(filter(None, (m.get(run, urllib.parse.unquote(url.path), url.query)
                              for m in PLUGINS if hasattr(m, 'get'))), None)
     if not got:
@@ -1542,29 +1803,41 @@ def send(h, code, data, mime):
 def listed_reviews():
     """The reviews, for the server's index: each one's name, where its page is, what it compares and from
     where, its counts (to review and reviewed, and the plugins' counts()), and when it was last active (run,
-    accepted, commented, asked or answered)."""
-    rows = []
-    for d in HOME.iterdir() if HOME.is_dir() else []:
-        try:
-            run = json.loads((d / '.run.json').read_text())
-        except (OSError, ValueError):
-            continue
-        # A review whose dir is elsewhere (--out) shows once, by the name its link in HOME has.
-        if not NAME.fullmatch(d.name) or run.get('name', d.name) != d.name:
-            continue
+    accepted, commented, asked or answered). A project's reviews are one row: its versions as they flow,
+    and each link's counts."""
+    rows, projects = [], {}
+    for d, run in reviews():
         # One review that cannot be read (its repo gone, say) leaves the others listed.
         try:
             what, link = compared(run)
-            b = json.loads((d / 'build.json').read_text()) if (d / 'build.json').exists() else {}
-            counts = ([f'{b["todo"]} to review', f'{b["done"]} {WORDS[bool(run.get("head"))]["accepted"]}'] if 'todo' in b else []) + \
-                     [w for m in PLUGINS if hasattr(m, 'counts') for w in m.counts(run) or []]
+            b = built(d)
+            counts = ([f'{b["todo"]} to review', f'{b["done"]} {WORDS[bool(run.get("head"))]["accepted"]}'] if 'todo' in b else [])
+            more = [w for m in PLUGINS if hasattr(m, 'counts') for w in m.counts(run) or []]
         except (Exception, SystemExit) as x:
-            what, link, counts = f'not readable: {x}', None, []
+            what, link, counts, more = f'not readable: {x}', None, [], []
         when = max(f.stat().st_mtime for f in [d / '.run.json', *(d / n for n in ('review.json', 'revisit.jsonl', 'answers.jsonl')),
                                                  *d.glob('accepted/*')] if f.exists())
         where = ' · '.join([str(run.get('repo', '')).replace(str(pathlib.Path.home()), '~', 1), *run.get('paths', [])])
-        rows.append({'name': d.name, 'href': f'{d.name}/index.html', 'when': when, 'what': what, 'link': link,
-                     'counts': counts, 'where': where})
+        project = run.get('project')
+        if not any(x == d for x, _ in links(project)):
+            rows.append({'name': d.name, 'href': f'{d.name}/index.html', 'when': when, 'what': what, 'link': link,
+                         'counts': counts + more, 'where': where})
+            continue
+        if project not in projects:
+            xs, chain, last = linked({'project': project}), [], None
+            for to, group in itertools.groupby(xs, key=lambda x: x['to']):
+                chain += [', '.join(x['from'] for x in group if x['from'] != last), to]
+                last = to
+            projects[project] = {'name': project, 'href': f'{project}/', 'when': when, 'what': ' → '.join(filter(None, chain)),
+                                 'link': None, 'counts': [f'{x["from"]} → {x["to"]}: {", ".join(left(x))}' for x in xs],
+                                 'where': where}
+            rows.append(projects[project])
+        row = projects[project]
+        row['when'] = max(row['when'], when)
+        row['counts'] += [w for w in more if w not in row['counts']]
+        # The project's own review is of its repo; another link's may be of a copy or a worktree.
+        if d.name == project:
+            row['where'] = where
     return {'title': 'Documents', 'rows': rows,
             'note': f'Every review in {str(HOME).replace(str(pathlib.Path.home()), "~", 1)}, the last active first.'}
 
@@ -1591,6 +1864,12 @@ def main():
     p.add_argument('--name', help="the review's name: its dir is ~/.docdiff/<name> and its page /<name>/ (default: "
                                   "--out's dir name, or else the repo's name, with --pr and the PR's number)")
     p.add_argument('--out', help="the review's dir, elsewhere than ~/.docdiff/<name>, which then links to it")
+    p.add_argument('--project', help="the project this review is a link of (with --link): its page is then "
+                                     "/<project>/<part>/, under the strip of the project's versions")
+    p.add_argument('--link', nargs=3, metavar=('PART', 'FROM', 'TO'),
+                   help="the review as a link of its project: its part of the address, then in words the version "
+                        "its changes come from (the new side) and the one they go to (the old side): edits "
+                        "'my edits' committed")
     p.add_argument('--new-label')
     p.add_argument('--publish')
     p.add_argument('--commit', action='store_true')
@@ -1619,9 +1898,24 @@ def main():
     if name in RESERVED:
         sys.exit(f'{name} names no review: name this one with --name')
     out = pathlib.Path(a.out) if a.out else HOME / name
-    was = json.loads((out / '.run.json').read_text()).get('repo') if (out / '.run.json').exists() else None
-    if was and was != str(repo):
-        sys.exit(f'{out} is the review of {was}: name this one with --name')
+    before = json.loads((out / '.run.json').read_text()) if (out / '.run.json').exists() else {}
+    if before.get('repo', str(repo)) != str(repo):
+        sys.exit(f'{out} is the review of {before["repo"]}: name this one with --name')
+    # Run again without them, a review stays the link of its project that it was.
+    project, part = (a.project, a.link) if a.project or a.link else (before.get('project'), before.get('link'))
+    if bool(project) != bool(part):
+        sys.exit('--project and --link go together')
+    if not project and links(name):
+        sys.exit(f'{name} is a project, of other reviews: name this one with --name')
+    if project:
+        if not NAME.fullmatch(project) or project in RESERVED:
+            sys.exit(f'--project {project}: a name as --name takes')
+        if not PART.fullmatch(part[0]):
+            sys.exit(f'--link {part[0]}: letters, digits, _ and -, starting with a letter, digit or _; not src')
+        if project != name and (HOME / project / '.run.json').exists() and not any(d.name == project for d, _ in links(project)):
+            sys.exit(f'{project} is a review, in no project of that name: name the project otherwise')
+        if any(r['link'][0] == part[0] and d.name != name for d, r in links(project)):
+            sys.exit(f'--link {part[0]}: another review is that link of {project}')
     out.mkdir(parents=True, exist_ok=True)
     # A dir elsewhere is served by a link to it in HOME, by the review's name.
     link = HOME / name
@@ -1633,19 +1927,21 @@ def main():
         HOME.mkdir(parents=True, exist_ok=True)
         link.symlink_to(out.resolve())
     # The server rebuilds from this after an accept; plugins read their arguments from it.
-    run = {**{k: v for k, v in vars(a).items() if k != 'reviewed_at'}, 'name': name, 'repo': str(repo), 'out': str(out.resolve())}
+    run = {**{k: v for k, v in vars(a).items() if k != 'reviewed_at'}, 'project': project, 'link': part,
+           'name': name, 'repo': str(repo), 'out': str(out.resolve())}
     (out / '.run.json').write_text(json.dumps(run))
     if a.reviewed_at:
         reviewed_at(repo, a.base, a.head, out, a.paths, a.reviewed_at)
     _, _, shown = rebuild(out)
     print(f'{shown} changed doc(s) in {repo} vs {a.base}{f"..{a.head}" if a.head else ""} → {out / "index.html"}',
           flush=True)
-    if not shown and not page_top(run):
+    if not shown and not page_top(run) and not project:
         return
     if a.serve:
         if not server.running(a.port):
             server.start(a.port)
-        print(f'URL: http://127.0.0.1:{a.port}/{name}/index.html', flush=True)
+        # A project's address opens its first link with work (see opening()).
+        print(f'URL: http://127.0.0.1:{a.port}/' + (f'{project}/' if project else f'{name}/index.html'), flush=True)
 
 
 if __name__ == '__main__':

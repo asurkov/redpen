@@ -256,14 +256,17 @@ to its line on GitHub, and `--me <login>` makes your comments there your review 
 ## Google Doc vs Markdown
 
 For all of a repo's docs at once, `gdocsync.py --repo <repo> browse` exports them and runs docdiff as
-below, with `--docs` and every mapped doc named, so one in step shows too (with its open comments, out
-of the header's list): a table above the diff lists every Markdown file, its name a link to the doc
-below, with a link to its Google Doc, where it stands (committed or not, and against its Google Doc) with
-links to its uncommitted edits on a second docdiff page and to what a push would change, and its open
-comments (`plugins/gdoc_docs.py`). A link to a docdiff page ending `#file=<name>` opens it at that doc, and `&view=<view>` (`old`, `new`)
-in that view, or `review`, `acc` or `diff` (the views before the filter) in Diff with the filter To
-review, Accepted or All, and ● new off; the docs list's "uncommitted edits ↗" opens it with All (`diff`), so `n`/`p`
-step through every uncommitted change whatever has been accepted.
+below, as the last link of the repo's [project](#projects), with `--docs` and every mapped doc named, so
+one in step shows too (with its open comments, out of the header's list): a table above the diff lists
+every Markdown file, its name a link to the doc below, with what it has left on each of the project's
+links ("6 to review", "3 to publish", "in step"; the page's own a jump to the doc below, another's a link
+to the doc there), a link to its Google Doc, with whether it was edited there since the last push, and
+its open comments (`plugins/gdoc_docs.py`). In no project, one column says where each doc stands instead
+(committed or not, and against its Google Doc). A link to a docdiff page ending `#file=<name>` opens it
+at that doc, and `&view=<view>` (`old`, `new`) in that view, or `review`, `acc` or `diff` (the views
+before the filter) in Diff with the filter To review, Accepted or All, and ● new off; `&at=<0 to 1>`
+opens it that far into the doc, and `&near=<how a paragraph starts>` at that paragraph, `&by=<px>` into
+it.
 For one doc, by hand:
 
 What a `/gdocsync` push would change in a Google Doc, with the doc's open comments on it:
@@ -324,10 +327,37 @@ cherry-picks the commit onto the checkout at PATH (the repo's own), so the sessi
 there; the reply says where it landed, or, when it does not apply there (a conflict, or uncommitted edits
 in its way), that it stays on the session's branch, with git's reason, and PATH is left as it was.
 
+## Projects
+
+Reviews of the same docs at their successive versions are one project, with one address.
+`--project NAME --link PART FROM TO` makes a review a link of project NAME: PART is its part of the
+address, FROM the version its changes come from (its new side) and TO the one they go to (its old
+side), both in words. A repo's uncommitted edits are `--link edits "my edits" committed`, its export
+against the Google Docs `--link google committed "Google Docs"`. `/NAME/` opens on the project's first
+link, as the versions flow, that has changes to review or accepted ones to hand on; each link's page is
+`/NAME/PART/`, and the review's own address, `/<name>/`, leads there. `--serve` prints the project's
+address. A rerun without the two options leaves the review in its project.
+
+Each link's page starts with the strip of the project's versions, "my edits [6 to review →] committed
+[58 to review →] Google Docs": each link a chip with what it has left (to review, then the accepted
+ones by what comes of them: to commit, to publish), the page's own filled. A click on another chip, or
+on a doc's count for another link in the docs list, swaps the diff for that link's, at the same doc and
+paragraph. Underneath, each link stays a review of its own in `~/.docdiff/<name>`, with its own
+accepted copy, comments and revisits (watch each one's dir); the Google Docs' comments and the reply
+drafts on them are the same on every link. The index lists a project as one row, with every link's
+counts.
+
+**Accept once.** When "⇪ commit accepted" commits a file on one link, the server notes the file's move,
+the text before and after, each by its words alone, on the project's next links
+(`accepted/<file>.arrived.json`). When that move shows up there (after gdocsync's export, say), its
+changes arrive accepted, so what was reviewed before the commit is published with one click. A change
+that reaches into text still to review on that link comes to review instead, and so does a commit made
+outside the page.
+
 ## The server
 
-One server on `127.0.0.1:7878` serves every review in `~/.docdiff`, each under `/<name>/`, found by its
-`.run.json`. It is redpen's, `~/.claude/skills/redpen/base/server.py`, which has the reviews of Claude's
+One server on `127.0.0.1:7878` serves every review in `~/.docdiff`, each under `/<name>/` (a
+[project](#projects)'s links under `/<project>/<part>/`), found by its `.run.json`. It is redpen's, `~/.claude/skills/redpen/base/server.py`, which has the reviews of Claude's
 file edits as well, under `/code/`. Its index, http://127.0.0.1:7878/, lists them, the last active
 first: each one's name,
 linked to its page, what it compares (the PR, or the repo with its revisions), its counts (to review,
