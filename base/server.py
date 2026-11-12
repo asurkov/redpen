@@ -32,10 +32,8 @@ module_name = 'redpen_base_server'
 scripts = {'prose': root / 'prose/docdiff.py', 'code': root / 'code/review.py'}
 # Where each part's requests are: prose's reviews keep the addresses they had.
 mounts = {'prose': '', 'code': '/code'}
-# The LaunchAgent and the log keep docdiff's names until the reviews' stores move: the agent installed
-# so far is docdiff's, and it writes there.
-agent_label = 'com.asurkov.docdiff'
-log = pathlib.Path(os.environ.get('DOCDIFF_HOME') or pathlib.Path.home() / '.docdiff').expanduser() / 'server.log'
+agent_label = 'com.asurkov.redpen'
+log = pathlib.Path.home() / '.redpen/server.log'
 
 # Each part's code as last loaded: its sources and the module (see live()).
 loaded = {}

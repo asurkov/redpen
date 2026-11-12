@@ -4,7 +4,7 @@
 Usage: recorder.py pre|post
 
 pre and post run as PreToolUse and PostToolUse hooks on Edit|Write|MultiEdit|NotebookEdit and read the
-hook's JSON on stdin. Each session's record is in ~/.claude/cursordiff/<session>/:
+hook's JSON on stdin. Each session's record is in ~/.redpen/code/<session>/:
 
   session.json      {session, title, updated}, rewritten after every edit
   files/<key>.json  {path, new}: a file the session edited; new when the session created it
@@ -19,7 +19,7 @@ A failure never blocks an edit: it goes to stderr and the exit status stays 0.
 import datetime, hashlib, json, os, pathlib, re, sys, tempfile
 
 home = pathlib.Path.home()
-store = home / '.claude/cursordiff'
+store = home / '.redpen/code'
 
 
 def key(path):

@@ -21,7 +21,7 @@ before the session's first edit), and `prose/` reviews what git has. The ends ar
 |---|---|---|
 | What records the changes | `recorder.py`, a Claude Code hook on its edit tools | nothing: git has them |
 | How a comment reaches the agent | `review.py --wait`, a command the skill has Claude keep waiting: the page's Send now hands it over at once; else `review.py --prompt-hook`, a Claude Code hook, with the user's next message | `base/channel.py --wait`, a command the skill has Claude keep waiting on the review's `revisit.jsonl` |
-| Where the state is kept | `~/.claude/cursordiff/<session>/`, under Claude Code's session id | `~/.docdiff/<name>/` |
+| Where the state is kept | `~/.redpen/code/<session>/`, under Claude Code's session id | `~/.docdiff/<name>/` |
 
 For another agent those ends have to be written: something that saves a file's text before the agent's
 first edit to it, which does not exist yet, and a way to hand the agent a comment: `base/channel.py
@@ -31,7 +31,7 @@ first edit to it, which does not exist yet, and a way to hand the agent a commen
 
 | File | What |
 |---|---|
-| `recorder.py` | the hook that records a session's edits: each file's baseline, in `~/.claude/cursordiff/<session>/` |
+| `recorder.py` | the hook that records a session's edits: each file's baseline, in `~/.redpen/code/<session>/` |
 | `review.py` | answers the review page's requests (`/code/…` on the server), and hands the page's comments to Claude: `--wait`, the command Claude keeps waiting, and `--prompt-hook`, the hook |
 | `page/` | the review page |
 | `cursor.py` | writes the record into Cursor as its inline diffs |

@@ -12,7 +12,7 @@ Usage: review.py [--session ID] [--port N]   start the server unless it runs; pr
 The server is redpen's (../base/server.py): it has the pages under /code/, lists the sessions in its
 index, and runs this file as it is on disk at each request.
 
-The page reads the record recorder.py keeps in ~/.claude/cursordiff/<session>/: files/<key>.json
+The page reads the record recorder.py keeps in ~/.redpen/code/<session>/: files/<key>.json
 names a file the session edited, and base/<key> is its baseline, the text its pending changes are
 measured from. Beside them, in the record's review/ folder, the page keeps:
 
@@ -38,7 +38,7 @@ import argparse, datetime, filecmp, hashlib, importlib.util, json, os, pathlib, 
 import tempfile, threading, time, urllib.parse
 
 home = pathlib.Path.home()
-store = home / '.claude/cursordiff'
+store = home / '.redpen/code'
 history = home / '.claude/file-history'
 here = pathlib.Path(__file__).resolve().parent
 # Files under these are Claude's own and temporary ones, not the work's: the page lists them apart.
@@ -488,7 +488,7 @@ def listed_reviews():
                      'counts': [f'{s["files"]} file{"" if s["files"] == 1 else "s"}'],
                      'when': max((f.stat().st_mtime for f in marks if f.exists()), default=0)})
     return {'title': "Claude's edits", 'rows': rows,
-            'note': 'Every session with a record in ~/.claude/cursordiff, the last active first.'}
+            'note': 'Every session with a record in ~/.redpen/code, the last active first.'}
 
 
 def shared(name):

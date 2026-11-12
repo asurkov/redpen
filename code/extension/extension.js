@@ -1,5 +1,5 @@
 // Claude Edits: the files Claude Code sessions edited, as redpen's recorder keeps them in
-// ~/.claude/cursordiff/<session>/ (see ../recorder.py), for review. A file's changes are
+// ~/.redpen/code/<session>/ (see ../recorder.py), for review. A file's changes are
 // against its baseline: its text before the session's first edit to it, or as last kept. Clicking a file
 // opens its changes side by side, where the diff editor's arrows revert single changes. Keep moves the
 // baseline to the file as it is, so later edits show alone; Undo puts the baseline back into the file.
@@ -8,7 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const storeDir = path.join(os.homedir(), '.claude', 'cursordiff');
+const storeDir = path.join(os.homedir(), '.redpen', 'code');
 // Documents of this scheme hold a file's baseline: the path is the file's, the query the baseline's.
 const baseScheme = 'claude-edits-base';
 

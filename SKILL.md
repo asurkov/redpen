@@ -133,14 +133,14 @@ python3 -I ~/.claude/skills/redpen/base/server.py --restart
 ```
 
 `--stop` stops it, and `--port N` works with another server on port N, a test's say. Its log is
-`~/.docdiff/server.log`. The LaunchAgent that keeps it running is in `prose/SKILL.md`, under "The
+`~/.redpen/server.log`. The LaunchAgent that keeps it running is in `prose/SKILL.md`, under "The
 server".
 
 ## The record
 
 `code/recorder.py` runs as a PreToolUse and PostToolUse hook on Edit|Write|MultiEdit|NotebookEdit (set in
 `~/.claude/settings.json`) and records every session's edits as they happen in
-`~/.claude/cursordiff/<session>/`: `session.json` (title, time of the last edit), `files/<key>.json` (the
+`~/.redpen/code/<session>/`: `session.json` (title, time of the last edit), `files/<key>.json` (the
 path, and whether the session created the file) and `base/<key>` (the file's baseline: its text before
 the session's first edit to it, or as last kept or accepted; a file the session created has none until
 then). The title is the one the desktop app shows, else the session's first prompt. Edits made through
