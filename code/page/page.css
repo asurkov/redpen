@@ -405,6 +405,50 @@ body.listHidden #splitter {
   flex: none;
 }
 
+/* What was said: paragraphs, lists and code from its Markdown. */
+.thread .said p,
+.thread .said ul,
+.thread .said ol,
+.thread .said pre {
+  margin: 0 0 6px;
+}
+
+.thread .said > :last-child {
+  margin-bottom: 0;
+}
+
+.thread .said ul,
+.thread .said ol {
+  padding-left: 22px;
+  white-space: normal;
+}
+
+.thread .said li {
+  white-space: pre-wrap;
+}
+
+.thread .said code,
+.thread .said pre {
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.thread .said code {
+  padding: 1px 4px;
+}
+
+.thread .said pre {
+  padding: 6px 8px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.thread .said a {
+  color: var(--accent);
+}
+
 .thread .entry .change {
   margin-top: 3px;
 }
@@ -428,17 +472,17 @@ body.listHidden #splitter {
 }
 
 /* A comment of the user's that Claude has, or answered: said, so quieter than what waits. */
-.thread .entry.user.taken > div:last-child {
+.thread .entry.user.taken > .said {
   color: var(--dim);
 }
 
 /* Claude's answer, while it is waited for. */
-.thread .entry.awaited > div:last-child {
+.thread .entry.awaited > .said {
   color: var(--dim);
   font-style: italic;
 }
 
-.thread .entry.awaited.taken > div:last-child::before {
+.thread .entry.awaited.taken > .said::before {
   content: '';
   display: inline-block;
   width: 8px;

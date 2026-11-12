@@ -382,7 +382,7 @@ export class DiffView {
       if (entry.state === 'draft') {
         button(head, '✕', () => this.handlers.uncomment(entry.id), 'quiet').title = 'Delete the comment';
       }
-      row.appendChild(document.createElement('div')).textContent = entry.text;
+      row.appendChild(marked(entry.text));
       // The change Claude made in answer: a way to it, while the page lists its file.
       if (entry.change) {
         const { key, path, line } = entry.change;
@@ -403,6 +403,7 @@ export class DiffView {
       row.appendChild(document.createElement('div')).className = 'head';
       row.lastChild.appendChild(document.createElement('b')).textContent = 'Claude';
       row.appendChild(document.createElement('div')).textContent = awaitedWords[last.state];
+      row.lastChild.className = 'said';
     }
     const foot = document.createElement('div');
     foot.className = 'foot';
@@ -616,6 +617,76 @@ function focusLaidOut(input, triesLeft = 30) {
   if (document.activeElement !== input && triesLeft > 0) {
     requestAnimationFrame(() => focusLaidOut(input, triesLeft - 1));
   }
+}
+
+// What was said, drawn from the little Markdown it may hold: fenced code, lists, `code`, **bold**
+// and links to the web. Everything else stays as typed.
+function marked(text) {
+  const said = document.createElement('div');
+  said.className = 'said';
+  const lines = text.split('\n');
+  const listed = /^\s*(?:[-*]|\d+[.)])\s+/;
+  let paragraph = [];
+  const close = () => {
+    if (paragraph.length) {
+      said.appendChild(document.createElement('p')).append(...inlined(paragraph.join('\n')));
+      paragraph = [];
+    }
+  };
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (line.trimStart().startsWith('```')) {
+      close();
+      const end = lines.findIndex((other, at) => at > index && other.trimStart().startsWith('```'));
+      const last = end < 0 ? lines.length : end;
+      said.appendChild(document.createElement('pre')).textContent = lines.slice(index + 1, last).join('\n');
+      index = last;
+    } else if (listed.test(line)) {
+      close();
+      const isNumbered = text => /^\s*\d/.test(text);
+      const list = said.appendChild(document.createElement(isNumbered(line) ? 'ol' : 'ul'));
+      for (; index < lines.length; index++) {
+        const isItem = listed.test(lines[index]);
+        if (isItem ? isNumbered(lines[index]) !== isNumbered(line) : !/^\s+\S/.test(lines[index])) {
+          break;
+        }
+        if (isItem) {
+          list.appendChild(document.createElement('li')).append(...inlined(lines[index].replace(listed, '')));
+        } else {
+          list.lastChild.append('\n', ...inlined(lines[index].trim()));
+        }
+      }
+      index--;
+    } else if (!line.trim()) {
+      close();
+    } else {
+      paragraph.push(line);
+    }
+  }
+  close();
+  return said;
+}
+
+// A line's `code`, **bold** and [links](https://…) as nodes, the rest as text.
+function inlined(text) {
+  const nodes = [];
+  const marks = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g;
+  let from = 0;
+  for (const found of text.matchAll(marks)) {
+    nodes.push(text.slice(from, found.index));
+    const [, code, bold, label, address] = found;
+    const node = document.createElement(code ? 'code' : bold ? 'b' : 'a');
+    node.textContent = code || bold || label;
+    if (address) {
+      node.href = address;
+      node.target = '_blank';
+      node.rel = 'noopener';
+    }
+    nodes.push(node);
+    from = found.index + found[0].length;
+  }
+  nodes.push(text.slice(from));
+  return nodes.filter(Boolean);
 }
 
 function spring() {

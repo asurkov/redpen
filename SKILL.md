@@ -73,7 +73,8 @@ comment "of the accepted text" or "of the file as it was before your edits" is o
 no longer have. A reply names the thread it is in.
 
 **Answering on the page.** Besides what you say in the chat or change in the files, put a short answer
-in plain text under each comment, so the user reads it where they asked:
+under each comment, so the user reads it where they asked; the page draws its Markdown (fenced code,
+lists, `code`, **bold**, web links):
 
 ```bash
 python3 ~/.claude/skills/redpen/code/review.py --answer <comment id> <<'EOF'

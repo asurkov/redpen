@@ -519,7 +519,8 @@ def described(comments, git=None):
         if comment.get('quote'):
             out.append(fenced(comment['quote']))
         out.append(f"Comment: {comment['text']}")
-    out += ['', 'Besides what you say or do about each, put a short answer in plain text under it on the page: '
+    out += ['', 'Besides what you say or do about each, put a short answer under it on the page '
+            '(its Markdown is drawn: fenced code, lists, `code`, **bold**): '
             f"`python3 {here / 'review.py'} --answer <comment id>`, the answer on stdin; after a change made "
             'in answer, add `--change <file>:<line>`, and the answer links to it.']
     return '\n'.join(out)
