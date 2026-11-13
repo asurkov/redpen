@@ -1363,6 +1363,10 @@ def rebuild(out):
     repo = pathlib.Path(run['repo'])
     files, named = files_for(repo, run['base'], run.get('head'), run['paths'])
     build_id = str(time.time_ns())
+    # Read before the page is made: an edit that lands meanwhile then shows as the repo having moved on,
+    # and the next request rebuilds. Read after, it would pass for built, and the page would keep changes
+    # the files no longer have ("that change is gone" on accept, and no reload to cure it).
+    built_from = fingerprint(run)
     actors = [f for f in (m.actions(run) for m in PLUGINS if hasattr(m, 'actions')) if f]
     page, shown, (todo, done), per = build(repo, run['base'], run.get('head'), files, build_id, out, named, run,
                                            run.get('new_label'), bool(run.get('publish')), actors)
@@ -1370,7 +1374,7 @@ def rebuild(out):
     # counts, each file's too, are for the index of reviews and for the project's other links, whose counts
     # this page was made with (see refresh()).
     for name, text in (('index.html', page), ('build.json', json.dumps(
-            {'id': build_id, 'from': fingerprint(run), 'todo': todo, 'done': done, 'files': per, 'with': beside(run)}))):
+            {'id': build_id, 'from': built_from, 'todo': todo, 'done': done, 'files': per, 'with': beside(run)}))):
         (out / f'{name}.tmp').write_text(text)
         (out / f'{name}.tmp').replace(out / name)
     return repo, run['base'], shown
