@@ -33,6 +33,9 @@ is the files at that revision instead of the working tree (a PR, say). A changed
 `index.html` that holds a `respecConfig` stands for that ReSpec spec, which shows as one doc
 ([ReSpec specs](#respec-specs)).
 
+Each file's bar has **copy path** where the doc is compared as it reads on disk: it copies the path to the
+file on this machine.
+
 **Accept** (`a`, or the ✓ button; "accept file" on each file's bar) moves the current change into the
 accepted copy, and the page reloads with it accepted, in place; on an accepted change, the same key (↺
 unaccept; "unaccept file") takes it back out. Which changes are accepted is read off the accepted copy:

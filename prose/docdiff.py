@@ -690,7 +690,7 @@ button:not(:disabled):hover{background:var(--btnh)} button:focus-visible{outline
 .file{margin:48px 0 8px;padding:6px 10px;background:var(--code);border:1px solid var(--line);border-radius:6px;font:600 14px ui-monospace,Menlo,monospace;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
 .fbar{margin-left:auto;display:flex;flex-wrap:wrap;gap:6px}
 .state{color:var(--muted);font-weight:400}
-.accf{font:12px -apple-system,BlinkMacSystemFont,sans-serif;padding:1px 8px}
+.accf,.cpath{font:12px -apple-system,BlinkMacSystemFont,sans-serif;padding:1px 8px}
 ins{background:var(--ins);text-decoration:none;box-shadow:inset 0 -2px var(--insb)}
 del{background:var(--del);color:var(--delb);text-decoration:line-through}
 .chg{cursor:pointer}
@@ -809,6 +809,8 @@ return x.els.some(e=>{const r=e.getBoundingClientRect();return e.offsetParent&&r
 document.querySelectorAll('.accf').forEach(b=>b.onclick=async()=>{const s=b.closest('section'),a=b.dataset.a==='accept';
 try{await onAccept(groups.filter(x=>x.sec===s&&x.done!==a),a).catch(()=>{});await post(b.dataset.a,{file:s.dataset.file,all:true});
 location.reload();}catch(e){pos.textContent='not saved: '+e.message;}});
+// A doc's path on this machine, from its bar (a doc compared as it reads on disk).
+document.querySelectorAll('.cpath').forEach(b=>b.onclick=async()=>{b.textContent=await copy(b.dataset.path)?'copied':'copying failed';setTimeout(()=>b.textContent='copy path',1500);});
 // Publish runs the --publish command on each file's accepted changes in turn. Its panel asks first, shows
 // which file is being published, then what each printed; the page reloads on Done. (No confirm() or
 // alert(): an embedded browser may block them, and then nothing would happen.)
@@ -1262,6 +1264,9 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         state = 'new file' if not old else 'deleted' if not new else f'renamed from {old}' if old != new else ''
         sid = f'f{k}'
         label = html.escape(name)
+        # A doc compared as it reads on disk is a file on this machine: its bar copies the path to it.
+        copier = (f' <button class="cpath" data-path="{html.escape(str(pathlib.Path(repo) / new))}" '
+                  'title="Copy the path to this file on this machine">copy path</button>') if new and not head else ''
         # A doc shown only because it was named, with nothing changed, stays out of the docs at the top.
         if n:
             nav.append((sid, label, f'{todo} to review · {accepted} {words["accepted"]}'))
@@ -1286,7 +1291,7 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
                 {'last': version_name(rnd['last']), 'time': rnd['last']['time'], 'fresh': fresh, 'boxes': boxes}).replace('</', '<\\/') +
                 '</script>' + f'<template class="since">{since}</template>')
         sections.append(f'<section id="{sid}" data-file="{label}">{data}<div class="file">{label}'
-                        f'{f" <span class=state>· {html.escape(state)}</span>" if state else ""}'
+                        f'{f" <span class=state>· {html.escape(state)}</span>" if state else ""}{copier}'
                         f'{f"<span class=fbar>{bar}</span>" if bar else ""}</div>'
                         f'{view("diff", body)}{view("old", plain(old_html, "new file"))}{view("new", plain(new_html, "deleted"))}'
                         f'</section>')
