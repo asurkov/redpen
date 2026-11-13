@@ -37,7 +37,8 @@ starts over from the base. gdocsync's push --target, then its export, is such a 
 
 Plugins, the modules in plugins/, add their own arguments, docs and buttons (see load_plugins):
 respec.py diffs ReSpec specs, gdoc_comments.py shows a Google Doc's comments (--comments), github_pr.py
-links changes to a GitHub PR (--pr), review.py keeps review comments and shows revisits' answers.
+links changes to a GitHub PR (--pr), review.py keeps review comments and shows revisits' answers,
+git_remote.py links a doc to its copy on the repo's remote.
 """
 import argparse, base64, difflib, hashlib, html, http.server, importlib.util, itertools, json, mimetypes, os, pathlib
 import re, shlex, shutil, subprocess, sys, threading, time, urllib.parse, webbrowser
@@ -691,6 +692,12 @@ button:not(:disabled):hover{background:var(--btnh)} button:focus-visible{outline
 .fbar{margin-left:auto;display:flex;flex-wrap:wrap;gap:6px}
 .state{color:var(--muted);font-weight:400}
 .accf,.cpath{font:12px -apple-system,BlinkMacSystemFont,sans-serif;padding:1px 8px}
+.cpy{position:relative;display:inline-flex} .cpy .cpath::after{content:"›";margin-left:5px;color:var(--muted)} .cpy.open .cpath{background:var(--btnh)} .cpy.open .cpath::after{content:"‹"}
+.cpo{position:absolute;left:calc(100% + 4px);top:-1px;z-index:1;display:flex;overflow:hidden;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.cpo[hidden]{display:none} .cpo button{display:flex;align-items:center;height:20px;padding:0 8px;border:0;border-radius:0;background:none;color:var(--muted)} .cpo button+button{border-left:1px solid var(--line)}
+.cpo button:hover,.cpo button:focus-visible{background:var(--code);color:var(--fg)} .cpo button.ok{color:var(--insb)} .cpo svg{width:15px;height:15px}
+.cpt{position:absolute;left:calc(100% + 4px);top:calc(100% + 5px);z-index:1;box-sizing:border-box;max-width:min(640px,100vw - 16px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 8px;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);font:12px -apple-system,BlinkMacSystemFont,sans-serif;color:var(--muted)}
+.cpt b{color:var(--fg);font-weight:600}
 ins{background:var(--ins);text-decoration:none;box-shadow:inset 0 -2px var(--insb)}
 del{background:var(--del);color:var(--delb);text-decoration:line-through}
 .chg{cursor:pointer}
@@ -810,8 +817,41 @@ return x.els.some(e=>{const r=e.getBoundingClientRect();return e.offsetParent&&r
 document.querySelectorAll('.accf').forEach(b=>b.onclick=async()=>{const s=b.closest('section'),a=b.dataset.a==='accept';
 try{await onAccept(groups.filter(x=>x.sec===s&&x.done!==a),a).catch(()=>{});await post(b.dataset.a,{file:s.dataset.file,all:true});
 location.reload();}catch(e){pos.textContent='not saved: '+e.message;}});
-// A doc's path on this machine, from its bar (a doc compared as it reads on disk).
-document.querySelectorAll('.cpath').forEach(b=>b.onclick=async()=>{b.textContent=await copy(b.dataset.path)?'copied':'copying failed';setTimeout(()=>b.textContent='copy path',1500);});
+// A doc's bar copies the doc (see copy_options()). One option is the button itself. Several open from it
+// as a strip of icons beside it, over the bar, so nothing moves (a click or ↵; ← → move, esc or a click
+// elsewhere closes), and what the pointed or focused one copies shows under it; a copied one turns ✓ and
+// says what went, then the strip closes. An option holds its text, or where to ask for it ({text, html,
+// said}), asked as soon as it is pointed at, so the copy on its click need not wait.
+{const tick='<svg viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const held=x=>x.held||(x.held=x.dataset.get?fetch(x.dataset.get).then(r=>{if(!r.ok)throw new Error(r.status);return r.json();}):Promise.resolve({text:x.dataset.text}));
+const copied=async x=>{try{const g=await held(x);return await copy(g.text,g.html)&&g;}catch(e){return null;}finally{x.held=null;}};
+document.querySelectorAll('button.cpath:not([aria-haspopup])').forEach(b=>{const words=b.textContent;
+b.onclick=async()=>{b.textContent=await copied(b)?'copied':'copying failed';setTimeout(()=>b.textContent=words,1500);};});
+let shut=null;
+document.querySelectorAll('.cpy').forEach(w=>{const b=w.firstElementChild,o=b.nextElementSibling,items=[...o.children];let t=null,timer=0,busy=false;
+// Kept inside the window, where the bar leaves no room beside the button.
+const fit=x=>{x.style.marginLeft='';const over=x.getBoundingClientRect().right-(document.documentElement.clientWidth-8);if(over>0)x.style.marginLeft=-over+'px';};
+const tip=(lead,rest)=>{t?.remove();t=null;if(!lead||o.hidden)return;t=document.createElement('span');t.className='cpt';
+t.append(Object.assign(document.createElement('b'),{textContent:lead}),' '+rest);w.append(t);fit(t);};
+const say=x=>tip(x.getAttribute('aria-label'),x.dataset.note);
+const open=(on,keyed)=>{if(on&&shut&&shut!==open)shut(false);shut=on?open:null;clearTimeout(timer);o.hidden=!on;w.classList.toggle('open',on);b.setAttribute('aria-expanded',on);
+for(const x of items){x.held=null;if(x.icon){x.innerHTML=x.icon;x.icon=null;x.classList.remove('ok');}}tip();if(on){fit(o);if(keyed)items[0].focus();}};
+b.onclick=e=>open(o.hidden,!e.detail);
+for(const x of items){x.onmouseenter=x.onfocus=()=>{if(busy||x.icon)return;say(x);held(x).catch(()=>{});};
+x.onmouseleave=()=>{if(busy||items.some(y=>y.icon))return;x.held=null;const f=items.find(y=>y===document.activeElement);f?say(f):tip();};
+x.onclick=async()=>{const had=w.contains(document.activeElement);busy=true;tip('copying…','');const g=await copied(x);if(had&&!w.contains(document.activeElement))x.focus();busy=false;
+if(o.hidden)return;if(!g){tip('copying failed','');return;}clearTimeout(timer);for(const y of items)if(y.icon){y.innerHTML=y.icon;y.icon=null;y.classList.remove('ok');}
+x.icon=x.innerHTML;x.innerHTML=tick;x.classList.add('ok');tip('✓ copied',g.said||x.getAttribute('aria-label'));
+timer=setTimeout(()=>{const within=w.contains(document.activeElement);open(false);if(within)b.focus();},1100);};}
+w.addEventListener('keydown',e=>{const i=items.indexOf(document.activeElement),n=items.length,k=e.key;
+if(k==='Escape'&&!o.hidden){open(false);b.focus();}
+else if(i>=0&&(k==='ArrowRight'||k==='ArrowDown'))items[(i+1)%n].focus();
+else if(i>=0&&(k==='ArrowLeft'||k==='ArrowUp'))items[(i+n-1)%n].focus();
+else if(i>=0&&k==='Home')items[0].focus();else if(i>=0&&k==='End')items[n-1].focus();
+else if(e.target===b&&o.hidden&&(k==='ArrowRight'||k==='ArrowDown'))open(true,true);
+else return;e.preventDefault();e.stopPropagation();});
+w.addEventListener('focusout',e=>{if(!busy&&!o.hidden&&e.relatedTarget&&!w.contains(e.relatedTarget))open(false);});});
+document.addEventListener('click',e=>{if(shut&&!e.target.closest('.cpy.open'))shut(false);});}
 // Publish runs the --publish command on each file's accepted changes in turn. Its panel asks first, shows
 // which file is being published, then what each printed; the page reloads on Done. (No confirm() or
 // alert(): an embedded browser may block them, and then nothing would happen.)
@@ -923,8 +963,10 @@ function openRev(g){const s=g&&g.el.closest('section');if(!s){pos.textContent='s
 req={file:s.dataset.file,section:heading(g.el),quote:g.quote,view:cur,key:g.key,...g.fields};rq.textContent=g.quote;
 $('rx').textContent=g.context||'';$('rx').hidden=!g.context;rp.hidden=false;rt.focus();}
 function closeRev(){rp.hidden=true;rt.value='';req=null;}
-async function copy(t){try{await navigator.clipboard.writeText(t);return true;}
-catch(e){const a=document.createElement('textarea');a.value=t;body.append(a);a.select();const done=document.execCommand('copy');a.remove();return done;}}
+// Text for the clipboard; with h, that as formatted text (HTML) beside it, for a paste that keeps formatting.
+async function copy(t,h){try{await(h?navigator.clipboard.write([new ClipboardItem({'text/plain':new Blob([t],{type:'text/plain'}),'text/html':new Blob([h],{type:'text/html'})})]):navigator.clipboard.writeText(t));return true;}
+catch(e){const a=document.createElement('textarea'),both=e=>{e.clipboardData.setData('text/plain',t);e.clipboardData.setData('text/html',h);e.preventDefault();};
+a.value=t;body.append(a);a.select();if(h)document.addEventListener('copy',both);const done=document.execCommand('copy');document.removeEventListener('copy',both);a.remove();return done;}}
 // The request as Claude reads it: what it is about (a plugin may lead it its own way: lead), the quote, the ask.
 async function send(){const ask=rt.value.trim();if(!ask||!req)return;
 const text=(req.lead||W.prompt+repo+'/'+req.file+(req.section?', section "'+req.section+'"':'')+(req.view==='old'?' (old version)':''))+':\\n> '+req.quote.replace(/\\n/g,'\\n> ')+'\\n\\n'+ask;
@@ -1188,6 +1230,16 @@ def load_plugins():
       and what gets the page to render it.
     section(run, name): None, or (state, html) to add to a file's section: words for its bar, data for
       the page.
+    share(run, name, memo): None, or what the doc's bar offers to copy beside docdiff's own (see
+      copy_options()), a source or a destination each: [{id, order, label, note, icon, text}], order its
+      place among the bar's options (docdiff's are 10 to 30), label what it copies and note the detail
+      shown with it, icon an <svg>, text what goes on the clipboard; in place of text, get: an address
+      within the review that answers {text, html, said} when asked (html to paste formatted, said what to
+      say was copied); short: its word on the button when it is the doc's only option. An option whose
+      text is where readers elsewhere find the doc is an address of it: address names the place
+      ('GitHub'), and anchors says the doc's headings are anchors there as in its Markdown; a Markdown
+      doc copied from the bar has its links to the repo's other files point at those files' first
+      addresses (see copied_text()). memo lasts one build of the page, or one copy.
     title(run): None where the plugin does not apply, or else (what the page compares, a link or None)
       for the header's first line, in place of "Uncommitted edits" or "Commits".
     top(run): None, or html to put above the docs, such as gdoc_docs.py's list of them; a page with it
@@ -1232,8 +1284,111 @@ def plugin_actions(actors, old, new, pieces):
     return acts
 
 
+# The icons of what a doc's bar copies: docdiff's own options', and the ones plugins' options share.
+ICONS = {
+    'path': '<svg viewBox="0 0 16 16"><path d="M1.75 3.25h4.1l1.4 1.75h7v7.75H1.75z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+    'md': '<svg viewBox="0 0 208 128" style="width:21px"><rect width="198" height="118" x="5" y="5" ry="14" stroke="currentColor" stroke-width="12" fill="none"/>'
+          '<path fill="currentColor" d="M30 98V30h20l20 25 20-25h20v68H90V59L70 84 50 59v39zm125 0l-30-33h20V30h20v35h20z"/></svg>',
+    'rich': '<svg viewBox="0 0 16 16"><path d="M2 3.25h7" stroke="currentColor" stroke-width="2.2"/><path d="M2 7h12M2 10h12M2 13h8" stroke="currentColor" stroke-width="1.2"/></svg>',
+    'link': '<svg viewBox="0 0 16 16"><path d="M6.4 9.6l3.2-3.2M7.2 4.6l1.1-1.1a2.9 2.9 0 0 1 4.1 4.1l-1.1 1.1M8.8 11.4l-1.1 1.1a2.9 2.9 0 0 1-4.1-4.1l1.1-1.1" fill="none" stroke="currentColor" '
+            'stroke-width="1.4" stroke-linecap="round"/></svg>',
+    'github': '<svg viewBox="0 0 16 16"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 '
+              '1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 '
+              '1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 '
+              '1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>',
+}
+
+
+def copy_options(run, name, memo):
+    """What a doc's bar offers to copy, in the bar's order, each as a plugin's share() gives it (see
+    load_plugins). docdiff's own: the path to the file on this machine, where the page compares the
+    working tree; and a Markdown doc's text, plain and formatted (see copied_text()), unless the working
+    tree stands for something else (--new-label: gdocsync's export, whose text is a flattened copy). Then
+    the plugins': the doc's links elsewhere."""
+    repo, found = pathlib.Path(run['repo']), []
+    if not run.get('head'):
+        path = str(repo / name)
+        found.append({'id': 'path', 'order': 10, 'label': 'Path on this machine', 'short': 'path', 'icon': ICONS['path'],
+                      'note': path.replace(str(pathlib.Path.home()), '~', 1), 'text': path})
+    if name.endswith('.md') and not run.get('new_label'):
+        asked = f'copy?file={urllib.parse.quote(name, safe="")}'
+        found += [{'id': 'md', 'order': 20, 'label': 'Markdown', 'icon': ICONS['md'], 'get': f'{asked}&as=md',
+                   'note': 'its links to other docs pointing at where those are published'},
+                  {'id': 'rich', 'order': 30, 'label': 'Formatted text', 'icon': ICONS['rich'], 'get': f'{asked}&as=rich',
+                   'note': 'for mail, chat, Google Docs'}]
+    for m in PLUGINS:
+        found += hasattr(m, 'share') and m.share(run, name, memo) or []
+    return sorted(found, key=lambda o: o['order'])
+
+
+def copy_control(options):
+    """The copy control of a doc's bar: one option is the button itself (copy path); several open from the
+    button as a strip of icons, each holding its text or where to ask for it (the page's script has the
+    rest). Of class ui, so a click on it is not a click on the text."""
+    e = html.escape
+    held = lambda o: f'data-get="{e(o["get"])}"' if 'get' in o else f'data-text="{e(o["text"])}"'
+    if len(options) < 2:
+        return ''.join(f' <button class="cpath ui" {held(o)} title="{e(o["label"])}: {e(o["note"])}">copy {e(o.get("short") or o["label"])}</button>'
+                       for o in options)
+    items = ''.join(f'<button role="menuitem" aria-label="{e(o["label"])}" data-note="{e(o["note"])}" {held(o)}>{o["icon"]}</button>'
+                    for o in options)
+    return (f' <span class="cpy ui"><button class="cpath" aria-haspopup="menu" aria-expanded="false" '
+            f'title="Copy this doc: {e(", ".join(o["label"] for o in options))}">copy</button>'
+            f'<span class="cpo" role="menu" hidden>{items}</span></span>')
+
+
+# In Markdown, a fenced block or a code span, which hold no links; or a link's target, inline
+# ([words](target), found by the bracket that closes its words) or in a reference's definition
+# ([name]: target; a footnote's, [^name]:, is none).
+LINK = re.compile(r'^ {0,3}(?P<fence>```+|~~~+).*?^ {0,3}(?P=fence)[^\n]*$|`+[^`\n]*`+|'
+                  r'(?P<lead>\]\(\s*<?|^ {0,3}\[[^\]\n^][^\]\n]*\]:[ \t]*<?)(?P<to>[^\s<>()]+)', re.M | re.S)
+
+
+def copied_text(run, name, rich):
+    """A Markdown doc for the clipboard, as the page's new side has it: {text, said}, and with rich also
+    html, the text rendered, for a paste that keeps the formatting. Its relative links to the repo's other
+    files point at where readers elsewhere find those: a file's first address among what plugins offer to
+    copy for it (see load_plugins, share()), with the link's anchor where the place has the Markdown's.
+    A link to a file with no address stays as it is, and so does an image, which html has embedded. said
+    is what to say was copied, with where its links went and how many stayed relative."""
+    repo, head, memo = pathlib.Path(run['repo']), run.get('head'), {}
+    if name not in {new for _, new in files_for(repo, run['base'], head, run['paths'])[0]} or not any(
+            o['id'] == 'md' for o in copy_options(run, name, memo)):
+        raise LookupError('no such doc to copy')
+    went, stayed, addresses = {}, [], {}
+
+    def address(path):
+        if path not in addresses:
+            addresses[path] = min((o for m in PLUGINS if hasattr(m, 'share') for o in m.share(run, path, memo) or []
+                                   if o.get('address')), key=lambda o: o['order'], default=None)
+        return addresses[path]
+
+    def point(m):
+        to = m.group('to')
+        if to is None or re.match(r'[A-Za-z][A-Za-z0-9+.-]*:|/|#', to):
+            return m.group(0)
+        path, _, anchor = to.partition('#')
+        path = os.path.normpath(os.path.join(os.path.dirname(name), urllib.parse.unquote(path.partition('?')[0])))
+        if (mimetypes.guess_type(path)[0] or '').startswith('image/'):
+            return m.group(0)
+        o = None if path.startswith('..') else address(path)
+        if not o:
+            stayed.append(to)
+            return m.group(0)
+        went[o['address']] = went.get(o['address'], 0) + 1
+        return m.group('lead') + o['text'] + (f'#{anchor}' if anchor and o.get('anchors') else '')
+    text = LINK.sub(point, read(repo, head, name).decode())
+    links = [f'{n} link{"s" if n > 1 else ""} → {place}' for place, n in went.items()] + [f'{len(stayed)} left relative'] * bool(stayed)
+    got = {'text': text, 'said': ' · '.join(['formatted text' if rich else 'Markdown', *links])}
+    if rich:
+        got['html'] = '<meta charset="utf-8">' + inline_images(render(text.encode()), repo, os.path.dirname(name), head or run['base'], not head)
+    return got
+
+
 def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=None, publish=False, actors=()):
     sections, nav, words, pubs, commits, waiting, counts, per = [], [], WORDS[bool(head)], [], [], [], [0, 0], {}
+    # Plugins' memo of what the docs' bars copy, for this build.
+    memo = {}
     waiting_for = lambda k, name, wait: (f'<section id="f{k}" data-file="{html.escape(name)}"><div class="file">{html.escape(name)}'
                                          f' <span class=state>· {html.escape(wait[0])}</span></div>{wait[1]}</section>')
     for k, (old, new) in enumerate(files):
@@ -1265,9 +1420,8 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         state = 'new file' if not old else 'deleted' if not new else f'renamed from {old}' if old != new else ''
         sid = f'f{k}'
         label = html.escape(name)
-        # A doc compared as it reads on disk is a file on this machine: its bar copies the path to it.
-        copier = (f' <button class="cpath" data-path="{html.escape(str(pathlib.Path(repo) / new))}" '
-                  'title="Copy the path to this file on this machine">copy path</button>') if new and not head else ''
+        # The doc's bar copies it: its path on this machine, its text, its links elsewhere (a deleted doc has none).
+        copier = copy_control(copy_options(run, new, memo)) if new else ''
         # A doc shown only because it was named, with nothing changed, stays out of the docs at the top.
         if n:
             nav.append((sid, label, f'{todo} to review · {accepted} {words["accepted"]}'))
@@ -1738,7 +1892,8 @@ def respond(h, method):
 
 def review_get(h, out, lock):
     """A GET in a review: its page or build.json, rebuilt first if the repo has moved on (see refresh());
-    a plugin's route (see load_plugins); or else a file in its dir."""
+    /copy, a doc's text for the clipboard (see copied_text()); a plugin's route (see load_plugins); or
+    else a file in its dir."""
     url = urllib.parse.urlsplit(h.path)
     run = json.loads((out / '.run.json').read_text())
     # An open page asks for build.json every second or two: when the repo has moved on since the
@@ -1746,6 +1901,14 @@ def review_get(h, out, lock):
     if url.path in ('/', '/index.html', '/build.json'):
         with lock:
             refresh(out, run)
+    # A doc's text for the clipboard, asked by its bar's copy control.
+    if url.path == '/copy':
+        asked = urllib.parse.parse_qs(url.query)
+        try:
+            got = copied_text(run, asked.get('file', [''])[0], asked.get('as') == ['rich'])
+        except LookupError as e:
+            return h.send_error(404, str(e))
+        return send(h, 200, json.dumps(got, ensure_ascii=False).encode(), 'application/json')
     got = next(filter(None, (m.get(run, urllib.parse.unquote(url.path), url.query)
                              for m in PLUGINS if hasattr(m, 'get'))), None)
     if not got:

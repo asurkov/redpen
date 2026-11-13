@@ -5,6 +5,9 @@ project's links has a column, as the versions flow: what the doc has left on tha
 commit, to publish), the page's own link's a jump to the doc below and another link's a link to that
 doc there. In no project, one column says where the doc stands (its Markdown against git and its Google
 Doc against the Markdown, in gdocsync's words), with a jump to what a push would change.
+
+A doc's bar offers the link to its Google Doc to copy (share()), with --docs or, without it, where
+gdocsync's own map of the repo has one.
 """
 import html, json, pathlib, urllib.parse
 
@@ -29,6 +32,36 @@ def add_args(p):
     p.add_argument('--docs', type=lambda f: str(pathlib.Path(f).resolve()),
                    help="the repo's docs and where each stands against its Google Doc, as gdocsync's export "
                         "writes them")
+
+
+# A Google Doc's mark, for the link to it that a doc's bar copies.
+ICON = ('<svg viewBox="0 0 16 16"><path d="M3.5 1h6L13 4.5v10a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-13a.5.5 0 0 1 .5-.5z" fill="#4285f4"/>'
+        '<path d="M9.5 1v3.5H13z" fill="#a1c2fa"/><path d="M5 8h6M5 10h6M5 12h4" stroke="#fff"/></svg>')
+
+
+def share(run, name, memo):
+    """For the doc's bar to copy (see docdiff's load_plugins): the link to its Google Doc, where it has
+    one. An address of the doc, after the remote's, and with no anchors: a Google Doc's headings are not
+    the Markdown's."""
+    if 'google_docs' not in memo:
+        memo['google_docs'] = google_docs(run)
+    url, words = memo['google_docs'].get(name, (None, None))
+    return url and [{'id': 'gdoc', 'order': 50, 'label': 'Link to its Google Doc', 'short': 'link', 'address': 'Google Docs',
+                     'icon': ICON, 'note': words, 'text': url}]
+
+
+def google_docs(run):
+    """The repo's files that have Google Docs, {file: (the doc's address, words for it)}: as --docs lists
+    them, by their titles; without --docs, as gdocsync's own map of the repo has them
+    (~/.gdocsync/<repo name>/map.json), so any review of the repo knows them."""
+    f = pathlib.Path(run['docs']) if run.get('docs') else None
+    if f and f.exists():
+        return {d['file']: (d['url'], d.get('title') or d['file']) for d in json.loads(f.read_text()) if d.get('url')}
+    try:
+        ids = json.loads((pathlib.Path.home() / '.gdocsync' / pathlib.Path(run['repo']).name / 'map.json').read_text())
+    except (OSError, ValueError):
+        return {}
+    return {name: (f'https://docs.google.com/document/d/{i}/edit', f'docs.google.com/document/d/{i[:8]}…') for name, i in ids.items()}
 
 
 def top(run):

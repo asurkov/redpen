@@ -33,8 +33,28 @@ is the files at that revision instead of the working tree (a PR, say). A changed
 `index.html` that holds a `respecConfig` stands for that ReSpec spec, which shows as one doc
 ([ReSpec specs](#respec-specs)).
 
-Each file's bar has **copy path** where the doc is compared as it reads on disk: it copies the path to the
-file on this machine.
+Each file's bar has **copy ›**, which copies the doc one way or another, to share it. It opens a strip of
+icons beside it, over the bar, so nothing moves (a click or `↵`; `←` `→` move, `↵` copies, Esc or a click
+elsewhere closes); what the pointed or focused one copies shows under it, and the one copied turns ✓ and
+says what went ("✓ copied Markdown · 22 links → GitHub · 1 left relative"), then the strip closes. An option that does not
+apply to the doc is absent, and a doc with one option alone has it as the button itself (**copy path**):
+
+- **Path on this machine**, where the doc is compared as it reads on disk.
+- **Markdown**: a Markdown doc's text as the page's new side has it, with its relative links to the repo's
+  other files pointing at where readers elsewhere find those: the file on the remote, or else its Google
+  Doc (without the anchor, which a Google Doc does not have). A link to a file that is nowhere else stays
+  relative, and so does an image. Not on a working tree that stands for something else (`--new-label`:
+  gdocsync's export, whose text is a flattened copy).
+- **Formatted text**: the same, rendered, for a paste into mail, chat or a Google Doc that keeps the
+  formatting: HTML on the clipboard, images embedded, with the Markdown as its plain text. Markdown itself
+  is plain text alone, so a paste into GitHub or an editor is the exact source.
+- **Link on GitHub** (or GitLab, Bitbucket; `plugins/git_remote.py`): the file on the repo's remote, where
+  the remote has it, read off the clone with no network: at the branch's upstream, or else the remote's
+  default branch; with `--head`, a permalink at the head, once a branch of the remote holds it. Its words
+  say when the file there differs from this copy (edits not committed or not pushed).
+- **Link to the file in the PR**, with `--pr`: the file in the PR's Files changed.
+- **Link to its Google Doc**, where the doc has one: in `--docs`, or without it in gdocsync's own map of
+  the repo (`~/.gdocsync/<repo name>/map.json`), so any review of the repo has it.
 
 **Accept** (`a`, or the ✓ button; "accept file" on each file's bar) moves the current change into the
 accepted copy, and the page reloads with it accepted, in place; on an accepted change, the same key (↺
@@ -423,7 +443,9 @@ on every run and used where it applies.
   page (the repo's own uncommitted edits too); it titles the page "Google Docs vs Markdown" only on base
   `google`
   ([Google Doc vs Markdown](#google-doc-vs-markdown)).
-- `gdoc_docs.py`: `--docs`, the repo's docs and their Google Docs listed above the diff.
+- `gdoc_docs.py`: `--docs`, the repo's docs and their Google Docs listed above the diff; a doc's bar
+  copies the link to its Google Doc.
+- `git_remote.py`: a doc's bar copies the link to the file on the repo's remote.
 - `github_pr.py`: `--pr`, a link from each change to its line in a GitHub PR, and the PR's comments read
   from GitHub ([GitHub PR](#github-pr)).
 - `review.py`: review comments, and revisits with Claude's answers, on the page
@@ -445,6 +467,15 @@ below; `load_plugins()` in `docdiff.py` has their exact shapes. `run` is the run
   (a spec's `index.html` for a section file).
 - `htmls(…)`: its docs rendered, both sides, or while they are not, what the file's section shows instead.
 - `section(run, name)`: words for a file's bar and data for the page.
+- `share(run, name, memo)`: what the doc's bar offers to copy beside docdiff's own, a source or a
+  destination each, so a new one is one plugin's `share()` and the control needs no change: `[{id, order,
+  label, note, icon, text}]`, `order` its place in the strip (docdiff's are 10 to 30), `label` and `note`
+  the words shown for it (`short`, its word on the button when it is the doc's only option), `icon` an
+  `<svg>`, `text` what goes on the clipboard; or in place of `text`,
+  `get`, an address within the review (a route of the plugin's) that answers `{text, html, said}` when the
+  option is pointed at. One whose text is where readers elsewhere find the doc is an address of it
+  (`address: 'GitHub'`, the place's name; `anchors` where the Markdown's heading anchors work there):
+  Markdown copied from a bar has its links to the repo's other files point at each file's first address.
 - `store(run)`, with `SOURCE`: a dir where replies drafted for this source's comments are kept,
   shared by every page that shows them (gdoc_comments.py's); without one they stay in the page's out dir.
 - `title(run)`: what the page compares, for the header's first line, with a link or none: `github_pr.py`'s

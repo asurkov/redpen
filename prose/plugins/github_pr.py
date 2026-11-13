@@ -58,6 +58,19 @@ def title(run):
     return f'GitHub PR · {slug}#{n}', f'https://github.com/{slug}/pull/{n}'
 
 
+def share(run, name, memo):
+    """For the doc's bar to copy (see docdiff's load_plugins): the link to the file in the PR's Files
+    changed, or to the files themselves for a doc the PR changes no file of that name (a spec whose
+    index.html it leaves alone)."""
+    if not run.get('pr') or not run.get('head'):
+        return None
+    slug, n = pr_of(run['repo'], run['pr'])
+    there = name in git(run['repo'], 'diff', '--name-only', '--no-renames', run['base'], run['head'], '--', name).splitlines()
+    return [{'id': 'pr', 'order': 45, 'label': 'Link to the file in the PR' if there else "Link to the PR's files", 'short': 'link',
+             'note': f'{slug}#{n}', 'icon': docdiff.ICONS['github'],
+             'text': files_url(run['repo'], run['pr']) + (f'#diff-{anchor(name)}' if there else '')}]
+
+
 def actions(run):
     if not run.get('pr'):
         return None
