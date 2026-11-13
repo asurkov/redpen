@@ -35,8 +35,8 @@ def add_args(p):
 
 
 # A Google Doc's mark, for the link to it that a doc's bar copies.
-ICON = ('<svg viewBox="0 0 16 16"><path d="M3.5 1h6L13 4.5v10a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-13a.5.5 0 0 1 .5-.5z" fill="#4285f4"/>'
-        '<path d="M9.5 1v3.5H13z" fill="#a1c2fa"/><path d="M5 8h6M5 10h6M5 12h4" stroke="#fff"/></svg>')
+ICON = ('<svg viewBox="0 0 48 48"><path fill="#2196f3" d="M37,45H11c-1.657,0-3-1.343-3-3V6c0-1.657,1.343-3,3-3h19l10,10v29C40,43.657,38.657,45,37,45z"/>'
+        '<path fill="#bbdefb" d="M40 13L30 13 30 3z"/><path fill="#1565c0" d="M30 13L40 23 40 13z"/><path fill="#e3f2fd" d="M15 23H33V25H15zM15 27H33V29H15zM15 31H33V33H15zM15 35H25V37H15z"/></svg>')
 
 
 def share(run, name, memo):

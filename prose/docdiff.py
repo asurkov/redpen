@@ -822,7 +822,7 @@ location.reload();}catch(e){pos.textContent='not saved: '+e.message;}});
 // elsewhere closes), and what the pointed or focused one copies shows under it; a copied one turns ✓ and
 // says what went, then the strip closes. An option holds its text, or where to ask for it ({text, html,
 // said}), asked as soon as it is pointed at, so the copy on its click need not wait.
-{const tick='<svg viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+{const tick='<svg viewBox="0 0 24 24"><path fill="currentColor" d="M 20.292969 5.2929688 L 9 16.585938 L 4.7070312 12.292969 L 3.2929688 13.707031 L 9 19.414062 L 21.707031 6.7070312 L 20.292969 5.2929688 z"/></svg>';
 const held=x=>x.held||(x.held=x.dataset.get?fetch(x.dataset.get).then(r=>{if(!r.ok)throw new Error(r.status);return r.json();}):Promise.resolve({text:x.dataset.text}));
 const copied=async x=>{try{const g=await held(x);return await copy(g.text,g.html)&&g;}catch(e){return null;}finally{x.held=null;}};
 document.querySelectorAll('button.cpath:not([aria-haspopup])').forEach(b=>{const words=b.textContent;
@@ -1285,17 +1285,12 @@ def plugin_actions(actors, old, new, pieces):
 
 
 # The icons of what a doc's bar copies: docdiff's own options', and the ones plugins' options share.
-ICONS = {
-    'path': '<svg viewBox="0 0 16 16"><path d="M1.75 3.25h4.1l1.4 1.75h7v7.75H1.75z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
-    'md': '<svg viewBox="0 0 208 128" style="width:21px"><rect width="198" height="118" x="5" y="5" ry="14" stroke="currentColor" stroke-width="12" fill="none"/>'
-          '<path fill="currentColor" d="M30 98V30h20l20 25 20-25h20v68H90V59L70 84 50 59v39zm125 0l-30-33h20V30h20v35h20z"/></svg>',
-    'rich': '<svg viewBox="0 0 16 16"><path d="M2 3.25h7" stroke="currentColor" stroke-width="2.2"/><path d="M2 7h12M2 10h12M2 13h8" stroke="currentColor" stroke-width="1.2"/></svg>',
-    'link': '<svg viewBox="0 0 16 16"><path d="M6.4 9.6l3.2-3.2M7.2 4.6l1.1-1.1a2.9 2.9 0 0 1 4.1 4.1l-1.1 1.1M8.8 11.4l-1.1 1.1a2.9 2.9 0 0 1-4.1-4.1l1.1-1.1" fill="none" stroke="currentColor" '
-            'stroke-width="1.4" stroke-linecap="round"/></svg>',
-    'github': '<svg viewBox="0 0 16 16"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 '
-              '1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 '
-              '1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 '
-              '1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>',
+ICONS = {  # icons8 Material Outlined: folder, markdown, rich text converter, link, github
+    'path': '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M 4 4 C 2.9057453 4 2 4.9057453 2 6 L 2 18 C 2 19.094255 2.9057453 20 4 20 L 20 20 C 21.094255 20 22 19.094255 22 18 L 22 8 C 22 6.9057453 21.094255 6 20 6 L 12 6 L 10 4 L 4 4 z M 4 6 L 9.171875 6 L 11.171875 8 L 20 8 L 20 18 L 4 18 L 4 6 z"/></svg>',
+    'md': '<svg viewBox="0 3 24 18" style="width:20px"><path fill="currentColor" d="M 2 4 C 0.9069372 4 0 4.9069372 0 6 L 0 18 C 0 19.093063 0.9069372 20 2 20 L 22 20 C 23.093063 20 24 19.093063 24 18 L 24 6 C 24 4.9069372 23.093063 4 22 4 L 2 4 z M 2 6 L 22 6 L 22 18 L 2 18 L 2 6 z M 5 8 L 5 16 L 7 16 L 7 11.675781 L 7.625 13 L 9.375 13 L 10 11.675781 L 10 16 L 12 16 L 12 8 L 10 8 L 8.5 11.058594 L 7 8 L 5 8 z M 16 8 L 16 12 L 14 12 L 17 16 L 20 12 L 18 12 L 18 8 L 16 8 z"/></svg>',
+    'rich': '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M 5 3 C 3.9045455 3 3 3.9045455 3 5 L 5 5 L 19 5 L 19 14 L 17 14 L 20 17 L 23 14 L 21 14 L 21 5 C 21 3.9069372 20.093063 3 19 3 L 5 3 z M 4 7 L 1 10 L 3 10 L 3 19 C 3 20.095455 3.9045455 21 5 21 L 19 21 C 20.093063 21 21 20.093063 21 19 L 19 19 L 5 19 L 5 10 L 7 10 L 4 7 z M 8 7 L 8 9 L 16 9 L 16 7 L 8 7 z M 8 11 L 8 13 L 13 13 L 13 11 L 8 11 z M 8 15 L 8 17 L 16 17 L 16 15 L 8 15 z"/></svg>',
+    'link': '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M 6 7 C 3.239 7 1 9.239 1 12 C 1 14.761 3.239 17 6 17 L 10 17 L 10 15 L 6 15 C 4.343 15 3 13.657 3 12 C 3 10.343 4.343 9 6 9 L 10 9 L 10 7 L 6 7 z M 14 7 L 14 9 L 18 9 C 19.657 9 21 10.343 21 12 C 21 13.657 19.657 15 18 15 L 14 15 L 14 17 L 18 17 C 20.761 17 23 14.761 23 12 C 23 9.239 20.761 7 18 7 L 14 7 z M 7 11 L 7 13 L 17 13 L 17 11 L 7 11 z"/></svg>',
+    'github': '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M10.9,2.1c-4.6,0.5-8.3,4.2-8.8,8.7c-0.5,4.7,2.2,8.9,6.3,10.5C8.7,21.4,9,21.2,9,20.8v-1.6c0,0-0.4,0.1-0.9,0.1 c-1.4,0-2-1.2-2.1-1.9c-0.1-0.4-0.3-0.7-0.6-1C5.1,16.3,5,16.3,5,16.2C5,16,5.3,16,5.4,16c0.6,0,1.1,0.7,1.3,1c0.5,0.8,1.1,1,1.4,1 c0.4,0,0.7-0.1,0.9-0.2c0.1-0.7,0.4-1.4,1-1.8c-2.3-0.5-4-1.8-4-4c0-1.1,0.5-2.2,1.2-3C7.1,8.8,7,8.3,7,7.6C7,7.2,7,6.6,7.3,6 c0,0,1.4,0,2.8,1.3C10.6,7.1,11.3,7,12,7s1.4,0.1,2,0.3C15.3,6,16.8,6,16.8,6C17,6.6,17,7.2,17,7.6c0,0.8-0.1,1.2-0.2,1.4 c0.7,0.8,1.2,1.8,1.2,3c0,2.2-1.7,3.5-4,4c0.6,0.5,1,1.4,1,2.3v2.6c0,0.3,0.3,0.6,0.7,0.5c3.7-1.5,6.3-5.1,6.3-9.3 C22,6.1,16.9,1.4,10.9,2.1z"/></svg>',
 }
 
 
