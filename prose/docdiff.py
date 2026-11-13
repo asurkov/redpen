@@ -760,7 +760,8 @@ for(const x of groups){const r=rounds.get(x.sec),on=r?.boxes?.[x.k];x.since=r?.f
 if(x.since)x.els.forEach((e,i)=>{if(on&&!on.includes(i))return;e.classList.add('fresh');if(!e.classList.contains('blk'))e.closest(blocks)?.classList.add('fresh-b');});}
 // The filter: which changes n and p step through and the status counts, all of them, the ones to review or
 // the reviewed ones; ● new (onlyNew), pressed, narrows it to the ones in it new since the last review. It
-// hides nothing. Each filter's count has its new ones beside it, and ● new counts the ones in the filter on.
+// hides nothing (the body's class only-new says it is pressed, for styles). Each filter's count has its new
+// ones beside it, and ● new counts the ones in the filter on.
 const fb=$('fresh'),fresh=groups.some(x=>x.since),lasts=[...new Set([...rounds.values()].map(r=>r.last))],since=lasts.length===1?lasts[0]:'last review';
 const fbs=[...document.querySelectorAll('#filt button')],inF={all:x=>true,todo:x=>!x.done,done:x=>x.done},
 named={all:'changes',todo:'to review',done:W.accepted},count=(f,n)=>groups.filter(x=>inF[f](x)&&(!n||x.since)).length;
@@ -770,7 +771,7 @@ if(m){b.append(Object.assign(document.createElement('span'),{className:'nw',text
 b.onclick=()=>filter(f);}
 let cur=body.dataset.view,c=null,anchor=null,mark=null,req=null,filt='todo',onlyNew=false;
 const gi=x=>groups.indexOf(x),L=()=>groups.filter(x=>x.view===cur&&inF[filt](x)&&(!onlyNew||x.since)),said=()=>(onlyNew?'new ':'')+named[filt];
-function filter(f,o=onlyNew){filt=f;onlyNew=fresh&&o;fbs.forEach(b=>b.setAttribute('aria-pressed',b.dataset.f===f));
+function filter(f,o=onlyNew){filt=f;onlyNew=fresh&&o;body.classList.toggle('only-new',onlyNew);fbs.forEach(b=>b.setAttribute('aria-pressed',b.dataset.f===f));
 if(fresh){const n=count(f),m=count(f,true);fb.textContent=m+' new since '+since;fb.setAttribute('aria-pressed',onlyNew);fb.disabled=!m&&!onlyNew;
 fb.title=onlyNew?'Stepping through the '+m+' of the '+n+' '+named[f]+' that are new since '+since+'; click for all '+n:'Step through only the '+m+' of the '+n+' '+named[f]+' that are new since '+since;}
 status();}

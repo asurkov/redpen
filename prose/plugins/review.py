@@ -3,7 +3,8 @@
 A comment is made on a change or on selected text (💬 in its popup, or c) and kept in <out>/review.json,
 {comments: [{id, time, file, view, key, quote, side, before, after, section, body, github}]}: key the
 change's (None on a selection), quote its text as it reads on its side, side L for the base's text (in
-Old, or a change that only removes) and R otherwise, before and after the text of its block around it.
+Old, a change that only removes, or a selection within removed text) and R otherwise, before and after the
+text of its block around it.
 github is where a plugin's place() (github_pr.py's, with --pr) finds that text in the PR's files,
 {pr, head, path, line, side, href}, found again when the run's PR or head is another. Pushed to the PR
 as your pending review (a plugin's push(), github_pr.py's), a comment keeps what it became there,
@@ -71,7 +72,7 @@ STYLE = '''
 .rvdisc>summary{font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;margin:8px 0 6px} .rvdisc>summary:hover{color:var(--fg)} .rvdisc[open]>:not(summary,.rvbox){opacity:.85}
 .rvgone{display:none} .rvstub{opacity:.65} .rvdup{opacity:.6} .rvrep>summary{font-size:12px;color:var(--muted);cursor:pointer} .rvrep[open]>blockquote{opacity:.7}
 .rvused{color:var(--insb)} #rvp .rvtwin,#rvc .rvtwin,#cp .rvtwin{color:var(--rw)}
-.rvok{display:inline-block;margin:0 3px;padding:0 5px;border-radius:9px;font:600 11px/15px -apple-system,BlinkMacSystemFont,sans-serif;vertical-align:2px;color:var(--insb);background:var(--ins);cursor:default;user-select:none;-webkit-user-select:none}
+.rvok{display:inline-block;margin:0 3px;padding:0 5px;border-radius:9px;font:600 11px/15px -apple-system,BlinkMacSystemFont,sans-serif;vertical-align:2px;color:var(--insb);background:var(--ins);cursor:default;user-select:none;-webkit-user-select:none} .rvok::before{content:'✓'}
 .rvbox{margin:8px 0;padding:8px;border:1px solid var(--line);border-radius:6px;display:flex;flex-direction:column;gap:6px;background:var(--bg)}
 .rvbox textarea{width:100%;box-sizing:border-box;min-height:4.5em;font:inherit;padding:6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg)}
 .rvbox.rvq{margin:8px 0 2px} .rvbox.rvq textarea{min-height:2.6em}
@@ -83,9 +84,23 @@ STYLE = '''
 .rvb-posted::after{content:" " url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 16 16'%3E%3Cpath fill='%23848d97' d='M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z'/%3E%3C/svg%3E") attr(data-r)}
 .panel>.rvcmh{flex:1 0 100%;font-size:12px} #cp .rvdel{color:var(--delb)} #cp .rvdel:not(:disabled):hover{background:var(--del)} .rvloc{margin:8px 0 0}
 .rvgc{margin:6px 0} .rvgr{margin-left:16px} .rva.rvgh{border-color:var(--line)} .rvgs{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin:0 0 6px}
+.rv-settled{--rvn:color-mix(in srgb,var(--muted) 45%,transparent)}
 .rv-settled del.chg.done:not(.rvshow){display:none} .rv-settled ins.chg.done:not(.rvshow){background:none;box-shadow:none}
-.rv-settled .blk.done:not(.rvshow):not(.fresh){border-left-color:color-mix(in srgb,var(--muted) 45%,transparent)} .rv-settled .blk.done[data-kind=rw]:not(.rvshow)>.was{display:none} .rv-settled .blk.done[data-kind=del]:not(.rvshow)>.was>.old{display:none}
-.rv-settled .rvbar:not(.fresh-b){box-shadow:-8px 0 0 -6px color-mix(in srgb,var(--muted) 55%,transparent)}
+.rv-settled .chg.done:not(.rvshow)+.rvok,.rv-settled .blk.done:not(.rvshow) .rvok{display:none}
+.rv-settled .blk.done:not(.rvshow)>.was>.old,.rv-settled .blk.done[data-kind=rw]:not(.rvshow)>.was:not(:has(summary .rvb:not(.rvb-done))){display:none}
+.rv-settled .blk.done:not(.rvshow),.rv-settled .rvbar{--rvc:var(--rvn)} .rv-settled .blk.done:not(.rvshow){border-left-color:var(--rvc)}
+.rv-settled .rvbar:not(td,th){position:relative} .rv-settled .rvbar:not(td,th,:has(.chg.fresh:not(.done)))::before{content:'';position:absolute;top:0;bottom:0;box-sizing:border-box;cursor:pointer;left:-13px;width:13px;border-left:3px solid var(--rvc)}
+.rv-settled li.blk.done:not(.rvshow,[data-kind=del]){position:relative;border-left-width:0;padding-left:0}
+.rv-settled :is(li,li>p).rvbar:not(:has(.chg.fresh:not(.done)))::before,.rv-settled li.blk.done:not(.rvshow,[data-kind=del])::before{content:'';position:absolute;top:0;bottom:0;box-sizing:border-box;cursor:pointer;left:-16px;width:14px;border:0;border-right:2px solid var(--rvc)}
+.rv-settled .fresh-b:not(td,th,:has(.chg.fresh:not(.done))){box-shadow:none} .rv-settled li.fresh-b:not(:has(.chg.fresh:not(.done))){padding-left:0} .rv-settled :is(td,th).rvbar:not(:has(.chg.fresh:not(.done))){box-shadow:-8px 0 0 -6px var(--rvc)}
+.rv-settled.only-new .blk.done.fresh,.rv-settled.only-new .fresh-b.rvbar,.rv-settled .fresh-b.rvbar:has(.chg.fresh.rvshow){--rvc:var(--new)}
+.rv-settled .rvtick:not(.rvshow,.cur){position:relative;height:0;margin-top:0;margin-bottom:0;padding:0;border:0;list-style:none} .rv-settled .rvtick:not(.rvshow,.cur)>.was{display:none}
+.rv-settled .rvtick:not(.rvshow,.cur)::before{content:'';position:absolute;left:-5px;top:-9px;width:18px;height:18px} .rv-settled li.rvtick:not(.rvshow,.cur)::before{left:-14px}
+.rv-settled .rvtick:not(.rvshow,.cur)::after{content:'';position:absolute;left:0;top:-5px;border:5px solid transparent;border-left:7px solid color-mix(in srgb,var(--muted) 70%,transparent)} .rv-settled li.rvtick:not(.rvshow,.cur)::after{left:-9px}
+.rv-settled.only-new .rvtick.fresh::after{border-left-color:var(--new)}
+.rv-settled ul:has(+.rvtick:not(.rvshow,.cur)+ul),.rv-settled ol:has(+.rvtick:not(.rvshow,.cur)+ol){margin-bottom:0} .rv-settled ul+.rvtick:not(.rvshow,.cur)+ul,.rv-settled ol+.rvtick:not(.rvshow,.cur)+ol{margin-top:0}
+.rv-settled .rvtick:not(.rvshow,.cur):hover>.was{display:block;position:absolute;left:14px;top:-12px;z-index:2;pointer-events:none;max-width:min(640px,80vw);padding:1px 8px;background:var(--bg);border:1px solid var(--line);border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.rv-settled .rvtick:not(.rvshow,.cur):hover>.was>summary{list-style:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .rv-settled .rvtick:not(.rvshow,.cur):hover>.was>summary::-webkit-details-marker{display:none}
 ::highlight(rvcm){text-decoration:underline dotted;text-decoration-color:var(--rw);text-decoration-thickness:2px;text-underline-offset:3px}
 body:not(.show-diff) #rvsd{visibility:hidden}
 #rvsd[aria-pressed=true]:not(:disabled){background:color-mix(in srgb,var(--fg) 10%,var(--bg));border-color:color-mix(in srgb,var(--fg) 45%,var(--bg));box-shadow:inset 0 1px 2px rgba(0,0,0,.12)}
@@ -121,15 +136,18 @@ const pc=mk('button',{id:'pc',textContent:'💬',title:'Comment (c)'});body.appe
 const vorder=['diff','new','old'];
 // Whether change k of a doc is reviewed (accepted).
 const isDone=(file,k)=>groups.some(g=>g.done&&g.file===file&&g.k===k);
-// A range's text as it reads on one side: L the base's (removed words and folded old blocks), R the new.
-const drop=(f,side)=>{f.querySelectorAll(side==='L'?'ins,.now,summary':'del,.was').forEach(e=>e.remove());return f.textContent;};
+// A range's text as it reads on one side: L the base's (removed words and folded old blocks), R the new;
+// the page's own marks are no part of it.
+const drop=(f,side)=>{f.querySelectorAll((side==='L'?'ins,.now,summary':'del,.was')+',.rvb,.rvok').forEach(e=>e.remove());return f.textContent;};
 // The block of the diff that node n is in, as the server pairs them: a child of the view, or an item of
 // a list that is one.
 function blockOf(n){let e=n.nodeType===1?n:n.parentElement;if(e.classList.contains('v'))return e;
 for(let p=e.parentElement;!p.classList.contains('v');e=p,p=p.parentElement)if(/^[OU]L$/.test(p.tagName)&&p.parentElement.classList.contains('v'))break;return e;}
-// A range's text on its side (L in Old, or where it reads only there), and the rest of its block before
-// and after it; a whole block's change is its block.
-function anchor(r,blk,old){const qr=norm(drop(r.cloneContents(),'R')),side=old||!qr?'L':'R',b=!blk&&blockOf(r.startContainer);
+// A range's text on its side (L in Old, or where it reads only there: a range within removed words or a
+// block's old text is all such, though it holds no element to drop), and the rest of its block before and
+// after it; a whole block's change is its block.
+function anchor(r,blk,old){const k=r.commonAncestorContainer,gone=!!(k.nodeType===1?k:k.parentElement).closest('del,.was');
+const qr=gone?'':norm(drop(r.cloneContents(),'R')),side=old||!qr?'L':'R',b=!blk&&blockOf(r.startContainer);
 const a={quote:side==='R'?qr:norm(drop(r.cloneContents(),'L')),side,before:'',after:''},t=document.createRange();
 if(b){t.selectNodeContents(b);t.setEnd(r.startContainer,r.startOffset);a.before=norm(drop(t.cloneContents(),side)).slice(-400);
 if(b.contains(r.endContainer)){t.selectNodeContents(b);t.setStart(r.endContainer,r.endOffset);a.after=norm(drop(t.cloneContents(),side)).slice(0,400);}}return a;}
@@ -288,6 +306,9 @@ for(const[t,o,b]of put){const f=t.parentElement.closest('.was'),d=t.parentElemen
 for(const b of document.querySelectorAll('main .rvb')){let p=b.previousSibling;while(p&&p.nodeType===3&&!p.data.trim())p=p.previousSibling;
 if(!p?.classList?.contains('rvb'))continue;p._its.push(...b._its);for(const it of b._its)for(const w in it.at)if(it.at[w]===b)it.at[w]=p;b.remove();}
 document.querySelectorAll('main .rvb').forEach(dress);
+// A reviewed removed block is a tick in the margin (rvtick); with something open said on it, it keeps its
+// one-line stub, where the mark is.
+for(const e of document.querySelectorAll('.v-diff .blk.done[data-kind=del]'))e.classList.toggle('rvtick',!e.querySelector('summary .rvb:not(.rvb-done)'));
 // Your comments' wording on reviewed changes, underlined: the change's new text, or the quote.
 if(window.Highlight&&CSS.highlights)CSS.highlights.set('rvcm',new Highlight(...items.flatMap(i=>i.ranges||[])));
 // The text the comments from elsewhere are on, highlighted as Google Docs does: pale, and darker for the one
@@ -297,7 +318,7 @@ if(window.Highlight&&CSS.highlights)CSS.highlights.set('rvgq',new Highlight(...i
 // ✓ reviewed, not looks good. Each reviewed change has its ✓, and its 💬 says what was said on it.
 mine={};for(const it of items)if(said(it))for(const[w,ks]of Object.entries(it.on))for(const k of ks)(mine[w]=mine[w]||new Map()).set(k,(mine[w].get(k)||0)+1);
 for(const g of groups.filter(g=>g.done)){const on=onChange(g.els[0].closest('.v'),g.k);
-if(on)on(mk('span',{className:'rvok',textContent:'✓',title:!W.reviewed?'Accepted':mine.diff?.has(g.k)?'Reviewed, with your comments':'Looks good'}));}
+if(on)on(mk('span',{className:'rvok',title:!W.reviewed?'Accepted':mine.diff?.has(g.k)?'Reviewed, with your comments':'Looks good'}));}
 status();
 // The header's 💬 opens the Review panel, and beside it what was said is counted by who sees it, how many of
 // them are unread beside each count; each count steps through its own.
@@ -363,9 +384,11 @@ onAccept=async(xs,accepting)=>{if(!W.reviewed)return;const ts=[];
 for(const x of xs)for(const it of items)if(it.kind==='r'&&!ts.includes(it)&&it.on[x.view]?.size===1&&it.on[x.view].has(x.k)&&
 (accepting?!it.done&&!it.wait:it.done&&it.members.every(m=>m.resolved_by==='accept')))ts.push(it);
 if(ts.length)await post('review',{revisits:ts.flatMap(t=>t.members.map(m=>m.time)),resolve:accepting,by:'accept'});};
-// Reviewed (accepted) changes show settled: the new text only, a thin bar beside a block with a change in
-// it, and their ✓. Clicking one shows its diff again; ± diffs, kept per viewer, shows them all. Changes to
-// review always show their diffs.
+// Reviewed (accepted) changes show settled: the text as it reads now and nothing else in it, a thin bar in the
+// margin beside a block with a change in it, and a tick where a block was removed (rvtick; see paint()).
+// Clicking a change, the bar or the tick shows the diff again, with its ✓; ± diffs, kept per viewer, shows
+// them all. Changes to review always show their diffs. One new since the last review has its blue edge while
+// it is to review, its diff shows or ● new is pressed.
 let diffs=false;try{diffs=localStorage.getItem(sk('docdiff-diffs'))==='1';}catch(e){}
 const sd=mk('button',{id:'rvsd',textContent:'± diffs'});
 // A toggle: pressed while the diffs show; with nothing reviewed yet, it has nothing to show.
@@ -373,10 +396,28 @@ function settle(){body.classList.toggle('rv-settled',!diffs);sd.setAttribute('ar
 sd.title=sd.disabled?'No '+W.accepted+' changes yet: their diffs show here once there are':
 diffs?'Showing the diffs of '+W.accepted+' changes: click to show them settled':'Show the diffs of '+W.accepted+' changes';}
 sd.onclick=()=>{diffs=!diffs;try{localStorage.setItem(sk('docdiff-diffs'),diffs?'1':'');}catch(e){}settle();};
-$('views').before(sd);for(const g of groups)if(g.done&&!g.els[0].classList.contains('blk'))
-g.els[0].closest('p,li,dt,dd,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figcaption')?.classList.add('rvbar');
-document.addEventListener('click',e=>{if(!body.classList.contains('rv-settled')||!getSelection().isCollapsed||e.target.closest('.rvb,.rvok,a,summary,.ui'))return;
-const t=e.target.closest('.v-diff .chg.done'),g=t&&groups.find(x=>x.els.includes(t));if(g)g.els.forEach(el=>el.classList.toggle('rvshow'));});
+$('views').before(sd);for(const g of groups)if(g.done)for(const el of g.els){if(!el.classList.contains('blk'))el.closest(blocks)?.classList.add('rvbar');else if(el.dataset.kind==='del')el.classList.add('rvtick');}
+// The word at a point of the page selected, as a double click there selects it; nothing where no word is.
+function wordAt(x,y){const p=document.caretPositionFromPoint?.(x,y),r=!p&&document.caretRangeFromPoint?.(x,y),n=p?p.offsetNode:r&&r.startContainer,s=getSelection();
+let i=p?p.offset:r?r.startOffset:0,j=i;const w=/[\\p{L}\\p{N}_]/u;s.removeAllRanges();if(n?.nodeType!==3||n.parentElement.closest('.rvb,.rvok'))return;
+while(i>0&&w.test(n.data[i-1]))i--;while(j<n.data.length&&w.test(n.data[j]))j++;if(i===j)return;
+const q=document.createRange();q.setStart(n,i);q.setEnd(n,j);const b=q.getBoundingClientRect();if(x>=b.left-2&&x<=b.right+2&&y>=b.top-2&&y<=b.bottom+2)s.addRange(q);}
+// A click shows or hides diffs, before the page's own click handler, so the popup goes under the change as it
+// then shows. A double click selects a word, as anywhere: its second click takes back what its first showed
+// or hid (turned: each element with whether its diff showed), which moved the text under it, and selects the
+// word that was clicked.
+let turned=null;
+const turn=(gs,on)=>{turned=new Map();for(const g of gs)for(const el of g.els){turned.set(el,el.classList.contains('rvshow'));el.classList.toggle('rvshow',on);}};
+document.addEventListener('click',e=>{if(e.detail>1){if(!turned)return;for(const[el,on]of turned)el.classList.toggle('rvshow',on);turned=null;
+if(e.target.closest('summary'))e.preventDefault();wordAt(e.clientX,e.clientY);return;}
+turned=null;if(!body.classList.contains('rv-settled')||!getSelection().isCollapsed||e.target.closest('.rvb,.rvok,a,.ui'))return;
+const t=e.target.closest('.v-diff .chg.done'),g=t&&groups.find(x=>x.els.includes(t));
+// A settled block's summary shows its diff, as the rest of the block does; shown, it folds and unfolds its old text.
+if(e.target.closest('summary')){if(g&&!t.classList.contains('rvshow')){e.preventDefault();turn([g],true);}return;}
+if(g){turn([g],!t.classList.contains('rvshow'));return;}
+// The bar beside a block shows or hides the diffs of every settled change in it.
+const b=e.target.closest('.v-diff .rvbar');if(!b||e.target!==b||e.clientX>=b.getBoundingClientRect().left)return;
+const gs=groups.filter(x=>x.done&&x.els.some(el=>!el.classList.contains('blk')&&el.closest(blocks)===b));turn(gs,gs.some(x=>!x.els[0].classList.contains('rvshow')));},true);
 settle();
 // Comments made elsewhere, read only, one source per plugin that has them (remarks(): github_pr.py's on
 // the PR, gdoc_comments.py's in the Google Docs), each named by its source: a thread is a comment with its
@@ -659,7 +700,9 @@ const at=it=>{const v=it.at[cur]?cur:vorder.find(x=>it.at[x]);if(!v)return 2;con
 r.setStart(w,0);r.setEndBefore(b);return r.toString().length/Math.max(1,w.textContent.length);};
 return items.map(it=>[(i=>i<0?1e9:i)(secs.indexOf(it.file)),at(it),it]).sort((x,y)=>x[0]-y[0]||x[1]-y[1]||(x[2].time<y[2].time?-1:1)).map(x=>x[2]);}
 function jump(it){const v=it.at[cur]?cur:vorder.find(x=>it.at[x]);if(!v)return;if(v!==cur)view(v);
-const g=it.key&&groups.find(x=>x.view===cur&&x.file===it.file&&x.k===it.key),b=it.at[cur];
+const g=it.key&&groups.find(x=>x.view===cur&&x.file===it.file&&x.k===it.key),b=it.at[cur],h=b.closest('.chg.done');
+// A mark in old text that a settled change hides: the change shows its diff.
+if(h&&!b.getClientRects().length)groups.find(x=>x.els.includes(h))?.els.forEach(el=>el.classList.add('rvshow'));
 if(g)focus(g);else{focus(null,false);b.scrollIntoView({block:'center',behavior:'smooth'});}
 b.classList.add('rvb-hit');if(it.kind==='g')gq(it);setTimeout(()=>{b.classList.remove('rvb-hit');if(it.kind==='g'&&card.hidden)gq(null);},1500);}
 // What a thread's drafted replies have going on, for its panel entry's line; a question to Claude says so.

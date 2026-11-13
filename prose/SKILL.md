@@ -59,11 +59,15 @@ login known, a comment you wrote on GitHub counts as your 💬 does, here and in
 ([GitHub PR](#github-pr)); other people's comments do not. Either one resolves the
 answered threads on that change alone; ↺ not reviewed reopens those ([Review comments](#review-comments)).
 
-Accepted (reviewed) changes show **settled**, each with its green ✓: the new text only, no strike-through
-or highlight, with a thin neutral bar beside a block that changed (blue for one new since last review);
-your commented wording on one has a dotted amber underline (the comment's quote, or the change's text when
-the comment is on the whole change) and its 💬 beside it. A removed block stays its one-line "removed: …"
-stub with its marks. Clicking one shows its diff again; **± diffs** beside the view switch, remembered per
+Accepted (reviewed) changes show **settled**: the text reads as the document will, with no strike-through,
+highlight or ✓ in it, and what hints at a change sits in the margin: a thin neutral bar beside a block
+that changed, and a small ▸ tick where a block was removed: hovering the tick names what was removed, and
+while it is the current change it shows its one-line "removed: …" stub. Your commented wording on a settled change
+has a dotted amber underline (the comment's quote, or the change's text when the comment is on the whole
+change) and its 💬 beside it; a removed block, or a rewritten one's old text, with something open said on it
+keeps its stub ("removed: …", "was: …"), where the mark is. Clicking a settled change, the bar beside its
+block or the tick shows the diff again, with its green ✓ (a double click selects a word, as anywhere, and
+leaves the diff as it was); **± diffs** beside the view switch, remembered per
 viewer, shows them all. Changes to review always show their diffs. Each doc's line at the top counts the accepted changes that
 carry comments or open questions ("· 3 with comments · 1 open question"), each count stepping through
 them.
@@ -199,7 +203,9 @@ review.
 
 **New since last review.** Each round also keeps **last**, the version last reviewed. A change that changed
 since then is new: a blue edge on it (its block's bar, or a bar beside the paragraph or item that holds an
-inline change), reviewed again or not. A change in several boxes (removed blocks, then the added ones) gets
+inline change) while it is to review. Reviewed again, it settles as any other change does, its bar neutral,
+so blue always means new and still to review; it stays new in the counts and for ● new, and its blue edge is
+back while ● new is pressed or its diff shows. A change in several boxes (removed blocks, then the added ones) gets
 it only on the boxes the update shares text with: a TODO removed before last, next to steps the author
 rewrote since, keeps its red bar. Each filter's count has its new ones beside it in blue ("To review
 9 ●6", "Reviewed 45 ●3"), and **● 6 new since 04041c3** counts the ones in the filter on: pressed, it has
@@ -211,8 +217,8 @@ card under it with the blocks of last-to-now that it holds, what changed in it s
 new had been reviewed (or there was no last yet); if one was still to review, last stays, and what the next
 update changes adds to what is new. So "last reviewed" is the last version you had finished, before the
 author pushed again, as on GitHub, where it is the commit your review was on; no button to remember, no
-blue edge that vanishes the moment the last new change is reviewed, while you may still want to reread it,
-and no update can hide one you have not reviewed yet.
+new changes that leave ● new the moment the last of them is reviewed, while you may still want to reread
+them, and no update can hide one you have not reviewed yet.
 
 **From a review done before.** `--reviewed-at <rev>` (on that run only; reruns do not repeat it) makes rev
 the version each changed file was last reviewed at, for a review from before rounds, or one done on GitHub:
@@ -526,7 +532,10 @@ ends the paragraph or list item holding the text before it in its block (or else
 without that block goes without the mark. When no view has its text any more (it was rewritten since),
 the mark sits on its section's heading. A quote that does not read as it is is matched with spaces
 ignored, as a selection across paragraphs keeps no space between them. Marks never count as changes or
-take n/p. A mark on removed words sits after them, so a settled change shows it. The header's **💬** opens
+take n/p. A mark on removed words sits after them, so a settled change shows it; one on a removed block,
+or in a rewritten block's old text, is on that block's stub line, which a settled change keeps while the
+mark holds something open (resolved, it shows with the diff, and going to it from the Review panel shows
+that). The header's **💬** opens
 the Review panel, and beside it what was said is counted by who sees it, with how many of each are unread:
 "2 drafts · 6 on GitHub (3 unread) · 5 questions (4 unread) · 1 pending". On GitHub counts what has a place
 in the doc, and unread there is a thread with a comment or a drafted reply you have not read ([GitHub PR](#github-pr),
