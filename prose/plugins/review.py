@@ -111,10 +111,11 @@ SCRIPT = '''
 (()=>{const mk=(t,p)=>Object.assign(document.createElement(t),p),norm=t=>(t||'').replace(/\\s+/g,' ').trim();
 let data={comments:[],revisits:[]},seen=null,items=[],draft=null,mine={};
 // The editor, laid out as the revisit panel: what it is on (muted), the text, then Delete apart, in red, and
-// Cancel and Save.
+// ✎ Ask Claude beside it on a comment not posted, then Cancel and Save.
 const cp=mk('div',{id:'cp',className:'panel',hidden:true}),ch=mk('div',{className:'n rvcmh'}),cq=mk('blockquote'),ct=mk('textarea',{placeholder:'Comment'});
 const cs=mk('button',{className:'primary',textContent:'Save'}),cd=mk('button',{className:'rvdel',textContent:'Delete'}),cc=mk('button',{textContent:'Cancel'});
-cs.dataset.key='↵';cc.dataset.key='esc';cp.append(ch,cq,ct,cd,mk('span',{className:'hint n',textContent:'⇧↵ adds a line'}),cc,cs);
+const ca=mk('button',{textContent:'✎ Ask Claude',title:'Ask Claude about this draft: “shorter”, “as a question”; a reworked draft comes back to use in its place'});
+cs.dataset.key='↵';cc.dataset.key='esc';cp.append(ch,cq,ct,cd,ca,mk('span',{className:'hint n',textContent:'⇧↵ adds a line'}),cc,cs);
 const lp=mk('aside',{id:'rvp',className:'ui',hidden:true}),card=mk('div',{id:'rvc',className:'ui',hidden:true}),rvt=mk('button',{id:'rvt',textContent:'💬'}),sum=mk('span',{id:'rvsum'});
 const pc=mk('button',{id:'pc',textContent:'💬',title:'Comment (c)'});body.append(cp,lp,card);pr.after(pc);rev.after(rvt,sum);
 const vorder=['diff','new','old'];
@@ -505,8 +506,9 @@ bd.append(...(own?[mk('blockquote',{textContent:own.quote})]:[]),...ghBodies(it,
 // ✎ Ask Claude about a comment of yours not posted ("shorter", "as a question"): a revisit naming it as its
 // comment and quoting its text, in the thread of what you asked about it before; a reworked draft in the
 // answer offers Use, in its place. What you asked shows under the comment, private.
-const askDraft=c=>act('✎ Ask Claude','Ask Claude about this draft: “shorter”, “as a question”; a reworked draft comes back to use in its place',()=>{card.hidden=true;
-openRev({quote:c.body,el:elOf(c),key:c.key,fields:{comment:c.id,section:c.section,...(c.cts[0]?{thread:c.cts[0].time}:{})},context:'asks about your draft “'+short(c.body)+'”'});});
+const askAbout=c=>{card.hidden=true;
+openRev({quote:c.body,el:elOf(c),key:c.key,fields:{comment:c.id,section:c.section,...(c.cts[0]?{thread:c.cts[0].time}:{})},context:'asks about your draft “'+short(c.body)+'”'});};
+const askDraft=c=>act('✎ Ask Claude',ca.title,()=>askAbout(c));
 const draftAsks=c=>c.cts.length?[mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:'✎ Asked Claude · private',title:'Between you and Claude'}),...discussion('c'+c.id,c.cts)]:[];
 const drafts=(it,incard)=>it.rts.length?[mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:'✎ Drafted replies · private',title:'Between you and Claude, until you post one on '+it.src.source}),...discussion(it.rid,it.rts,{it,incard})]:[];
 // With a draft ready to send (proposed), threads show the latest one, with its actions and its box while
@@ -536,12 +538,15 @@ async function load(){try{const r=await fetch('review');if(!r.ok)throw new Error
 if(rvt.disabled){rvt.disabled=false;seen=null;}if(JSON.stringify(d)!==seen)take(d);}catch(e){rvt.disabled=true;rvt.title='review: not served (restart the docdiff server)';}}
 function openCm(it){if(!it){pos.textContent='select text, or step to a change, then press c';return;}
 hidePop();card.hidden=true;draft=it;ch.replaceChildren(...(it.id?line(tag(it),[it.posted&&'local copy',it.section||it.file]):['💬 New comment · '+(it.section||it.file)]),...twinLink(it));
-cq.textContent=it.quote;ct.value=it.body||'';cd.hidden=!it.id;cp.hidden=false;ct.focus();}
+cq.textContent=it.quote;ct.value=it.body||'';cd.hidden=!it.id;ca.hidden=!it.id||!!it.posted;cp.hidden=false;ct.focus();}
 function closeCm(){cp.hidden=true;ct.value='';draft=null;}
 async function save(req){try{take(await post('review',req));closeCm();}catch(e){pos.textContent='comment not saved: '+e.message+' (is the docdiff server running?)';}}
 cs.onclick=()=>{const t=ct.value.trim();if(!draft)return;if(!t)return draft.id?save({id:draft.id,delete:true}):closeCm();
 save(draft.id?{id:draft.id,body:t}:{...draft,body:t});};
 cd.onclick=()=>draft?.id&&save({id:draft.id,delete:true});cc.onclick=closeCm;
+// Ask Claude about the comment as it reads: text edited here is saved first, and a save that fails asks nothing.
+ca.onclick=async()=>{const id=draft?.id,t=ct.value.trim();if(!id)return;if(t&&t!==draft.body)await save({id,body:t});else closeCm();
+const c=cp.hidden&&items.find(i=>i.kind==='c'&&i.id===id);if(c)askAbout(c);};
 ct.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();cs.click();}if(e.key==='Escape')closeCm();});
 const act=(t,title,f)=>{const b=mk('button',{className:'rvx',textContent:t,title});b.onclick=e=>{e.stopPropagation();f();};return b;};
 const short=t=>(t=norm(t)).length>70?t.slice(0,70).replace(/\\s+\\S*$/,'')+'…':t;

@@ -580,8 +580,9 @@ if it was edited) or Dismiss. An answer with several proposed drafts also offers
 comment. Using a draft resolves nothing: once every draft in a thread is used, dismissed or replaced, its
 header says "drafts handled" and urges Resolve, where the card has no change to accept.
 
-A comment of yours not posted has **✎ Ask Claude** in its card and panel entry: the revisit panel on the
-comment's text, for "shorter", "as a question" or anything else about it. What you ask about it, and
+A comment of yours not posted has **✎ Ask Claude** in its editor, card and panel entry: the revisit panel on
+the comment's text, for "shorter", "as a question" or anything else about it; from the editor, text edited
+there is saved first. What you ask about it, and
 Claude's answers, show under the comment as **✎ Asked Claude · private** (not as a question of its own),
 and its mark and the drafts count say when one waits or an answer is unread; a comment with asks opens in
 its card rather than its editor. A reworked draft in an answer offers **Use**, which puts it in place of
