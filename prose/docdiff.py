@@ -692,11 +692,11 @@ button:not(:disabled):hover{background:var(--btnh)} button:focus-visible{outline
 .fbar{margin-left:auto;display:flex;flex-wrap:wrap;gap:6px}
 .state{color:var(--muted);font-weight:400}
 .accf,.cpath{font:12px -apple-system,BlinkMacSystemFont,sans-serif;padding:1px 8px}
-.cpy{position:relative;display:inline-flex} .cpy .cpath::after{content:"›";margin-left:5px;color:var(--muted)} .cpy.open .cpath{background:var(--btnh)} .cpy.open .cpath::after{content:"‹"}
-.cpo{position:absolute;left:calc(100% + 4px);top:-1px;z-index:1;display:flex;overflow:hidden;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12)}
-.cpo[hidden]{display:none} .cpo button{display:flex;align-items:center;height:20px;padding:0 8px;border:0;border-radius:0;background:none;color:var(--muted)} .cpo button+button{border-left:1px solid var(--line)}
-.cpo button:hover,.cpo button:focus-visible{background:var(--code);color:var(--fg)} .cpo button.ok{color:var(--insb)} .cpo svg{width:15px;height:15px}
-.cpt{position:absolute;left:calc(100% + 4px);top:calc(100% + 5px);z-index:1;box-sizing:border-box;max-width:min(640px,100vw - 16px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 8px;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);font:12px -apple-system,BlinkMacSystemFont,sans-serif;color:var(--muted)}
+.cpy{position:relative;display:inline-flex} .cpy .cpath::after{content:"›";margin-left:5px;color:var(--muted)} .cpy.open .cpath{background:var(--btnh);border-radius:6px 0 0 6px} .cpy.open .cpath::after{content:"‹"}
+.cpo{position:absolute;left:100%;top:0;bottom:0;margin-left:-1px;z-index:1;display:flex;overflow:hidden;background:var(--btn);border:1px solid var(--line);border-radius:0 6px 6px 0}
+.cpo[hidden]{display:none} .cpo button{display:flex;align-items:center;height:100%;padding:0 7px;border:0;border-radius:0;background:none;color:var(--muted)} .cpo button+button{border-left:1px solid var(--line)}
+.cpo button:hover,.cpo button:focus-visible{background:var(--btnh);color:var(--fg)} .cpo button.ok{color:var(--insb)} .cpo svg{width:14px;height:14px}
+.cpt{position:absolute;left:0;top:calc(100% + 5px);z-index:1;box-sizing:border-box;max-width:min(640px,100vw - 16px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 8px;background:var(--bg);border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);font:12px -apple-system,BlinkMacSystemFont,sans-serif;color:var(--muted)}
 .cpt b{color:var(--fg);font-weight:600}
 ins{background:var(--ins);text-decoration:none;box-shadow:inset 0 -2px var(--insb)}
 del{background:var(--del);color:var(--delb);text-decoration:line-through}
