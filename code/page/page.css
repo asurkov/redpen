@@ -226,6 +226,11 @@ body.listHidden #splitter {
   font-size: 11px;
 }
 
+/* A file whose accepted lines a rebase did not carry over. */
+.file .state.again {
+  color: var(--accent);
+}
+
 .plus {
   color: var(--added);
 }

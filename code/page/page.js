@@ -31,6 +31,8 @@ const views = {
   },
 };
 const doneWords = { accept: 'Accepted', reject: 'Rejected', unaccept: 'Unaccepted' };
+// Where the page keeps the last rebase of the review it told of.
+const toldRebase = `redpenRebase:${session}`;
 const steps = { n: 'next', j: 'next', 'Alt+ArrowDown': 'next', p: 'previous', k: 'previous', 'Alt+ArrowUp': 'previous' };
 
 const state = {
@@ -50,6 +52,8 @@ const state = {
   signature: null,
   isText: false,
   areOthersOpen: false,
+  // When the review was last carried over to another base commit, as the server said it.
+  rebase: null,
 };
 let diffView;
 // One request after another: a poll never reads between an action and its redraw.
@@ -136,6 +140,7 @@ async function refresh() {
     return;
   }
   state.page = state.page || listing.page;
+  tellRebase(listing.rebased);
   byId('title').textContent = listing.title;
   document.title = `${listing.title} · Claude Edits`;
   drawViews();
@@ -155,6 +160,24 @@ async function refresh() {
   const index = order.indexOf(state.key);
   const next = order.slice(index + 1).concat(order.slice(0, Math.max(index, 0))).find(key => files.some(file => file.key === key));
   await show(next || files[0]?.key || null);
+}
+
+// Says once that the review was carried over to another base commit, to a page open then or
+// opened since.
+function tellRebase(rebased) {
+  if (!rebased || rebased.time === state.rebase) {
+    return;
+  }
+  state.rebase = rebased.time;
+  try {
+    if (localStorage.getItem(toldRebase) === rebased.time) {
+      return;
+    }
+    localStorage.setItem(toldRebase, rebased.time);
+  } catch {
+    // Without the storage the page says it each time it loads.
+  }
+  toast(`The branch was rebased: the review now compares with ${rebased.to.slice(0, 10)}`);
 }
 
 async function show(key, place) {
@@ -398,7 +421,7 @@ function drawProgress() {
 const drawn = { list: '', waiting: '' };
 
 function drawList() {
-  const drawing = JSON.stringify([state.view, state.key, listed().map(file => [file.key, file[state.view], file.isNew, file.isGone, !file.pending, !file.accepted])]);
+  const drawing = JSON.stringify([state.view, state.key, listed().map(file => [file.key, file[state.view], file.isNew, file.isGone, file.isUncarried, !file.pending, !file.accepted])]);
   if (drawing === drawn.list) {
     return;
   }
@@ -415,6 +438,9 @@ function drawList() {
     made.append(span('name', nameOf(path)), span('folder', `‎${path.slice(0, Math.max(path.lastIndexOf('/'), 0))}`));
     if (file.isGone || file.isNew) {
       made.append(span('state', file.isGone ? 'gone' : 'new'));
+    }
+    if (file.isUncarried) {
+      made.appendChild(span('state again', 'rebased')).title = 'The branch was rebased, and what was accepted in this file did not fit the new base: nothing of it is accepted now, look at it again';
     }
     made.append(...counts(file));
     made.addEventListener('click', () => queued(() => show(file.key)));
@@ -440,6 +466,11 @@ async function drawJournal() {
   const entries = await asked('/journal');
   const rows = entries.map(entry => {
     const row = document.createElement('li');
+    if (entry.action === 'rebase') {
+      const what = row.appendChild(span('what', `Rebased: compares with ${entry.to.slice(0, 10)}, not ${entry.from.slice(0, 10)}`));
+      what.append(span('when', new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
+      return row;
+    }
     row.className = entry.isUndone ? 'undone' : '';
     const what = row.appendChild(span('what', `${doneWords[entry.action]} ${whatOf(entry.change)}`));
     what.append(span('where', nameOf(entry.path)), span('when', new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));

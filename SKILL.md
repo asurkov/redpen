@@ -100,15 +100,23 @@ python3 ~/.claude/skills/redpen/code/review.py --git [REPO] [--base REV]
 The same page for a git work tree: every file that differs from a commit, whoever changed it and how
 (any session, a shell command, the user), untracked files included and ignored ones not. Use it for a
 whole change, such as a CL made over several sessions. `REPO` is a folder in the work tree (default: the
-current one). The base is the commit the work tree and `REV` both come from: `HEAD` (the default) for
-uncommitted work, `--base origin/main` for a branch with its commits. The script prints the page's URL,
+current one). The base is the commit the work tree and `REV` both come from: `--base origin/main` for a
+branch with its commits, `--base HEAD` for uncommitted work alone. With no `--base`, `REV` is the
+branch's upstream, else `HEAD`. The script prints the page's URL,
 `http://127.0.0.1:7878/code/s/git-<folder>-<path hash>-<commit>/`; open it as above.
 
 - Pending, Accept, Reject, Accepted, Unaccept, History, comments and keys work as for a session, with
   the base commit's text in place of the text before the session. Reject writes into the work tree;
   git's index and commits are never written.
-- What was accepted stays accepted while the base commit is the same; another base commit (after a
-  commit with `--base HEAD`, or a rebase) is another review, with nothing accepted.
+- The review of a branch against another commit than `HEAD` follows its base. After a rebase, the
+  page, loaded again, or the command, run again, carries the record over to the new base commit, under
+  the same URL (the `<commit>` in it is the one the review started from): a file upstream did not
+  change stays as it is; in one it changed, what was accepted is put into the new text again where
+  it fits, and where it does not, nothing of the file is accepted and the list marks it `rebased`;
+  a file that is the base's again leaves the review. The page says so once, and History has a line.
+  A review is found by its repository, `REV` and branch.
+- Against `HEAD`, or with no branch checked out, what was accepted stays accepted while the base
+  commit is the same; another base commit (after a commit) is another review, with nothing accepted.
 - The page shows the files the record has at once and looks for others behind it (the header says
   so while it does). A file that changes after the page was opened appears when the page is reloaded
   or the command is run again.
@@ -222,5 +230,6 @@ folder; of the comments: `comments.json`, those waiting to be sent, `sent.jsonl`
 `answers.jsonl`, Claude's answers and the threads the user resolved.
 
 A git review's record, `~/.redpen/code/git-<…>/`, has the same files, made by `review.py --git` from a
-commit, and `git.json` (repository, base commit, title, the session its comments reach) in place of
+commit, and `git.json` (repository, base commit, branch, title, the session its comments reach, the
+last rebase it was carried over) in place of
 `session.json`, so the Cursor sidebar and the Claude Edits pane do not list it.

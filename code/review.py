@@ -4,7 +4,8 @@ Reject per change and per file. Or a git work tree's changes against a commit, w
 
 Usage: review.py [--session ID] [--port N]   start the server unless it runs; print the page's URL
        review.py --git [REPO] [--base REV]   make or refresh the git review of REPO's work tree (the
-                                             current folder's) against REV (HEAD); print its page's URL
+                                             current folder's) against REV (the branch's upstream,
+                                             else HEAD); print its page's URL
        review.py --wait [--session ID]       print the comments nobody took that the pages of the
                                              session and of its git reviews sent, or else wait for
                                              the next ones; Claude keeps it running in the background
@@ -44,6 +45,8 @@ A git review is a record of the same shape that no hook keeps, ~/.redpen/code/gi
 names the repository, the base commit and the session that made it, in place of session.json, and
 each file that differs from the base commit has that commit's text as its orig and as its first
 baseline. Its files are found when the command runs and each time its page loads; git is only read.
+The review of a branch against another commit than HEAD follows its base: when the branch was rebased,
+the record is carried over to the new base commit then too (carried()), under the name it has.
 """
 import argparse, datetime, filecmp, hashlib, importlib.util, json, os, pathlib, re, subprocess, sys
 import tempfile, threading, time, urllib.parse
@@ -280,6 +283,8 @@ class Review:
                 'all': compared(places['orig'], signatures['orig'], places['disk'], signatures['disk']),
                 'isOther': not self.git and any(file['path'].startswith(root) for root in other_roots),
             })
+            # What was accepted in it was lost to a rebase, and something of it is to look at.
+            files[-1]['isUncarried'] = bool(file.get('uncarried')) and files[-1]['pending'] is not None
         info = self.git or read_json(self.record / 'session.json', {})
         channel = shared('channel')
         return {'session': self.session, 'title': info.get('title') or 'Claude session', 'files': files,
@@ -289,6 +294,8 @@ class Review:
                 'isWatched': channel.watching(self.sent) == 'wait',
                 # Whether a git review's files are still being found.
                 'isScanning': self.session in scans,
+                # The last move of a git review to another base commit: {from, to, time}.
+                'rebased': (self.git or {}).get('rebased'),
                 # What the page's own code is now: a page made of other code loads itself again.
                 'page': ' '.join(signature(here / 'page' / name)
                                  for name in ('page.html', 'page.js', 'editor.js', 'page.css')),
@@ -333,6 +340,10 @@ class Review:
         }
         self.write(key, file, target, result)
         write_atomic(self.folder / 'journal.json', json.dumps(self.journal() + [entry], indent=1).encode())
+        if file.get('uncarried') and read_bytes(places['base']) == read_bytes(places['disk']):
+            # Looked at again, to the end: the mark a rebase left goes.
+            kept = {name: value for name, value in self.file(key).items() if name != 'uncarried'}
+            write_atomic(self.record / 'files' / f'{key}.json', json.dumps(kept).encode())
         return entry
 
     def flip(self, entry_id):
@@ -682,30 +693,181 @@ def git_info(record):
 
 def git_review(folder, spec, owner):
     """Makes the git review of the folder's repository against the commit its work tree and spec both
-    come from, or refreshes the one there is, and makes owner the session its comments reach.
-    Returns the record's name."""
+    come from, or refreshes the one there is, carried over to that commit if its branch was rebased,
+    and makes owner the session its comments reach. With no spec, it is the branch's upstream, else
+    HEAD. Returns the record's name."""
     top = git(folder, 'rev-parse', '--show-toplevel')
     if top is None:
         raise Refusal(404, f'{folder} is in no git work tree.')
     top = pathlib.Path(os.fsdecode(top).rstrip('\n'))
+    if spec is None:
+        upstream = git(top, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}')
+        spec = (upstream or b'').decode().strip() or 'HEAD'
     base = git(top, 'merge-base', spec, 'HEAD')
     if base is None:
         raise Refusal(404, f'{spec} names no commit that HEAD comes from.')
     base = base.decode().strip()
     branch = (git(top, 'rev-parse', '--abbrev-ref', 'HEAD') or b'').decode().strip()
-    name = f"git-{re.sub(r'[^A-Za-z0-9_-]', '_', top.name)}-{sha(str(top).encode())[:6]}-{base[:10]}"
     info = {
         'repo': str(top),
         'base': base,
         'spec': spec,
-        'title': f'{top.name}: {branch} against {spec} ({base[:10]})',
+        'branch': branch,
+        'title': titled(top, branch, spec, base),
         'owner': owner,
         'updated': now(),
     }
+    name = record_named(info)
+    old = git_info(store / name)
+    if old and old['base'] != base:
+        info = {**carried(store / name, base), 'owner': owner, 'updated': now()}
+    elif old and old.get('rebased'):
+        info['rebased'] = old['rebased']
     scanned(store / name, info)
     (store / name / 'files').mkdir(parents=True, exist_ok=True)
     write_atomic(store / name / 'git.json', json.dumps(info, indent=1).encode())
     return name
+
+
+def titled(top, branch, spec, base):
+    return f'{top.name}: {branch} against {spec} ({base[:10]})'
+
+
+def branch_of(info):
+    """The branch a git review is of; read out of the title of a record made before it was kept."""
+    if isinstance(info.get('branch'), str):
+        return info['branch']
+    title = info.get('title') if isinstance(info.get('title'), str) else ''
+    lead, tail = titled(pathlib.Path(info['repo']), '\0', info['spec'], info['base']).split('\0')
+    return title[len(lead):-len(tail)] if title.startswith(lead) and title.endswith(tail) else ''
+
+
+def is_followed(info):
+    """Whether a git review follows its base: the review of a branch against another commit than its
+    own HEAD. Against HEAD a rebase cannot be told from new work, and with no branch checked out
+    (a rebase half done is so) there is none to follow."""
+    return not re.fullmatch(r'(HEAD|@)([~^].*)?', info['spec']) and branch_of(info) not in ('', 'HEAD')
+
+
+def record_named(info):
+    """The name of the record of the git review info describes: the one there is of the repository
+    and the spec, of the same branch whatever its base when the review follows its base, else of the
+    same base; the one refreshed last of several. With none, a new name, of the base it starts
+    from: a record keeps its name, and its page's URL, when its base moves."""
+    def is_same(other):
+        if (other['repo'], other['spec'], is_followed(other)) != (info['repo'], info['spec'], is_followed(info)):
+            return False
+        return branch_of(other) == info['branch'] if is_followed(info) else other['base'] == info['base']
+
+    found = [(str(other.get('updated') or ''), place.parent.name) for place in store.glob('git-*/git.json')
+             for other in [git_info(place.parent)] if other and is_same(other)]
+    if found:
+        return max(found)[1]
+    top = pathlib.Path(info['repo'])
+    first = f"git-{re.sub(r'[^A-Za-z0-9_-]', '_', top.name)}-{sha(str(top).encode())[:6]}-{info['base'][:10]}"
+    name, number = first, 1
+    # Another review's: of another branch or spec that started from the same commit.
+    while (store / name).exists():
+        number += 1
+        name = f'{first}-{number}'
+    return name
+
+
+def rebased_text(orig, accepted, new):
+    """The new base's text with what was accepted put in again, orig → accepted, as a three-way merge
+    does it, and whether it fit; where the two changed the same lines, or one of the three is no
+    text (None: no file), the new base's text as it is. git merges temporary copies: the repository
+    is not touched."""
+    if accepted in (orig, new):
+        return new, True
+    if None in (orig, accepted, new):
+        return new, False
+    with tempfile.TemporaryDirectory(prefix='redpen-') as folder:
+        for name, data in (('accepted', accepted), ('orig', orig), ('new', new)):
+            pathlib.Path(folder, name).write_bytes(data)
+        try:
+            ran = subprocess.run(['git', 'merge-file', '-p', 'accepted', 'orig', 'new'], capture_output=True, cwd=folder)
+        except OSError:
+            return new, False
+    return (new, False) if ran.returncode else (ran.stdout, True)
+
+
+def carried(record, base):
+    """Carries a git review's record over to another base commit, as its branch was rebased onto it.
+    A file whose text is the same at both commits stays as it is. Of another, the new commit's text is
+    the orig, and the baseline is that text with what was accepted put in again; where that does not
+    fit, nothing of the file is accepted and the file is marked (uncarried) for the page to say so. A
+    file that is the new commit's again, with nothing accepted, leaves the record. The comments and
+    the journal stay, and the journal says what was done. Returns what the review is of now, as it
+    wrote it to git.json. Under the channel's lock: the command and the server may both come here."""
+    with shared('channel').locked(record / 'review/sent.jsonl'):
+        info = git_info(record)
+        if info['base'] == base:
+            return info
+        top = pathlib.Path(info['repo'])
+        moved = git(top, 'diff', '--name-only', '-z', '--no-renames', '--ignore-submodules', info['base'], base, '--')
+        # Without the old commit (pruned since), every file is looked at.
+        moved = None if moved is None else {os.fsdecode(name) for name in moved.split(b'\0') if name}
+        uncarried = dropped = 0
+        for entry in sorted((record / 'files').glob('*.json')):
+            file = read_json(entry)
+            if not isinstance(file, dict) or not isinstance(file.get('path'), str):
+                continue
+            k, name = entry.stem, os.path.relpath(file['path'], top)
+            if name.startswith('..') or moved is not None and name not in moved:
+                continue
+            places = {'orig': record / 'review/orig' / k, 'none': record / 'review/orig' / f'{k}.none',
+                      'base': record / 'base' / k}
+            orig, accepted = read_bytes(places['orig']), read_bytes(places['base'])
+            new = git(top, 'cat-file', 'blob', f'{base}:{name}')
+            # The record's own orig decides: a file carried before this was interrupted is not again.
+            if new == orig:
+                continue
+            merged, is_carried = rebased_text(orig, accepted, new)
+            if merged == new and read_bytes(pathlib.Path(file['path'])) == new:
+                for place in (entry, *places.values()):
+                    place.unlink(missing_ok=True)
+                dropped += 1
+                continue
+            for place, data in ((places['orig'], new), (places['base'], merged)):
+                if data is None:
+                    place.unlink(missing_ok=True)
+                else:
+                    write_atomic(place, data)
+            if new is None:
+                write_atomic(places['none'], b'')
+            else:
+                places['none'].unlink(missing_ok=True)
+            mark = {} if is_carried else {'uncarried': base}
+            write_atomic(entry, json.dumps({'path': file['path'], 'new': new is None, **mark}).encode())
+            uncarried += not is_carried
+        moment = now()
+        line = {'id': f'{time.time_ns():x}', 'time': moment, 'action': 'rebase', 'key': None, 'path': '',
+                'change': None, 'from': info['base'], 'to': base, 'uncarried': uncarried, 'dropped': dropped,
+                'isUndone': False}
+        journal = read_json(record / 'review/journal.json', [])
+        write_atomic(record / 'review/journal.json',
+                     json.dumps((journal if isinstance(journal, list) else []) + [line], indent=1).encode())
+        branch = branch_of(info)
+        info = {**info, 'base': base, 'branch': branch, 'title': titled(top, branch, info['spec'], base),
+                'updated': moment, 'rebased': {'from': info['base'], 'to': base, 'time': moment}}
+        write_atomic(record / 'git.json', json.dumps(info, indent=1).encode())
+        return info
+
+
+def followed(review):
+    """Carries a git review that follows its base over to the commit its branch and spec both come
+    from now, if that is another one: the branch was rebased. Says whether it was."""
+    info = review.git
+    if not info or not is_followed(info):
+        return False
+    branch = (git(info['repo'], 'rev-parse', '--abbrev-ref', 'HEAD') or b'').decode().strip()
+    base = (git(info['repo'], 'merge-base', info['spec'], 'HEAD') or b'').decode().strip()
+    # Another branch is checked out, or none: its base is not this review's.
+    if branch != branch_of(info) or not base or base == info['base']:
+        return False
+    review.git = carried(review.record, base)
+    return True
 
 
 def scanned(record, info):
@@ -740,13 +902,16 @@ def scanned(record, info):
     return added
 
 
-def rescan(review):
-    """Finds a git review's files anew behind the page, one search at a time; a failure leaves those
-    it has."""
+def rescan(review, lock):
+    """Finds a git review's files anew behind the page, one search at a time, after carrying the
+    record over to its new base if the branch was rebased, under the records' lock; a failure
+    leaves those it has."""
     def run():
         try:
+            with lock:
+                followed(review)
             scanned(review.record, review.git)
-        except Refusal:
+        except (Refusal, OSError):
             pass
         finally:
             with scans_lock:
@@ -870,13 +1035,14 @@ def get(h, path):
         if review.git:
             # A git review's files are found anew as its page loads: the page shows those it has
             # at once, and the others as they are found.
-            rescan(review)
+            rescan(review, kept_lock(h))
         return send_file(h, here / 'page', 'page.html')
     found = re.fullmatch(r'/api/([\w-]+)/(files|journal|file/([0-9a-f]{16}))', path)
     if not found:
         raise Refusal(404, 'Not found.')
-    review = Review(found.group(1))
     with kept_lock(h):
+        # Read under the lock: a git review may have been carried over to another base meanwhile.
+        review = Review(found.group(1))
         if found.group(2) == 'files':
             return send_json(h, review.listing())
         if found.group(2) == 'journal':
@@ -913,7 +1079,7 @@ def main():
     parser.add_argument('--answer', metavar='ID')
     parser.add_argument('--change', metavar='PATH[:LINE]')
     parser.add_argument('--git', nargs='?', const='.', metavar='REPO')
-    parser.add_argument('--base', default='HEAD', metavar='REV')
+    parser.add_argument('--base', metavar='REV', help="default: the branch's upstream, else HEAD")
     args = parser.parse_args()
     # The hook reads the record alone, and no change to the server's code can fail it.
     if args.prompt_hook:
