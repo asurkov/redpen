@@ -553,8 +553,9 @@ Clicking it opens your one comment in its editor, or else a card of all it holds
 header, which starts with who sees it: **💬 On GitHub**, **💬 Draft · not posted** (**in your pending
 review** once pushed, **edited since pushed** after that), or **✎ Asked Claude · private** (on your own
 docs, where nothing is posted, **💬 Your comment**); then its state and actions: your comments (edit, copy,
-delete), threads from elsewhere, then questions, the resolved ones last. The editor and the Review panel's
-entries start the same way.
+delete), threads from elsewhere, then questions, the resolved ones last. A card that holds several shows
+each as a box of its own, its header a grey band on top of it, so a header and its buttons are plainly one
+thread's. The editor and the Review panel's entries start the same way.
 
 Each comment goes on its change in every view that has the change, and elsewhere where its quote
 reads, the text before it picking among repeats: so it shows on the same text in Old or New. Where a view
@@ -598,9 +599,17 @@ several. ↺ not reviewed reopens the threads its accept resolved, not ones reso
 docs accepting resolves nothing. Asking again reopens a thread. A resolved thread counts no more in its 💬,
 and alone it folds to a faint dot in the text, which opens its card to ↺ Reopen, and in the panel into a folded Resolved group under the open
 ones (Open / Resolved / All filter, and beside it who sees them, **GitHub · Drafts · Claude**, one at a
-time, pressed again for all; the header's 💬 opens the panel on Open and all, and a reload keeps both). A thread's card keeps its header, the state with ✎ Ask more and ✓
-Resolve (↺ Reopen), at its top while a long thread scrolls under it; in the Review panel each entry has
-them on its first line, and a long entry folds to a few lines with Show more. On commits, a card whose
+time, pressed again for all; the header's 💬 opens the panel on Open and all, and a reload keeps both). A
+thread's header leads with its own words, its first question (cut at 70 characters; one that reads whole
+there is not said again under it), with ✎ Ask more and ✓ Resolve (↺ Reopen) beside them, and under them,
+quieter, who sees it, its section, time and state. Its card keeps that header at its top while a long
+thread scrolls under it; in the Review panel each entry starts with it, and a long entry folds to a few
+lines with Show more. Resolving or reopening a thread moves nothing while its card or the panel is open, so
+a second click cannot land on another thread: it stays where it is, dimmed once resolved (until the pointer
+is on its text), its button now ↺ Reopen, and goes after the open ones the next time the card opens, or
+into the panel's Resolved group the next time the panel opens or one of its filters is pressed. A header's
+button under the pointer darkens its thread's header and frame, and ✓ Resolve and ↺ Reopen name their
+thread in the tooltip ("Resolve “is excess?”: …"). On commits, a card whose
 thread is on one change still in To review leads with that change's accept, worded as the toolbar's (✓
 looks good, or ✓ reviewed on a commented change; `a` while the card is open, and `r` asks more there) and doing the same: the
 change is reviewed and its answered threads resolve, this one with them unless its last question has no
@@ -702,7 +711,8 @@ or **↺ Reopen** on a resolved one, which resolve or reopen it on GitHub (`reso
 `unresolveReviewThread`), on that click alone, and show what GitHub answers. A thread resolved there,
 whoever resolved it ("resolved by MichaelKohler"), goes as a resolved question does: its mark folds to the
 faint dot, and the Review panel lists it under Resolved, not Open, nor under On GitHub; the doc bar's
-count leaves it out. Its only action is ↺ Reopen: ✎ Draft a reply comes back once it is reopened.
+count leaves it out. Resolved or reopened from an open card or panel, it too stays where it is until that
+opens next. Its only action is ↺ Reopen: ✎ Draft a reply comes back once it is reopened.
 Without a token a thread's state is not known and there is no ✓ Resolve; with one, ✓ Resolve shows once
 the threads have been read, never greyed out, which would read as resolved. Nothing resolves here
 alone: the state is always GitHub's.

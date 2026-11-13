@@ -65,7 +65,7 @@ STYLE = '''
 .rvch,.rvih{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px} .rvch .rvm,.rvih .rvm{flex:1 1 12em} .rvch .rvx,.rvih .rvx{margin:0}
 .rvx.rvcl{font-weight:600;border-color:color-mix(in srgb,var(--insb) 50%,var(--line))} .rvopen{font-size:12px;white-space:nowrap;margin-left:8px}
 .rvx.rvsec{font-size:11px;padding:0 6px;color:var(--muted)}
-.rvch{position:sticky;top:0;z-index:1;padding:6px 12px;background:var(--bg);border-bottom:1px solid var(--line)} .rvcb{padding:4px 12px 10px}
+.rvch{position:sticky;top:0;z-index:1;padding:6px 12px;background:var(--code);border-bottom:1px solid var(--line)} .rvcb{padding:4px 12px 10px}
 .rvfold{max-height:9em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 60%,transparent);mask-image:linear-gradient(#000 60%,transparent)}
 #rvp .rvmore,#rvp .rvmore:hover{border:0;background:none;color:var(--link);padding:0;height:auto;font-size:12px;cursor:pointer}
 .rvpr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:2px 0 10px} .rvpr .rvx{margin:0} .rvpr .rvm{margin-right:2px}
@@ -111,7 +111,14 @@ body:not(.show-diff) #rvsd{visibility:hidden}
 .rva{border-left:3px solid var(--insb);padding-left:8px;margin-top:6px} .rva>:first-child{margin-top:0} .rva>:last-child{margin-bottom:0}
 #rvp .rva blockquote,#rvc .rva blockquote{max-height:none;margin:6px 0 2px;padding:0 8px;border-left-color:var(--line);border-radius:0;background:none;font-size:inherit} .rvi-new{box-shadow:inset 3px 0 var(--insb)} .rvi-new>.rvm{font-weight:600}
 .rvfs{display:flex;flex-wrap:wrap;gap:6px 10px;margin:0 0 6px} .rvf button{font-size:12px;padding:1px 8px} .rvg>summary{cursor:pointer;color:var(--muted);font-size:13px;padding:6px 0;border-top:1px solid var(--line)}
-#rvc>.rvpart+.rvpart{border-top:1px solid var(--line)}
+/* A thread's header leads with its own words (.rvtt), its buttons kept together beside them (.rvas), and says what it is, where and its state on a quieter line under them; Resolve and Reopen are one width. */
+.rvtt{flex:1 1 12em;min-width:0;font-weight:600;overflow-wrap:anywhere} .rvtt~.rvm{flex:1 0 100%} .rvih .rvtt{flex-basis:auto} .rvas{display:flex;gap:6px;margin-left:auto} .rvx.rvrs{min-width:6.6em}
+/* A card of several parts shows each as a box of its own, its header a band on top of it. A header's button under the pointer marks its part, or its panel entry. */
+#rvc>.rvpart:not(:only-child){margin:8px;border:1px solid var(--line);border-radius:6px} #rvc>.rvpart:not(:only-child)>.rvch{border-radius:5px 5px 0 0}
+#rvc .rvpart:has(>.rvch .rvx:hover)>.rvch{background:color-mix(in srgb,var(--fg) 9%,var(--code))}
+.rvi:has(>.rvih .rvx:hover),#rvc>.rvpart:not(:only-child):has(>.rvch .rvx:hover){border-color:color-mix(in srgb,var(--fg) 55%,var(--line))}
+/* One resolved among open ones is dimmed, until the pointer is on its text. */
+.rvdone .rvtt{color:var(--muted)} #rvc:has(.rvpart:not(.rvdone)) .rvdone>.rvcb:not(:hover),#rvp:not([data-f=resolved])>.rvdone>.rvib:not(:hover){opacity:.5}
 #rvpush .rvpl{flex:1 0 100%;max-height:40vh;overflow:auto;font-size:13px} #rvpush .rvcmh a{margin-left:6px}
 .rvpg{margin:8px 0 2px;font-size:12px;font-weight:600;color:var(--muted)} .rvpg:first-child{margin-top:0}
 .rvpi{display:flex;flex-wrap:wrap;gap:0 8px;align-items:baseline;padding:1px 0 1px 8px} .rvpw{flex:0 0 auto;font:12px ui-monospace,Menlo,monospace;color:var(--muted)}
@@ -468,10 +475,10 @@ const ghSettled=t=>'resolved'+(t.by?' by '+t.by:'');
 // ✓ Resolve or ↺ Reopen a thread on its source (GitHub), as its own Resolve conversation does, on this click
 // alone; its state here is what the source answers. Until the server has read that (it takes a token) there
 // is no button: one greyed out would read as resolved.
-function ghSettle(t){if(!t.settles||!t.root.thread)return[];const b=act(t.done?'↺ Reopen':'✓ Resolve',(t.done?'Reopen this thread on ':'Resolve this thread on ')+t.src.source+(t.by?' (resolved by '+t.by+')':''),
-async()=>{b.disabled=true;b.textContent=t.done?'reopening…':'resolving…';
+function ghSettle(t){if(!t.settles||!t.root.thread)return[];const b=act(t.done?'↺ Reopen':'✓ Resolve',(t.done?'Reopen “':'Resolve “')+short(t.root.author+': '+t.root.body)+'” on '+t.src.source+(t.by?' (resolved by '+t.by+')':''),
+async()=>{pin(t);b.disabled=true;b.textContent=t.done?'reopening…':'resolving…';
 try{const{refused,...st}=await post('review',{resolve_thread:t.root.thread,resolved:!t.done,source:t.src.source});take(st);if(refused)pos.textContent='not '+(t.done?'reopened':'resolved')+' on '+t.src.source+': '+refused;}
-catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';}});return[b];}
+catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';}});b.classList.add('rvrs');return[b];}
 function local(own){const r=mk('div',{className:'rvpr rvloc'}),e=act('edit','Edit the copy kept here; GitHub keeps the posted one',()=>{card.hidden=true;openCm(own);}),
 x=act('delete','Delete the copy kept here; the comment stays on GitHub',()=>{if(x.textContent==='delete'){x.textContent='delete?';return;}card.hidden=true;save({id:own.id,delete:true});});
 e.classList.add('rvsec');x.classList.add('rvsec');r.append(mk('span',{className:'rvm',textContent:'Local copy:'}),e,x);return r;}
@@ -591,9 +598,10 @@ const c=cp.hidden&&items.find(i=>i.kind==='c'&&i.id===id);if(c)askAbout(c);};
 ct.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();cs.click();}if(e.key==='Escape')closeCm();});
 const act=(t,title,f)=>{const b=mk('button',{className:'rvx',textContent:t,title});b.onclick=e=>{e.stopPropagation();f();};return b;};
 const short=t=>(t=norm(t)).length>70?t.slice(0,70).replace(/\\s+\\S*$/,'')+'…':t;
-// A thread's requests, each with its answers, a revision with the draft it revises.
-const asks=(it,shown=new Set())=>it.members.flatMap(m=>[...(m.revises?[mk('div',{className:'rvm',textContent:'↻ revise the draft “'+short(m.quote)+'”'})]:[]),
-mk('div',{className:'rvt',textContent:m.remote&&!m.revises&&m.mode!=='ask'?(m.mode==='polish'?'Your reply: ':m.prompt?'Notes: ':'No notes: Claude drafts on its own')+m.prompt:m.prompt}),...answers(it,m,shown)]);
+// A thread's requests, each with its answers, a revision with the draft it revises. Under a header that
+// reads its first request whole (led), that one is not said again.
+const asks=(it,shown=new Set(),led)=>it.members.flatMap((m,i)=>[...(m.revises?[mk('div',{className:'rvm',textContent:'↻ revise the draft “'+short(m.quote)+'”'})]:[]),
+...(led&&!i&&norm(m.prompt)===titleOf(it)?[]:[mk('div',{className:'rvt',textContent:m.remote&&!m.revises&&m.mode!=='ask'?(m.mode==='polish'?'Your reply: ':m.prompt?'Notes: ':'No notes: Claude drafts on its own')+m.prompt:m.prompt})]),...answers(it,m,shown)]);
 // Each drafted comment (a blockquote) shows as its proposal: with its state and actions under it, folded
 // to a stub when dismissed and into a summary when replaced; one proposed again (shown has it) shows once,
 // its repeats faded, or gone with it once it is dismissed or replaced.
@@ -631,11 +639,13 @@ if(it.reply&&opened.has(it.remote+'#'+p.id))r.after(box(it.remote+'#'+p.id,{rev:
 const state=it=>it.done?'resolved':it.wait?'pending':it.unread?'new answer':it.handled?'drafts handled':'answered';
 // A thread's actions, at the top of its card and of its panel entry, so they stay in reach of a long
 // thread: Ask more (r while its card is open), and Resolve (urged once every draft is used or dismissed)
-// or Reopen. On a card whose thread is on one change in To review (g, on commits), that change's accept
-// comes first, as the toolbar words it (a while the card is open), and Resolve is the lesser choice.
-// Resolving or reopening one leaves its card open while that holds another open one, which would go unseen.
-const actions=(it,g)=>{const b=act(it.done?'↺ Reopen':'✓ Resolve',it.done?'Back to the open revisits':'Done with it: its mark folds to a dot',()=>{if(!cardIds?.some(k=>k!==idOf(it)&&items.some(i=>idOf(i)===k&&!i.done)))card.hidden=true;setThread(it,{resolve:!it.done});});
-if(g){b.classList.add('rvsec');if(!it.done)b.title='Done asking, not done reviewing: resolves this thread alone, and its change stays in To review';}
+// or Reopen, whose tooltip names the thread. On a card whose thread is on one change in To review (g, on
+// commits), that change's accept comes first, as the toolbar words it (a while the card is open), and
+// Resolve is the lesser choice. Resolving or reopening one leaves its card open while that holds another
+// open one, which would go unseen, and moves nothing in the card or the open panel (showCard(), pin()).
+const actions=(it,g)=>{const nm=(it.done?'Reopen “':'Resolve “')+titleOf(it)+'”',b=act(it.done?'↺ Reopen':'✓ Resolve',nm+(it.done?': back to the open '+W.revisits:': done with it, its mark folds to a dot'),()=>{if(!cardIds?.some(k=>k!==idOf(it)&&items.some(i=>idOf(i)===k&&!i.done)))card.hidden=true;pin(it);setThread(it,{resolve:!it.done});});
+b.classList.add('rvrs');
+if(g){b.classList.add('rvsec');if(!it.done)b.title=nm+', done asking but not done reviewing: it resolves this thread alone, and its change stays in To review';}
 else if(it.handled&&!it.done)b.classList.add('primary');
 const w=g&&wordsOf(g),ok=g&&act(w.accept,w.accept_title.replace('the current change','its change').replace(/ \\(a\\)$/,'')+
 (it.done?'':it.wait?'. This thread has no answer yet, so it stays open':'. Its answered threads resolve with it, this one too')+' (a)',()=>acceptFor(g));
@@ -654,22 +664,27 @@ take(st);card.hidden=true;openCm({...st.comments[st.comments.length-1],kind:'c'}
 // they join it whatever text the request quotes, and the panel says which thread they go on from.
 const elOf=it=>it.at[cur]||Object.values(it.at)[0]||[...document.querySelectorAll('section')].find(s=>s.dataset.file===it.file);
 const first=it=>short((it.members.find(m=>!m.revises)||it.members[0]).prompt);
+// A thread's own words, which lead its header and name it on its buttons: its first request, or else the text it is on.
+const titleOf=it=>first(it)||short(it.sent),titled=it=>mk('span',{className:'rvtt',textContent:titleOf(it)});
+// A header's buttons, kept together where its line wraps.
+const grouped=bs=>{const s=mk('span',{className:'rvas'});s.append(...bs);return s;};
 function revise(it,p){card.hidden=true;openRev({quote:p.text,el:elOf(it),key:it.key,fields:{thread:it.time,revises:p.id,section:it.section,
 ...(it.draftOf?{comment:it.draftOf}:{}),...(it.reply?{remote:it.remote,lead:'Revise this reply drafted for a thread on '+it.file}:{})},context:'revises a draft in “'+first(it)+'”'});}
 function more(it){card.hidden=true;openRev({quote:it.sent,el:elOf(it),key:it.key,fields:{thread:it.time,section:it.section},context:'goes on from “'+first(it)+'”'});}
-// A mark's card, under it or, with more room there, over it: what the mark holds (its), each under a header
-// (what it is, its state and actions) that stays at the top while its part scrolls under it. A question
-// shows each ask with Claude's answers and drafts, Ask more and Resolve; a thread from elsewhere as
-// ghPart() shows it; a comment of yours, not posted, with edit, copy and delete. It follows what it shows
-// while open (cardIds), and opening it reads the answers and drafted replies in it; with a question in it,
-// r asks more there and a accepts its change (carded, the question's time).
+// A mark's card, under it or, with more room there, over it: what the mark holds (its), each a box of its
+// own where it holds several, under a header (what it is, its state and actions) that stays at the top
+// while its part scrolls under it. A question's header leads with its first ask, and it shows each ask
+// with Claude's answers and drafts, Ask more and Resolve; a thread from elsewhere as ghPart() shows it; a
+// comment of yours, not posted, with edit, copy and delete. It follows what it shows while open (cardIds),
+// and opening it reads the answers and drafted replies in it; with a question in it, r asks more there and
+// a accepts its change (carded, the time of its first open question, or else of its first).
 let carded=null,cardIds=null;
 const idOf=it=>it.kind==='r'?'r'+it.time:it.kind==='g'?it.rid:'c'+it.id;
 const inCard=it=>!card.hidden&&!!cardIds?.includes(idOf(it));
-function part(it){const h=mk('div',{className:'rvch'}),bd=mk('div',{className:'rvcb'}),d=mk('div',{className:'rvpart'});
+function part(it){const h=mk('div',{className:'rvch'}),bd=mk('div',{className:'rvcb'}),d=mk('div',{className:'rvpart'+(it.done?' rvdone':'')});
 if(it.kind==='g')ghPart(it,h,bd);
-else if(it.kind==='r'){const m=mk('span',{className:'rvm'});m.append(...line(tag(it),[it.section,it.time.replace('T',' '),state(it)]));h.append(m,...actions(it,toAccept(it)));
-bd.append(mk('blockquote',{textContent:it.sent}),...asks(it));}
+else if(it.kind==='r'){const m=mk('span',{className:'rvm'});m.append(...line(tag(it),[it.section,it.time.replace('T',' '),state(it)]));h.append(titled(it),grouped(actions(it,toAccept(it))),m);
+bd.append(mk('blockquote',{textContent:it.sent}),...asks(it,undefined,true));}
 else{const x=act('delete','Delete this comment',()=>{if(x.textContent==='delete'){x.textContent='delete?';return;}card.hidden=true;save({id:it.id,delete:true});}),
 c=act('copy','Copy as Markdown: its file:line, the quoted text and the comment',async()=>{c.textContent=await copy(markdown([it]))?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
 const hm=mk('span',{className:'rvm'});hm.append(...line(tag(it),[it.section||it.file]),...twinLink(it));
@@ -677,10 +692,13 @@ h.append(hm,askDraft(it),act('edit','Edit this comment',()=>{card.hidden=true;op
 bd.append(...(it.quote?[mk('blockquote',{textContent:it.quote})]:[]),mk('div',{className:'rvt',textContent:it.body}),...draftAsks(it));}
 d.append(h,bd);return d;}
 // Your comments come first, then threads from elsewhere, then questions, the resolved ones last; a posted
-// comment of yours shows as the thread it is in. Again (refreshing), it keeps the card where it is.
+// comment of yours shows as the thread it is in. Again (refreshing), it keeps the card where it is, and each
+// part where it was in it: one resolved or reopened moves only when the card opens next, so no other part
+// comes under the pointer.
 const rank=it=>it.done?3:it.kind==='c'?0:it.kind==='g'?1:2;
-function showCard(its,b,again){its=[...new Set(its.map(i=>i.kind==='c'&&i.thread||i))].sort((x,y)=>rank(x)-rank(y));const f=keepFocus(),y=card.scrollTop;
-cardIds=its.map(idOf);carded=its.find(i=>i.kind==='r')?.time||null;card.replaceChildren(...its.map(part));
+function showCard(its,b,again){const was=again&&cardIds||[],seat=it=>{const i=was.indexOf(idOf(it));return i<0?was.length+rank(it):i;};
+its=[...new Set(its.map(i=>i.kind==='c'&&i.thread||i))].sort((x,y)=>seat(x)-seat(y));const f=keepFocus(),y=card.scrollTop;
+cardIds=its.map(idOf);carded=(its.find(i=>i.kind==='r'&&!i.done)||its.find(i=>i.kind==='r'))?.time||null;card.replaceChildren(...its.map(part));
 if(again)card.scrollTop=y;else place(b);f();gq({gqs:its.flatMap(i=>i.gqs||[])});
 for(const it of its){if(it.fresh&&!fresh0.has(it.rid))fresh0.set(it.rid,it.seen);looked(it);for(const t of it.kind==='r'?[it]:it.kind==='c'?it.cts:it.rts||[])if(t.unread)setThread(t,{seen:true});}}
 // The open card drawn again, with what its mark holds now.
@@ -709,7 +727,7 @@ b.classList.add('rvb-hit');if(it.kind==='g')gq(it);setTimeout(()=>{b.classList.r
 const draftsNow=it=>{const asked=it.rts.find(t=>t.wait)?.members.at(-1).mode==='ask',unread=it.rts.flatMap(t=>t.members).filter(m=>m.answers.length>(m.seen||0));
 return it.wait?(asked?'question being answered':'reply being drafted'):unread.length?(unread.every(m=>m.mode==='ask')?'new answer':'new drafted reply'):'drafted replies';};
 // A panel entry: its line (where, state, actions), then its body, folded to a few lines when long.
-function row(it,files){const r=it.kind==='r',d=mk('div',{className:'rvi'+((it.kind==='c'?it.thread||it.ask:it)?.unread&&!it.done?' rvi-new':'')}),h=mk('div',{className:'rvih'}),m=mk('span',{className:'rvm'}),bd=mk('div',{className:'rvib'}),w=where(it);
+function row(it,files){const r=it.kind==='r',d=mk('div',{className:'rvi'+((it.kind==='c'?it.thread||it.ask:it)?.unread&&!it.done?' rvi-new':'')+(it.done?' rvdone':'')}),h=mk('div',{className:'rvih'}),m=mk('span',{className:'rvm'}),bd=mk('div',{className:'rvib'}),w=where(it);
 d.dataset.id=r?'r'+it.time:it.kind==='g'?it.id:'c'+it.id;
 if(it.kind==='g'){m.append(...line(tag(it),[files>1&&it.file,ghLabel(it.root),it.fresh&&it.fresh+' new',it.done&&ghSettled(it),it.rts.length&&draftsNow(it)]));
 h.append(m,...(it.file&&!it.done?[reply(it)]:[]),...ghSettle(it),ghOpen(it));
@@ -718,7 +736,7 @@ d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);looked(it);for(con
 const t=it.kind==='c'&&it.thread;m.append(...(t?postedAs(it,t):[...line(tag(it),[files>1&&it.file,it.section,r&&state(it)]),Object.keys(it.at).length?'':' · not in the page now']));
 if(w)m.append(' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗'}));if(!r&&!t)m.append(...twinLink(it));
 if(it.quote)bd.append(mk('blockquote',{textContent:r?it.sent:it.quote}));
-if(r)h.append(m,...actions(it)),bd.append(...asks(it));else{const e=act('edit','',()=>openCm(it)),x=act('delete','',()=>x.textContent==='delete'?x.textContent='delete?':save({id:it.id,delete:true})),
+if(r)h.append(titled(it),grouped(actions(it)),m),bd.append(...asks(it,undefined,true));else{const e=act('edit','',()=>openCm(it)),x=act('delete','',()=>x.textContent==='delete'?x.textContent='delete?':save({id:it.id,delete:true})),
 c=act('copy','Copy as Markdown: its file:line, the quoted text and the comment',async()=>{c.textContent=await copy(markdown([it]))?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
 // Posted, it shows as its thread on GitHub does, with its local copy's edit and delete under it.
 if(t){h.append(m,...(t.file&&!t.done?[reply(t)]:[]),...ghSettle(t),ghOpen(t));bd.append(...ghBodies(t,it),...drafts(t),...sentLine(t),...(opened.has(t.rid)&&!t.done&&!inCard(t)?[box(t.rid,{it:t})]:[]));
@@ -742,15 +760,20 @@ return[...(on?[['g',on,'On '+on+': everyone there sees them']]:[]),['c',to?'Draf
 let ghFolded=false;
 // One doc's entries only, from its bar's comment count; the panel's 💬 button shows every doc's again.
 let only=null;
+// An entry resolved or reopened while the panel is open stays where it is listed (pinned: whether it was
+// resolved before), so no other entry comes under the pointer; it moves when the panel opens next, or its
+// filter is pressed.
+const pinned=new Map(),listedDone=it=>pinned.has(idOf(it))?pinned.get(idOf(it)):it.done;
+function pin(it){if(lp.hidden)return;pinned.set(idOf(it),!!it.done);const own=it.kind==='g'&&items.find(i=>i.kind==='c'&&i.thread?.rid===it.rid);if(own)pinned.set(idOf(own),!!it.done);}
 function list(){if(aud&&!auds().some(a=>a[0]===aud))aud=null;
-const refocus=keepFocus(),mine=order().filter(i=>!only||i.file===only),all=mine.filter(i=>!aud||audOf(i)===aud),files=document.querySelectorAll('section').length,done=all.filter(i=>i.done&&!i.hidden),
-loose=all.filter(i=>i.kind==='g'&&!i.hidden&&!i.done&&!Object.keys(i.at).length),its=all.filter(i=>!loose.includes(i)&&!i.hidden);
+const refocus=keepFocus(),mine=order().filter(i=>!only||i.file===only),all=mine.filter(i=>!aud||audOf(i)===aud),files=document.querySelectorAll('section').length,done=all.filter(i=>listedDone(i)&&!i.hidden),
+loose=all.filter(i=>i.kind==='g'&&!i.hidden&&!listedDone(i)&&!Object.keys(i.at).length),its=all.filter(i=>!loose.includes(i)&&!i.hidden);
 const f=mk('div',{className:'seg rvf'}),fa=mk('div',{className:'seg rvf'}),g=mk('details',{className:'rvg',open:!folded});g.ontoggle=()=>{folded=!g.open;keep();if(g.open)g.querySelectorAll('.rvib').forEach(fold);};
 for(const[v,l]of[['open','Open'],['resolved','Resolved'],['all','All']]){const b=mk('button',{textContent:l});b.setAttribute('aria-pressed',v===filter);
-b.onclick=()=>{filter=v;keep();list();};f.append(b);}
+b.onclick=()=>{filter=v;pinned.clear();keep();list();};f.append(b);}
 // Pressed again, an audience shows them all.
 for(const[v,l,t]of auds()){const b=mk('button',{className:'rvaud-'+v,textContent:l,title:t});b.setAttribute('aria-pressed',v===aud);
-b.onclick=()=>{aud=aud===v?null:v;keep();list();};fa.append(b);}
+b.onclick=()=>{aud=aud===v?null:v;pinned.clear();keep();list();};fa.append(b);}
 g.append(mk('summary',{textContent:'Resolved ('+done.length+')'}),...done.map(it=>row(it,files)));
 // Copy drafts (N) copies your 💬 comments not posted yet, whatever the audience filter, to post by hand where
 // ⇪ Push cannot (no token); it is offered only while there are some. A posted one is on GitHub already, and
@@ -767,12 +790,12 @@ const ups=unposted(),fresh=ups.filter(c=>c.pushed?.body!==c.body).length,pb=ups.
 mk('button',{textContent:fresh?'⇪ Push '+fresh+' as a pending review':'⇪ Pending review',title:'Your comments not on GitHub yet, as your pending review on the PR, which you submit there'});
 if(pb)pb.onclick=openPush;
 x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:[...tallies(mine).filter(t=>'cgr'.includes(t[0])).map(t=>t[2]+(t[4].length?' ('+t[4].length+' unread)':'')),mine.filter(i=>i.done&&!i.hidden).length+' resolved'].join(' · ')}),...(unsent.length?[cm]:[]),...(pb?[pb]:[]),x);
-if(only){const o=mk('button',{className:'rvonly',textContent:'Only '+only+' · show all',title:'Show the entries on every doc'});o.onclick=()=>{only=null;list();};h.append(o);}
+if(only){const o=mk('button',{className:'rvonly',textContent:'Only '+only+' · show all',title:'Show the entries on every doc'});o.onclick=()=>{only=null;pinned.clear();list();};h.append(o);}
 const bySource=new Map();for(const it of loose)bySource.set(it.src.source,[...(bySource.get(it.src.source)||[]),it]);
 const ghs=[...bySource].map(([n,l])=>{const gh=mk('details',{className:'rvg',open:!ghFolded});gh.ontoggle=()=>{ghFolded=!gh.open;if(gh.open)gh.querySelectorAll('.rvib').forEach(fold);};
 gh.append(mk('summary',{textContent:'On '+n+' ('+l.length+')'}),...l.map(it=>row(it,files)));return gh;});
 const fs=mk('div',{className:'rvfs'});fs.append(f,fa);
-lp.replaceChildren(h,...ghStatus(),fs,...(filter==='resolved'?done:its.filter(i=>!i.done)).map(it=>row(it,files)),
+lp.dataset.f=filter;lp.replaceChildren(h,...ghStatus(),fs,...(filter==='resolved'?done:its.filter(i=>!listedDone(i))).map(it=>row(it,files)),
 ...(filter!=='resolved'?ghs:[]),...(filter==='all'&&done.length?[g]:[]));
 lp.querySelectorAll('.rvib').forEach(fold);refocus();}
 // Paste-ready: per comment, its file:line (linked to it on GitHub) or else its file and section, the
@@ -823,7 +846,7 @@ const k=a=>got.plan.filter(p=>p.act===a&&p.id in got.pushed).length,said=[[k('ad
 ph.textContent=(got.error?'✗ '+got.error+(said.length?'; before that, ':''):'✓ ')+(said.length?said.join(', ')+': in your pending review on GitHub, not submitted.':'');
 if(got.review)ph.append(submitAt(got));}catch(e){ph.textContent='✗ Not pushed: '+e.message+' (is the docdiff server running?)';}
 pg.textContent='Done';pg.disabled=false;pg.dataset.done=1;pg.focus();};
-function toggle(on){lp.hidden=!on;body.classList.toggle('rv-open',on);if(on){dock();list();}keep();}
+function toggle(on){lp.hidden=!on;body.classList.toggle('rv-open',on);if(on){pinned.clear();dock();list();}keep();}
 // The panel hangs from the sticky toolbar, which moves up as the page's first lines scroll away.
 const dock=()=>{if(!lp.hidden)lp.style.top=document.querySelector('header').getBoundingClientRect().bottom+'px';};
 // The panel, its filter and its fold outlast reloads.
