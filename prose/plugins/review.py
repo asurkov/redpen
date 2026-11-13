@@ -587,7 +587,8 @@ const state=it=>it.done?'resolved':it.wait?'pending':it.unread?'new answer':it.h
 // thread: Ask more (r while its card is open), and Resolve (urged once every draft is used or dismissed)
 // or Reopen. On a card whose thread is on one change in To review (g, on commits), that change's accept
 // comes first, as the toolbar words it (a while the card is open), and Resolve is the lesser choice.
-const actions=(it,g)=>{const b=act(it.done?'↺ Reopen':'✓ Resolve',it.done?'Back to the open revisits':'Done with it: its mark folds to a dot',()=>{card.hidden=true;setThread(it,{resolve:!it.done});});
+// Resolving or reopening one leaves its card open while that holds another open one, which would go unseen.
+const actions=(it,g)=>{const b=act(it.done?'↺ Reopen':'✓ Resolve',it.done?'Back to the open revisits':'Done with it: its mark folds to a dot',()=>{if(!cardIds?.some(k=>k!==idOf(it)&&items.some(i=>idOf(i)===k&&!i.done)))card.hidden=true;setThread(it,{resolve:!it.done});});
 if(g){b.classList.add('rvsec');if(!it.done)b.title='Done asking, not done reviewing: resolves this thread alone, and its change stays in To review';}
 else if(it.handled&&!it.done)b.classList.add('primary');
 const w=g&&wordsOf(g),ok=g&&act(w.accept,w.accept_title.replace('the current change','its change').replace(/ \\(a\\)$/,'')+
