@@ -400,7 +400,9 @@ log is `~/.redpen/server.log`. It answers on `127.0.0.1` and, for spec renders, 
 no other name for the address.
 
 The server runs docdiff's code as it is on disk: once `docdiff.py`, a plugin or `base/channel.py` changes, the next request
-loads it again (code that does not load goes to the log, and the code before it goes on). Only a change
+loads it again (code that does not load goes to the log, and the code before it goes on). A page holds the
+code it was built with (its styles, script and bars), so a change to `docdiff.py` or a plugin also makes
+every page stale: each is rebuilt when it is next asked for, and an open one reloads into it. Only a change
 to the server itself (`base/server.py`) needs a restart:
 
 ```bash

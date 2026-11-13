@@ -1272,6 +1272,10 @@ def load_plugins():
 
 
 PLUGINS = load_plugins()
+# The code a page is built with, docdiff's and its plugins', which bakes its styles, script and bars into the
+# page: a build made with other code is stale (see fingerprint()).
+CODE = hashlib.sha256(b''.join(f.read_bytes() for f in [pathlib.Path(__file__),
+                                                         *sorted((pathlib.Path(__file__).parent / 'plugins').glob('*.py'))])).hexdigest()[:12]
 
 
 def plugin_actions(actors, old, new, pieces):
@@ -1536,11 +1540,12 @@ def rebuild(out):
 
 
 def fingerprint(run):
-    """What a build was made from: the revisions, and the working tree's changed files with their sizes and
-    times, so the server can tell when the repo has moved on (a commit, an edit, a new export)."""
+    """What a build was made from: docdiff's code (CODE), the revisions, and the working tree's changed files
+    with their sizes and times, so the server can tell when the repo has moved on (a commit, an edit, a new
+    export), or docdiff has."""
     repo = pathlib.Path(run['repo'])
-    revs = [git(repo, 'rev-parse', '--verify', '--quiet', r, check=False).stdout.decode().strip()
-            for r in filter(None, (run['base'], run.get('head')))]
+    revs = [CODE] + [git(repo, 'rev-parse', '--verify', '--quiet', r, check=False).stdout.decode().strip()
+                     for r in filter(None, (run['base'], run.get('head')))]
     if run.get('head'):
         return ' '.join(revs)
     marks = []
