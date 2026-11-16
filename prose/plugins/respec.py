@@ -12,7 +12,7 @@ PATHS = ['*.html']
 
 STYLE = '''
 .render{position:fixed;right:0;bottom:0;width:800px;height:600px;border:0;opacity:0;pointer-events:none}
-.note,.issue,.example,.ednote,.warning{border-left:4px solid var(--line);padding:2px 12px;margin:1em 0}
+.note,.issue,.example,.ednote,.warning{border:1px solid var(--line);border-radius:6px;padding:2px 12px;margin:1em 0}
 .issue,.warning{border-color:var(--rw)} .marker{font-weight:600;color:var(--muted)}
 '''
 
