@@ -621,10 +621,10 @@ text, across several changes or on a reviewed change has only Resolve or Reopen.
 while the card is open) opens the revisit panel on the thread's own text, saying which thread it goes on
 from: the question joins that thread whatever text is selected, and reopens it if it was resolved.
 
-Each drafted comment in an answer (a blockquote) is a **proposal**, shown once per thread however many
-answers repeat it, with its actions under it. **💬 Use** makes it a comment on the thread's change or
+Each drafted comment in an answer (a blockquote) is a **proposal**, labelled "Suggested by Claude" and shown
+once per thread however many answers repeat it, with its actions under it. **💬 Use** makes it a comment on the thread's change or
 quote and opens that to edit (edits go in the comment, never in the proposal); the proposal then shows ✓
-used with 💬 Open comment. **✎ Revise** opens the revisit panel on the draft, in its thread ("shorter",
+used with 💬 Open comment. **✎ Ask Claude**, named as a comment's own, opens the revisit panel on the draft, in its thread ("shorter",
 "as a question"); the draft in that revision's answer replaces it, which folds to a summary, still
 readable. **Dismiss** folds it to a stub. **↶ Undo** takes back Use (deleting the comment, after asking
 if it was edited) or Dismiss. An answer with several proposed drafts also offers 💬 Use all as one
@@ -637,7 +637,7 @@ there is saved first. What you ask about it, and
 Claude's answers, show under the comment as **✎ Asked Claude · private** (not as a question of its own),
 and its mark and the drafts count say when one waits or an answer is unread; a comment with asks opens in
 its card rather than its editor. A reworked draft in an answer offers **Use**, which puts it in place of
-the comment's text (✓ used), and **↶ Undo**, which brings that text back; ✎ Revise and Dismiss work as
+the comment's text (✓ used), and **↶ Undo**, which brings that text back; ✎ Ask Claude and Dismiss work as
 for any proposal. While a reworked draft is proposed, the asks fold under Discussion with Claude, as a
 drafted reply's do.
 

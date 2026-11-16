@@ -638,6 +638,8 @@ function decorate(q,p,it,m,i){const r=mk('div',{className:'rvpr'});
 if(it.reply&&m?.mode==='polish'&&i===0&&p.state==='proposed'){q.replaceChildren(wdiff(m.prompt,p.text));q.classList.add('rvpol');q.title='Your reply, with the edits marked';}
 if(p.state==='replaced'){const f=mk('details',{className:'rvrep'});q.replaceWith(f);f.append(mk('summary',{textContent:'replaced draft: '+short(p.text)}),q);return;}
 if(p.state==='dismissed'){q.classList.add('rvgone');r.classList.add('rvstub');r.append(mk('span',{className:'rvm',textContent:'dismissed draft: '+short(p.text)}),act('↶ Undo','Show it as proposed again',()=>setProposal(p,null)));q.after(r);return;}
+// Named as Claude's, so it is not taken for a comment of yours until Use makes it one.
+if(!it.reply)q.before(mk('div',{className:'rvm rvsug',textContent:'Suggested by Claude'}));
 // A draft of yours Claude reworked is used in its place; Undo brings back the text it replaced.
 if(p.state==='used'&&it.draftOf){r.append(mk('span',{className:'rvm rvused',textContent:'✓ used: your draft reads so now'}),
 ...(p.was!=null?[act('↶ Undo','Your draft as it was',()=>save({id:it.draftOf,body:p.was}).then(()=>setProposal(p,null)))]:[]));q.after(r);return;}
@@ -647,7 +649,8 @@ r.append(mk('span',{className:'rvm rvused',textContent:'✓ used'}),act('💬 Op
 const c=it.reply&&act('Copy','Copy this reply, to paste in the thread',async()=>{c.textContent=await copy(p.text)?'copied':'copying failed';setTimeout(()=>c.textContent='Copy',1500);});
 r.append(...(p.revising?[mk('span',{className:'rvm',textContent:'revising…'})]:[]),c||(it.draftOf?act('Use','In place of your draft (↶ Undo brings it back)',()=>save({id:it.draftOf,body:p.text,uses:[p.id]})):
 act('💬 Use','A new comment of this draft, open to edit',()=>use(it,[p],p.text))),
-act('✎ Revise','Ask Claude to rework this draft',()=>{if(!it.reply)return revise(it,p);opened.add(it.remote+'#'+p.id);const g=items.find(i=>i.kind==='g'&&i.rid===it.remote);if(g)reshow(g);}),
+// Named as a comment's own ask (✎ Ask Claude), both rework text; a drafted reply keeps Revise, beside ✎ Ask.
+act(it.reply?'✎ Revise':'✎ Ask Claude','Ask Claude to rework this draft',()=>{if(!it.reply)return revise(it,p);opened.add(it.remote+'#'+p.id);const g=items.find(i=>i.kind==='g'&&i.rid===it.remote);if(g)reshow(g);}),
 ...(it.reply?[act('✎ Ask','Ask Claude about this thread or its drafts, in the Discussion with Claude',()=>{discOpen.add(it.remote);const g=items.find(i=>i.kind==='g'&&i.rid===it.remote);if(g)reshow(g,true);})]:[]),
 act('Dismiss','Fold it away',()=>setProposal(p,'dismissed')));q.after(r);q.classList.add('rvcur');
 // A drafted reply is revised in a box under it, as replies are asked for.
