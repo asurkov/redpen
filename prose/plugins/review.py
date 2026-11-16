@@ -711,7 +711,7 @@ if(it.kind==='g')ghPart(it,h,bd);
 else if(it.kind==='r'){const m=mk('span',{className:'rvm'});m.append(...line(tag(it),[it.section,it.time.replace('T',' '),state(it)]));h.append(titled(it),grouped(actions(it,toAccept(it))),m);
 bd.append(mk('blockquote',{textContent:it.sent}),...asks(it,undefined,true));}
 else{const x=act('delete','Delete this comment',()=>{if(x.textContent==='delete'){x.textContent='delete?';return;}card.hidden=true;save({id:it.id,delete:true});}),
-c=act('copy','Copy as Markdown: its file:line, the quoted text and the comment',async()=>{c.textContent=await copy(markdown([it]))?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
+c=act('copy','Copy its text, to paste in the comment box at its line (↗ opens it there)',async()=>{c.textContent=await copy(it.body)?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
 const hm=mk('span',{className:'rvm'});hm.append(...line(tag(it),[it.section||it.file]),...twinLink(it));
 h.append(hm,askDraft(it),act('edit','Edit this comment',()=>{card.hidden=true;openCm(it);}),c,x);
 bd.append(...(it.quote?[mk('blockquote',{textContent:it.quote})]:[]),mk('div',{className:'rvt',textContent:it.body}),...draftAsks(it));}
@@ -762,7 +762,7 @@ const t=it.kind==='c'&&it.thread;m.append(...(t?postedAs(it,t):[...line(tag(it),
 if(w)m.append(' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗'}));if(!r&&!t)m.append(...twinLink(it));
 if(it.quote)bd.append(mk('blockquote',{textContent:r?it.sent:it.quote}));
 if(r)h.append(titled(it),grouped(actions(it)),m),bd.append(...asks(it,undefined,true));else{const e=act('edit','',()=>openCm(it)),x=act('delete','',()=>x.textContent==='delete'?x.textContent='delete?':save({id:it.id,delete:true})),
-c=act('copy','Copy as Markdown: its file:line, the quoted text and the comment',async()=>{c.textContent=await copy(markdown([it]))?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
+c=act('copy','Copy its text, to paste in the comment box at its line (↗ opens it there)',async()=>{c.textContent=await copy(it.body)?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
 // Posted, it shows as its thread on GitHub does, with its local copy's edit and delete under it.
 if(t){h.append(m,...(t.file&&!t.done?[reply(t)]:[]),...ghSettle(t),ghOpen(t));bd.append(...ghBodies(t,it),...drafts(t),...sentLine(t),...(opened.has(t.rid)&&!t.done&&!inCard(t)?[box(t.rid,{it:t})]:[]));
 d.append(h,bd,local(it));d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);looked(t);for(const x of t.rts)if(x.unread)setThread(x,{seen:true});};return d;}

@@ -579,10 +579,11 @@ the counts of reviewed changes with comments or open questions step through thos
 · Monetization status"), and stays armed, underlined with an `n p` chip: `n` and `p` (`j` and `k`) then step
 through its marks instead of the changes, until Esc (with no card open) or another of the header's controls,
 such as next change, hands them back. The Review panel: the comments and revisits in the order they
-come in the doc, each a click from its place, comments with edit, copy and delete. Copy puts one comment
-on the clipboard as Markdown: its `path:line` (linked to the line on GitHub; without `--pr`, the file and
-section), the quote and the comment, to paste into GitHub. **Copy drafts (N)**, shown while you have
-comments not posted yet (**Copy comments (N)** on your own docs), does that for all of those, whatever the
+come in the doc, each a click from its place, comments with edit, copy and delete. Copy puts one comment's
+text on the clipboard, to paste in GitHub's comment box at its line, which its `path:line ↗` opens.
+**Copy drafts (N)**, shown while you have comments not posted yet (**Copy comments (N)** on your own docs),
+puts all of those on the clipboard as one Markdown post, each with its `path:line` (linked to the line on
+GitHub; without `--pr`, the file and section), the quote and the comment, whatever the
 panel's audience filter, to post by hand while ⇪ Push cannot (no token), leaving out the posted ones ([GitHub PR](#github-pr),
 Posted), which pasted again would be posted twice, and the ones that read much like a comment of yours
 there ("copied 2 · left out 2 already on GitHub in other words"); with a token, **⇪ Push** sends them to the PR as your
