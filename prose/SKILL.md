@@ -778,9 +778,9 @@ of this skill.
 ## Limits
 
 - Needs `pandoc` (`brew install pandoc`), and for specs the built-in browser.
-- Links between docs and section anchors are not rewritten; the page is for reading changes, not
-  for following links. A click on a link into the doc or to another doc does nothing, so it never
-  scrolls away from the change being read. A link to the web, anywhere on the page (a Google Doc, a
+- Links between docs are not rewritten, so a click on a link to another doc does nothing. A link into
+  the doc (a spec's `[=term=]`, a section) goes to its target in the view on screen, flashed blue; Back
+  (or the "↩ Back to where you were" chip) returns to where the page was. A link to the web, anywhere on the page (a Google Doc, a
   comment on GitHub), opens in the default browser: the server opens it (`/open`, http and https only,
   from the page alone), since the page may be in an embedded browser; failing that, in a new tab. A link
   to docdiff's own pages opens in a new tab, and a modifier key follows any link as usual.

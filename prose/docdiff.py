@@ -719,6 +719,7 @@ pre{background:var(--code);padding:12px;overflow-x:auto}
 img{max-width:100%}
 table{border-collapse:collapse;display:block;overflow-x:auto;font-size:14px} td,th{border:1px solid var(--line);padding:4px 8px;vertical-align:top}
 a{color:var(--link)} .cur{outline:2px solid #bf8700;outline-offset:2px}
+.ddhit{outline:2px solid var(--link);outline-offset:3px;border-radius:2px} #ddback{position:fixed;left:16px;bottom:16px;z-index:3;box-shadow:0 1px 4px rgba(0,0,0,.15)} #ddback[hidden]{display:none}
 body:not(.show-diff) .v-diff,body:not(.show-old) .v-old,body:not(.show-new) .v-new{display:none}
 .show-old .step,.show-new .step{visibility:hidden} body:not(.show-diff) .accf{display:none}
 .seg,.pair{display:inline-flex;max-width:100%} .seg button,.pair button{border-radius:0;margin-left:-1px;white-space:nowrap}
@@ -902,16 +903,27 @@ for(const[label,key,href]of actsOf(x)){const b=document.createElement('a');b.cla
 b.href=href;b.target='_blank';b.rel='noopener';b.onmousedown=e=>e.preventDefault();b.onclick=hidePop;pop.append(b);}
 pop.hidden=false;
 pop.style.left=Math.max(8,Math.min(r.left,innerWidth-pop.offsetWidth-8))+scrollX+'px';pop.style.top=r.bottom+scrollY+4+'px';}
-// A link does not move the page off what is being read. One to the web opens in the default browser (the
-// server opens it, as the page may be in an embedded browser), or failing that in a new tab; one to
-// docdiff's own pages (127.0.0.1) in a new tab; in the doc, one into the doc or to another doc (links are
-// not rewritten) does nothing. With a modifier key the browser follows any link as usual.
+// A link opens elsewhere or leads back. One to the web opens in the default browser (the server opens it, as
+// the page may be in an embedded browser), or failing that in a new tab; one to docdiff's own pages
+// (127.0.0.1) in a new tab; in the doc, one into the doc goes to its target (follow()), and one to another doc
+// (links are not rewritten) does nothing. With a modifier key the browser follows any link as usual.
 document.addEventListener('click',e=>{const a=e.target.closest('a[href]');if(!a||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button)return;
 const web=/^https?:/.test(a.getAttribute('href'));
 if(web&&!['127.0.0.1','localhost'].includes(new URL(a.href).hostname)){e.preventDefault();
 fetch('open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:a.href})})
 .then(r=>{if(!r.ok)throw new Error(r.status);}).catch(()=>window.open(a.href,'_blank','noopener'));return;}
-if(!a.closest('main')||a.classList.contains('lnk'))return;e.preventDefault();if(web)window.open(a.href,'_blank','noopener');},true);
+if(!a.closest('main')||a.classList.contains('lnk'))return;e.preventDefault();if(web)window.open(a.href,'_blank','noopener');else follow(a);},true);
+// A link into the doc goes to its target in the view on screen, flashed: the shown copy (not one a change
+// removed), by its id, or in the Old and New views its data-anchor. The history entry it leaves holds where
+// the page was, so Back returns there; until then a chip offers the same.
+const back=Object.assign(document.createElement('button'),{id:'ddback',className:'ui',textContent:'↩ Back to where you were',hidden:true});
+back.onclick=()=>history.back();body.append(back);
+function follow(a){const h=a.getAttribute('href');if(!h.startsWith('#')||h.length<2)return;const id=CSS.escape(decodeURIComponent(h.slice(1))),
+ts=[...(document.querySelector('.v-'+cur)||document).querySelectorAll('[id="'+id+'"],[data-anchor="'+id+'"]')],seen=x=>x.getClientRects().length,
+t=ts.find(x=>seen(x)&&!x.closest('del,.was'))||ts.find(seen);if(!t)return;
+history.replaceState({...history.state,ddY:scrollY},'');history.pushState({ddAway:1},'');
+t.scrollIntoView({block:'center',behavior:'smooth'});t.classList.add('ddhit');setTimeout(()=>t.classList.remove('ddhit'),1600);back.hidden=false;}
+addEventListener('popstate',e=>{if(e.state?.ddY!=null){scrollTo({top:e.state.ddY,behavior:'smooth'});back.hidden=true;}else back.hidden=!e.state?.ddAway;});
 // A link to another of the project's links (class lnk: the strip of versions, a doc's counts) opens it at
 // the doc being read, at the paragraph on the reading line (near: how it starts; by: how far the line is
 // into it), or else as far into the doc.
@@ -1424,7 +1436,9 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         # A doc shown only because it was named, with nothing changed, stays out of the docs at the top.
         if n:
             nav.append((sid, label, f'{todo} to review · {accepted} {words["accepted"]}'))
-        plain = lambda h, missing: re.sub(r'\sid="[^"]*"', '', h) or f'<p class="n">({missing})</p>'
+        # The Diff view keeps the ids; the Old and New views keep theirs as data-anchor, so none clash and a
+        # link into the doc finds its target in any view (follow()).
+        plain = lambda h, missing: re.sub(r'\sid="([^"]*)"', r' data-anchor="\1"', h) or f'<p class="n">({missing})</p>'
         bar = ((f'<button class="accf" data-a="accept">{words["accept_file"]}</button>' if todo else '') +
                (f'<button class="accf" data-a="unaccept">{words["unaccept_file"]}</button>' if accepted else ''))
         if publish and accepted:
