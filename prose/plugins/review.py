@@ -60,6 +60,7 @@ STYLE = '''
 /* The panel's header stays in sight as it scrolls, so what it lists is always named. */
 #rvp>.rvh{position:sticky;top:-8px;z-index:3;margin:-8px -14px 6px;padding:6px 14px;background:var(--code);border-bottom:1px solid var(--line)} #rvp{scroll-padding-top:44px}
 .rvi{margin:6px 0;padding:8px 10px;background:var(--bg);border:1px solid var(--line);border-radius:6px;cursor:pointer} .rvi:hover{border-color:color-mix(in srgb,var(--muted) 55%,var(--line))}
+.rvi.rvsel{outline:2px solid var(--link);outline-offset:-1px}
 @media (prefers-color-scheme: dark){.rvi{background:color-mix(in srgb,var(--btn) 60%,var(--code))}}
 .rvm{font-size:12px;color:var(--muted)} .rvt{white-space:pre-wrap;margin:2px 0} .rvt,.rva{overflow-wrap:anywhere} .rvx{margin:4px 6px 0 0}
 .rvch,.rvih{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px} .rvch .rvm,.rvih .rvm{flex:1 1 12em} .rvch .rvx,.rvih .rvx{margin:0}
@@ -274,8 +275,21 @@ b.title=its.map(it=>it.kind==='g'?'On '+it.src.source+': '+it.root.author+': '+s
 it.kind==='c'?(it.posted?'On '+posting().source+', your comment'+(r?' · '+r+(r>1?' replies':' reply'):'')+(it.done?' (resolved)':''):tag(it).textContent)+': '+short(it.body):
 tag(it).textContent+': '+(it.done?'resolved: ':'')+short(it.members.map(m=>m.prompt).join(' / '))).join('\\n')+
 (wait?'\\n\\n(waiting for Claude)':unread?'\\n\\n(new answer or reply: click to read)':n?'':'\\n\\n(resolved: click to reopen)');}
-// One comment of yours, not posted, opens in its editor; anything else in a card.
-const openIt=(its,b)=>its.length===1&&its[0].kind==='c'&&!its[0].thread&&!its[0].cts.length?openCm(its[0]):showCard(its,b);
+// While the Review panel is open, a mark selects its entries there (rvsel), scrolled into sight, rather than
+// opening them over the text; a click on an entry selects it too. Otherwise, or when the panel does not list
+// them (another filter), one comment of yours, not posted, opens in its editor, and anything else in a card.
+const openIt=(its,b)=>{if(!lp.hidden&&select(its))return;
+its.length===1&&its[0].kind==='c'&&!its[0].thread&&!its[0].cts.length?openCm(its[0]):showCard(its,b);};
+const selected=new Set(),rowId=it=>it.kind==='r'?'r'+it.time:it.kind==='g'?it.id:'c'+it.id;
+function pick(rows){for(const r of lp.querySelectorAll('.rvi.rvsel'))r.classList.remove('rvsel');selected.clear();
+for(const r of rows){selected.add(r.dataset.id);r.classList.add('rvsel');}}
+// A thread from elsewhere that a comment of yours was posted to is listed as that comment.
+function select(its){const ids=its.flatMap(i=>[rowId(i),...(i.kind==='g'?items.filter(c=>c.kind==='c'&&c.thread?.rid===i.rid).map(rowId):[])]),
+rows=[...lp.querySelectorAll('.rvi')].filter(r=>ids.includes(r.dataset.id));if(!rows.length)return false;pick(rows);
+const t=rows[0].getBoundingClientRect(),p=lp.getBoundingClientRect(),hh=lp.querySelector('.rvh')?.offsetHeight||0;
+if(t.top<p.top+hh||t.bottom>p.bottom)lp.scrollTop+=t.top-p.top-hh-Math.max(0,(p.height-hh-t.height)/2);
+gq({gqs:its.flatMap(i=>i.gqs||[])});return true;}
+lp.addEventListener('click',e=>{const r=e.target.closest('.rvi');if(r&&!e.target.closest('a,button'))pick([r]);});
 // Marks every comment and revisit; it.at holds its mark per view, and it.on the keys of the changes it is
 // on there: its change's, or those its quote's text is part of.
 function paint(){document.querySelectorAll('.rvb,.rvok').forEach(b=>{const p=b.parentNode;b.remove();p.normalize();});
@@ -730,7 +744,7 @@ const draftsNow=it=>{const asked=it.rts.find(t=>t.wait)?.members.at(-1).mode==='
 return it.wait?(asked?'question being answered':'reply being drafted'):unread.length?(unread.every(m=>m.mode==='ask')?'new answer':'new drafted reply'):'drafted replies';};
 // A panel entry: its line (where, state, actions), then its body, folded to a few lines when long.
 function row(it,files){const r=it.kind==='r',d=mk('div',{className:'rvi'+((it.kind==='c'?it.thread||it.ask:it)?.unread&&!it.done?' rvi-new':'')+(it.done?' rvdone':'')}),h=mk('div',{className:'rvih'}),m=mk('span',{className:'rvm'}),bd=mk('div',{className:'rvib'}),w=where(it);
-d.dataset.id=r?'r'+it.time:it.kind==='g'?it.id:'c'+it.id;
+d.dataset.id=rowId(it);if(selected.has(d.dataset.id))d.classList.add('rvsel');
 if(it.kind==='g'){m.append(...line(tag(it),[files>1&&it.file,ghLabel(it.root),it.fresh&&it.fresh+' new',it.done&&ghSettled(it),it.rts.length&&draftsNow(it)]));
 h.append(m,...(it.file&&!it.done?[reply(it)]:[]),...ghSettle(it),ghOpen(it));
 bd.append(...ghBodies(it),...drafts(it),...sentLine(it),...(opened.has(it.rid)&&!it.done&&!inCard(it)?[box(it.rid,{it})]:[]));d.append(h,bd);
@@ -848,7 +862,7 @@ const k=a=>got.plan.filter(p=>p.act===a&&p.id in got.pushed).length,said=[[k('ad
 ph.textContent=(got.error?'✗ '+got.error+(said.length?'; before that, ':''):'✓ ')+(said.length?said.join(', ')+': in your pending review on GitHub, not submitted.':'');
 if(got.review)ph.append(submitAt(got));}catch(e){ph.textContent='✗ Not pushed: '+e.message+' (is the docdiff server running?)';}
 pg.textContent='Done';pg.disabled=false;pg.dataset.done=1;pg.focus();};
-function toggle(on){lp.hidden=!on;body.classList.toggle('rv-open',on);if(on){pinned.clear();dock();list();}keep();}
+function toggle(on){lp.hidden=!on;body.classList.toggle('rv-open',on);if(on){pinned.clear();dock();list();}else selected.clear();keep();}
 // The panel hangs from the sticky toolbar, which moves up as the page's first lines scroll away.
 const dock=()=>{if(!lp.hidden)lp.style.top=document.querySelector('header').getBoundingClientRect().bottom+'px';};
 // The panel, its filter and its fold outlast reloads.
