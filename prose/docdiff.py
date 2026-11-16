@@ -686,7 +686,7 @@ header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--
 .what{display:flex;align-items:baseline;gap:10px;padding:10px 16px 0;font-size:13px;white-space:nowrap} .what b{flex:none;font-size:15px}
 .what .n{min-width:0;overflow:hidden;text-overflow:ellipsis} .files{padding:2px 16px 8px;font-size:14px} .files:empty{display:none}
 button:disabled{opacity:.4;cursor:default}
-button{font:inherit;padding:4px 10px;border:1px solid var(--line);background:var(--btn);color:var(--fg);border-radius:6px;cursor:pointer;transition:background-color .1s}
+button{font:inherit;padding:4px 10px;border:1px solid var(--line);background:var(--btn);color:var(--fg);border-radius:6px;cursor:pointer;transition:background-color .1s;-webkit-user-select:none;user-select:none}
 button:not(:disabled):hover{background:var(--btnh)} button:focus-visible{outline:2px solid var(--link);outline-offset:-2px}
 .file{margin:48px 0 8px;padding:6px 10px;background:var(--code);border:1px solid var(--line);border-radius:6px;font:600 14px ui-monospace,Menlo,monospace;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
 .fbar{margin-left:auto;display:flex;flex-wrap:wrap;gap:6px}
