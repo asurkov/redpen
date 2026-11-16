@@ -82,6 +82,7 @@ STYLE = '''
 .rvboxb{display:flex;gap:6px;align-items:center;justify-content:flex-end} .rvboxb .hint{margin-right:auto;font-size:12px}
 .rvweigh{display:flex;gap:4px;align-items:center;color:var(--muted)}
 .rvpol del{color:var(--delb);text-decoration:line-through;background:none} .rvpol ins{color:var(--insb);text-decoration:none;background:var(--ins)}
+.rvib:has(>.rva>blockquote.rvredo)>.rvt,.rvcb:has(>.rva>blockquote.rvredo)>.rvt{display:none}
 ::highlight(rvgq){background-color:rgba(212,167,44,.22)} ::highlight(rvgq-on){background-color:rgba(212,167,44,.6)}
 .rvfc{font:12px -apple-system,BlinkMacSystemFont,sans-serif;color:var(--link);text-decoration:none} .rvfc:hover{text-decoration:underline}
 .rvb-posted::after{content:" " url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 16 16'%3E%3Cpath fill='%23848d97' d='M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z'/%3E%3C/svg%3E") attr(data-r)}
@@ -120,9 +121,10 @@ body:not(.show-diff) #rvsd{visibility:hidden}
 #rvc>.rvpart:not(:only-child){margin:8px;border:1px solid var(--line);border-radius:6px} #rvc>.rvpart:not(:only-child)>.rvch{border-radius:5px 5px 0 0}
 #rvc .rvpart:has(>.rvch .rvx:hover)>.rvch{background:color-mix(in srgb,var(--fg) 9%,var(--code))}
 .rvi:has(>.rvih .rvx:hover),#rvc>.rvpart:not(:only-child):has(>.rvch .rvx:hover){border-color:color-mix(in srgb,var(--fg) 55%,var(--line))}
-/* One resolved among open ones is dimmed in a card, until the pointer is on its text; in the panel, where it
-   stays listed until the panel opens again (pinned), it folds to its header line, ↺ Reopen in reach. */
-.rvdone .rvtt{color:var(--muted)} #rvc:has(.rvpart:not(.rvdone)) .rvdone>.rvcb:not(:hover){opacity:.5}
+/* One resolved among open ones folds to its header line, ↺ Reopen in reach: in a card, beside the open parts;
+   in the panel, where it stays listed until the panel opens again (pinned). A card of resolved ones alone
+   shows them whole. */
+.rvdone .rvtt{color:var(--muted)} #rvc:has(.rvpart:not(.rvdone)) .rvdone>.rvcb{display:none}
 #rvp:not([data-f=resolved])>.rvdone>:not(.rvih){display:none}
 #rvpush .rvpl{flex:1 0 100%;max-height:40vh;overflow:auto;font-size:13px} #rvpush .rvcmh a{margin-left:6px}
 .rvpg{margin:8px 0 2px;font-size:12px;font-weight:600;color:var(--muted)} .rvpg:first-child{margin-top:0}
@@ -644,14 +646,18 @@ qs.forEach((q,i)=>{const p=it.proposals.get(a.drafts[i].hash);if(shown.has(p.id)
 shown.add(p.id);decorate(q,p,it,m,i);if(p.state==='proposed')open.push(p);});
 if(open.length>1&&!it.reply&&!it.draftOf)d.append(act('💬 Use all '+open.length+' as one comment','One new comment of these drafts, open to edit',()=>use(it,open,open.map(p=>p.text).join('\\n\\n'))));return d;});}
 // A polished reply (the answer's first draft, for a reply asked with mode polish) shows its edits against
-// the text sent; Copy still takes it clean.
-function wdiff(a,b){const A=a.split(/\\s+/).filter(Boolean),B=b.split(/\\s+/).filter(Boolean),n=A.length,m=B.length,f=document.createDocumentFragment();
+// the text sent, and a rework of your comment its changes against your text; Copy and Use take it clean.
+// Words are compared, line breaks kept (a removed one is dropped), so paragraphs and list items stay apart.
+function wdiff(a,b){const tk=t=>t.match(/\\n|[^\\s]+/g)||[],A=tk(a),B=tk(b),n=A.length,m=B.length,f=document.createDocumentFragment();
 const L=Array.from({length:n+1},()=>new Uint16Array(m+1));for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)L[i][j]=A[i]===B[j]?L[i+1][j+1]+1:Math.max(L[i+1][j],L[i][j+1]);
-const put=(t,w)=>f.append(t?mk(t,{textContent:w}):w,' ');let i=0,j=0;
+const put=(t,w)=>{if(w==='\\n'){if(t!=='del')f.append(mk('br'));return;}f.append(t?mk(t,{textContent:w}):w,' ');};let i=0,j=0;
 while(i<n&&j<m){if(A[i]===B[j]){put(null,A[i]);i++;j++;}else if(L[i+1][j]>=L[i][j+1])put('del',A[i++]);else put('ins',B[j++]);}
 while(i<n)put('del',A[i++]);while(j<m)put('ins',B[j++]);return f;}
 function decorate(q,p,it,m,i){const r=mk('div',{className:'rvpr'});
 if(it.reply&&m?.mode==='polish'&&i===0&&p.state==='proposed'){q.replaceChildren(wdiff(m.prompt,p.text));q.classList.add('rvpol');q.title='Your reply, with the edits marked';}
+// In its place, the comment's own text hides while the rework is proposed (rvredo).
+const own=it.draftOf&&p.state==='proposed'&&data.comments.find(c=>c.id===it.draftOf);
+if(own){q.replaceChildren(wdiff(own.body,p.text));q.classList.add('rvpol','rvredo');q.title='Your comment, with Claude’s changes marked';}
 if(p.state==='replaced'){const f=mk('details',{className:'rvrep'});q.replaceWith(f);f.append(mk('summary',{textContent:'replaced draft: '+short(p.text)}),q);return;}
 if(p.state==='dismissed'){q.classList.add('rvgone');r.classList.add('rvstub');r.append(mk('span',{className:'rvm',textContent:'dismissed draft: '+short(p.text)}),act('↶ Undo','Show it as proposed again',()=>setProposal(p,null)));q.after(r);return;}
 // Named as Claude's, so it is not taken for a comment of yours until Use makes it one.
@@ -697,7 +703,9 @@ take(st);card.hidden=true;openCm({...st.comments[st.comments.length-1],kind:'c'}
 // Revise: a revisit of the draft, in the thread; its answer's draft replaces it. Ask more: a revisit of the
 // thread's own text that adds to the thread. Both name the thread (thread: its first revisit's time), so
 // they join it whatever text the request quotes, and the panel says which thread they go on from.
-const elOf=it=>it.at[cur]||Object.values(it.at)[0]||[...document.querySelectorAll('section')].find(s=>s.dataset.file===it.file);
+// Asks about a comment of yours (draftOf) have no mark of their own: the comment's is theirs.
+const elOf=it=>{const at=it.at||items.find(c=>c.kind==='c'&&c.id===it.draftOf)?.at||{};
+return at[cur]||Object.values(at)[0]||[...document.querySelectorAll('section')].find(s=>s.dataset.file===it.file);};
 const first=it=>short((it.members.find(m=>!m.revises)||it.members[0]).prompt);
 // A thread's own words, which lead its header and name it on its buttons: its first request, or else the text it is on.
 const titleOf=it=>first(it)||short(it.sent),titled=it=>mk('span',{className:'rvtt',textContent:titleOf(it)});
