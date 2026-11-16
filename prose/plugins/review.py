@@ -63,6 +63,7 @@ STYLE = '''
 .rvi.rvsel{outline:2px solid var(--link);outline-offset:-1px}
 @media (prefers-color-scheme: dark){.rvi{background:color-mix(in srgb,var(--btn) 60%,var(--code))}}
 .rvm{font-size:12px;color:var(--muted)} .rvt{white-space:pre-wrap;margin:2px 0} .rvt,.rva{overflow-wrap:anywhere} .rvx{margin:4px 6px 0 0}
+.rvmid{margin:4px 0} .rvmid>summary{font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .rvmid[open]>summary{margin-bottom:4px}
 .rvx.rvreply{display:block;border:0;background:none;padding:0;height:auto;line-height:1.5;color:var(--link);margin:2px 0 4px 11px} .rvx.rvreply:not(:disabled):hover{background:none;text-decoration:underline}
 .rvch,.rvih{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px} .rvch .rvm,.rvih .rvm{flex:1 1 12em} .rvch .rvx,.rvih .rvx{margin:0}
 .rvx.rvcl{font-weight:600;border-color:color-mix(in srgb,var(--insb) 50%,var(--line))} .rvopen{font-size:12px;white-space:nowrap;margin-left:8px}
@@ -617,8 +618,17 @@ const act=(t,title,f)=>{const b=mk('button',{className:'rvx',textContent:t,title
 const short=t=>(t=norm(t)).length>70?t.slice(0,70).replace(/\\s+\\S*$/,'')+'…':t;
 // A thread's requests, each with its answers, a revision with the draft it revises. Under a header that
 // reads its first request whole (led), that one is not said again.
-const asks=(it,shown=new Set(),led)=>[...it.members.flatMap((m,i)=>[...(m.revises?[mk('div',{className:'rvm',textContent:'↻ revise the draft “'+short(m.quote)+'”'})]:[]),
-...(led&&!i&&norm(m.prompt)===titleOf(it)?[]:[mk('div',{className:'rvt',textContent:m.remote&&!m.revises&&m.mode!=='ask'?(m.mode==='polish'?'Your reply: ':m.prompt?'Notes: ':'No notes: Claude drafts on its own')+m.prompt:m.prompt})]),...answers(it,m,shown)]),...replyTo(it)];
+const asks=(it,shown=new Set(),led)=>[...it.members.flatMap((m,i)=>middle(it,m,i,[...(m.revises?[mk('div',{className:'rvm',textContent:'↻ revise the draft “'+short(m.quote)+'”'})]:[]),
+...(led&&!i&&norm(m.prompt)===titleOf(it)?[]:[mk('div',{className:'rvt',textContent:m.remote&&!m.revises&&m.mode!=='ask'?(m.mode==='polish'?'Your reply: ':m.prompt?'Notes: ':'No notes: Claude drafts on its own')+m.prompt:m.prompt})]),...answers(it,m,shown)])),...replyTo(it)];
+// In a thread of three or more requests, one between the first and the last folds to a line (its request,
+// answered), as a mail thread does, so the last is near: when its answers are long and hold no draft still to
+// use or dismiss. One opened stays open while the page draws again (openMid).
+const openMid=new Set();
+function middle(it,m,i,els){const n=it.members.length;
+if(n<3||!i||i===n-1||!m.answers.length||m.answers.reduce((s,a)=>s+a.html.length,0)<600||
+m.answers.some(a=>a.drafts.some(d=>it.proposals.get(d.hash)?.state==='proposed')))return els;
+const d=mk('details',{className:'rvmid'});d.open=openMid.has(m.time);d.ontoggle=()=>d.open?openMid.add(m.time):openMid.delete(m.time);
+d.append(mk('summary',{textContent:(short(m.prompt)||'no notes')+' · answered'}),...els);return[d];}
 // Claude's last answer in a thread ends in a link-style Reply, which goes on in the thread as ✎ Ask more does
 // (or, for a question about a comment of yours, as its ✎ Ask Claude); a drafted reply's thread has its own box.
 function replyTo(it){const last=it.members[it.members.length-1],c=it.draftOf&&items.find(i=>i.kind==='c'&&i.id===it.draftOf);
