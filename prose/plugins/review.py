@@ -117,8 +117,10 @@ body:not(.show-diff) #rvsd{visibility:hidden}
 #rvc>.rvpart:not(:only-child){margin:8px;border:1px solid var(--line);border-radius:6px} #rvc>.rvpart:not(:only-child)>.rvch{border-radius:5px 5px 0 0}
 #rvc .rvpart:has(>.rvch .rvx:hover)>.rvch{background:color-mix(in srgb,var(--fg) 9%,var(--code))}
 .rvi:has(>.rvih .rvx:hover),#rvc>.rvpart:not(:only-child):has(>.rvch .rvx:hover){border-color:color-mix(in srgb,var(--fg) 55%,var(--line))}
-/* One resolved among open ones is dimmed, until the pointer is on its text. */
-.rvdone .rvtt{color:var(--muted)} #rvc:has(.rvpart:not(.rvdone)) .rvdone>.rvcb:not(:hover),#rvp:not([data-f=resolved])>.rvdone>.rvib:not(:hover){opacity:.5}
+/* One resolved among open ones is dimmed in a card, until the pointer is on its text; in the panel, where it
+   stays listed until the panel opens again (pinned), it folds to its header line, ↺ Reopen in reach. */
+.rvdone .rvtt{color:var(--muted)} #rvc:has(.rvpart:not(.rvdone)) .rvdone>.rvcb:not(:hover){opacity:.5}
+#rvp:not([data-f=resolved])>.rvdone>:not(.rvih){display:none}
 #rvpush .rvpl{flex:1 0 100%;max-height:40vh;overflow:auto;font-size:13px} #rvpush .rvcmh a{margin-left:6px}
 .rvpg{margin:8px 0 2px;font-size:12px;font-weight:600;color:var(--muted)} .rvpg:first-child{margin-top:0}
 .rvpi{display:flex;flex-wrap:wrap;gap:0 8px;align-items:baseline;padding:1px 0 1px 8px} .rvpw{flex:0 0 auto;font:12px ui-monospace,Menlo,monospace;color:var(--muted)}
