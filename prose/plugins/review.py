@@ -750,7 +750,7 @@ else if(it.kind==='r'){const m=mk('span',{className:'rvm'});m.append(...line(tag
 bd.append(mk('blockquote',{textContent:it.sent}),...asks(it,undefined,true));}
 else{const x=act('delete','Delete this comment',()=>{if(x.textContent==='delete'){x.textContent='delete?';return;}card.hidden=true;save({id:it.id,delete:true});}),
 c=act('copy','Copy its text, to paste in the comment box at its line (↗ opens it there)',async()=>{c.textContent=await copy(it.body)?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
-const hm=mk('span',{className:'rvm'});hm.append(...line(tag(it),[it.section||it.file]),...twinLink(it));
+const hm=mk('span',{className:'rvm'});hm.append(...line(tag(it),[it.section||it.file]),...ghLine(it),...twinLink(it));
 h.append(hm,askDraft(it),act('edit','Edit this comment',()=>{card.hidden=true;openCm(it);}),c,x);
 bd.append(...(it.quote?[mk('blockquote',{textContent:it.quote})]:[]),mk('div',{className:'rvt',textContent:it.body}),...draftAsks(it));}
 d.append(h,bd);return d;}
@@ -776,6 +776,8 @@ card.style.maxHeight=Math.max(120,down?below:above)+'px';card.style.left=Math.ma
 card.style.top=(down?r.bottom+4:r.top-4-card.offsetHeight)+scrollY+'px';}
 // The Review panel: comments and revisits in the order they come in the doc, each one going to its mark.
 const where=it=>{const g=it.github;return g&&g.path?g.path+(g.line?':'+g.line+(g.side==='L'?' (old)':''):''):'';};
+// A comment's file and line on GitHub, linked to it there, in its panel entry and its card's header.
+const ghLine=it=>{const w=where(it);return w&&it.github.href?[' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗',title:'Its line on GitHub: '+w})]:[];};
 function order(){const secs=[...document.querySelectorAll('section')].map(s=>s.dataset.file);
 const at=it=>{const v=it.at[cur]?cur:vorder.find(x=>it.at[x]);if(!v)return 2;const b=it.at[v],w=b.closest('.v'),r=document.createRange();
 r.setStart(w,0);r.setEndBefore(b);return r.toString().length/Math.max(1,w.textContent.length);};
@@ -790,14 +792,14 @@ b.classList.add('rvb-hit');if(it.kind==='g')gq(it);setTimeout(()=>{b.classList.r
 const draftsNow=it=>{const asked=it.rts.find(t=>t.wait)?.members.at(-1).mode==='ask',unread=it.rts.flatMap(t=>t.members).filter(m=>m.answers.length>(m.seen||0));
 return it.wait?(asked?'question being answered':'reply being drafted'):unread.length?(unread.every(m=>m.mode==='ask')?'new answer':'new drafted reply'):'drafted replies';};
 // A panel entry: its line (where, state, actions), then its body, folded to a few lines when long.
-function row(it,files){const r=it.kind==='r',d=mk('div',{className:'rvi'+((it.kind==='c'?it.thread||it.ask:it)?.unread&&!it.done?' rvi-new':'')+(it.done?' rvdone':'')}),h=mk('div',{className:'rvih'}),m=mk('span',{className:'rvm'}),bd=mk('div',{className:'rvib'}),w=where(it);
+function row(it,files){const r=it.kind==='r',d=mk('div',{className:'rvi'+((it.kind==='c'?it.thread||it.ask:it)?.unread&&!it.done?' rvi-new':'')+(it.done?' rvdone':'')}),h=mk('div',{className:'rvih'}),m=mk('span',{className:'rvm'}),bd=mk('div',{className:'rvib'});
 d.dataset.id=rowId(it);if(selected.has(d.dataset.id))d.classList.add('rvsel');
 if(it.kind==='g'){m.append(...line(tag(it),[files>1&&it.file,ghLabel(it.root),it.fresh&&it.fresh+' new',it.done&&ghSettled(it),it.rts.length&&draftsNow(it)]));
 h.append(m,...(it.file&&!it.done?[reply(it)]:[]),...ghSettle(it),ghOpen(it));
 bd.append(...ghBodies(it),...drafts(it),...sentLine(it),...(opened.has(it.rid)&&!it.done&&!inCard(it)?[box(it.rid,{it})]:[]));d.append(h,bd);
 d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);looked(it);for(const t of it.rts)if(t.unread)setThread(t,{seen:true});};return d;}
 const t=it.kind==='c'&&it.thread;m.append(...(t?postedAs(it,t):[...line(tag(it),[files>1&&it.file,it.section,r&&state(it)]),Object.keys(it.at).length?'':' · not in the page now']));
-if(w)m.append(' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗'}));if(!r&&!t)m.append(...twinLink(it));
+m.append(...ghLine(it));if(!r&&!t)m.append(...twinLink(it));
 if(it.quote)bd.append(mk('blockquote',{textContent:r?it.sent:it.quote}));
 if(r)h.append(titled(it),grouped(actions(it)),m),bd.append(...asks(it,undefined,true));else{const e=act('edit','',()=>openCm(it)),x=act('delete','',()=>x.textContent==='delete'?x.textContent='delete?':save({id:it.id,delete:true})),
 c=act('copy','Copy its text, to paste in the comment box at its line (↗ opens it there)',async()=>{c.textContent=await copy(it.body)?'copied':'copying failed';setTimeout(()=>c.textContent='copy',1500);});
