@@ -255,10 +255,12 @@ done:ms.every(m=>m.resolved),wait:!l.answers.length,unread:ms.some(m=>m.answers.
 // A drafted comment's state: used while the comment made of it exists, else replaced once a revision of
 // it has an answer with another draft, else dismissed, else proposed; revising while a revision waits.
 // Reworks of a comment of yours (m.comment) are versions of it: once one is used, the ones used before it
-// and the ones asked for before it and still proposed are replaced, so a stale one cannot be used over it.
+// and the ones proposed before it (asked for before it, or answered before it to the same ask) and still
+// proposed are replaced, so a stale one cannot be used over it.
 function proposal(m,d,ms){const id=m.time+'#'+d.hash,st=data.proposals[id]||{},by=ms.filter(x=>x.revises===id),c=st.state==='used'&&data.comments.find(c=>c.id===st.comment),
 last=m.comment&&Object.entries(data.proposals).filter(([,s])=>s.state==='used'&&s.comment===m.comment).sort((a,b)=>a[1].time<b[1].time?-1:1).pop(),
-stale=last&&last[0]!==id&&(c||!st.state&&m.time<last[0].split('#')[0]);
+[lt,lh]=last?last[0].split('#'):[],nth=(t,h)=>data.revisits.find(r=>r.time===t)?.answers.findIndex(a=>a.drafts.some(e=>e.hash===h)),
+stale=last&&last[0]!==id&&(c||!st.state&&(m.time<lt||m.time===lt&&nth(m.time,d.hash)<nth(lt,lh)));
 return{id,text:d.text,comment:stale?null:c||null,was:st.was,revising:by.length>0&&!by[by.length-1].answers.length,
 state:stale?'replaced':c?'used':by.some(x=>x.answers.some(a=>a.drafts.some(e=>e.hash!==d.hash)))?'replaced':st.state==='dismissed'?'dismissed':'proposed'};}
 // A comment of yours with what you asked Claude about it (cts: the threads of revisits naming it as their

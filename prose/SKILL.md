@@ -643,7 +643,8 @@ and its mark and the drafts count say when one waits or an answer is unread; a c
 its card rather than its editor. A reworked draft in an answer offers **Use**, which puts it in place of
 the comment's text (✓ used), and **↶ Undo**, which brings that text back; ✎ Ask Claude and Dismiss work as
 for any proposal. Reworks are versions of the comment: once one is used, the ones used before it, and the
-ones asked for before it and still proposed, fold as replaced, so a stale one cannot be used over it.
+ones proposed before it (asked for before it, or answered before it to the same ask) and still proposed,
+fold as replaced, so a stale one cannot be used over it.
 While a reworked draft is proposed, the asks fold under Discussion with Claude, as a drafted reply's do.
 
 Text selected in a card or panel entry when you press its ✎ Ask Claude, ↩ Reply or ✎ Ask more (or in the
