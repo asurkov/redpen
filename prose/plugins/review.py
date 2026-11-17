@@ -25,7 +25,8 @@ your last look unread, until its card or panel entry is opened; review.json keep
 read, by the thread's source and first comment, {threads: {"GitHub:id": {seen}}}.
 
 An answer's blockquotes are its drafted comments, each a proposal: used (made into a comment), dismissed,
-or replaced (a revisit that revises it, its fields thread and revises, got a new draft). review.json keeps
+or replaced (a revisit that revises it, its fields thread and revises, got a new draft, or, for a rework
+of a comment of yours, a later one was used). review.json keeps
 the first two by the time of the revisit that first proposed the draft and the draft's hash,
 {proposals: {"time#hash": {state, comment}}}; deleting the comment a proposal made frees it again. The two
 .jsonl files are logs, only ever appended to. The page polls GET /review for all of it, and posts /review
@@ -253,9 +254,13 @@ handled:ps.size>0&&[...ps.values()].every(p=>p.state!=='proposed'),
 done:ms.every(m=>m.resolved),wait:!l.answers.length,unread:ms.some(m=>m.answers.length>(m.seen||0))};});}
 // A drafted comment's state: used while the comment made of it exists, else replaced once a revision of
 // it has an answer with another draft, else dismissed, else proposed; revising while a revision waits.
-function proposal(m,d,ms){const id=m.time+'#'+d.hash,st=data.proposals[id]||{},by=ms.filter(x=>x.revises===id),c=st.state==='used'&&data.comments.find(c=>c.id===st.comment);
-return{id,text:d.text,comment:c||null,was:st.was,revising:by.length>0&&!by[by.length-1].answers.length,
-state:c?'used':by.some(x=>x.answers.some(a=>a.drafts.some(e=>e.hash!==d.hash)))?'replaced':st.state==='dismissed'?'dismissed':'proposed'};}
+// Reworks of a comment of yours (m.comment) are versions of it: once one is used, the ones used before it
+// and the ones asked for before it and still proposed are replaced, so a stale one cannot be used over it.
+function proposal(m,d,ms){const id=m.time+'#'+d.hash,st=data.proposals[id]||{},by=ms.filter(x=>x.revises===id),c=st.state==='used'&&data.comments.find(c=>c.id===st.comment),
+last=m.comment&&Object.entries(data.proposals).filter(([,s])=>s.state==='used'&&s.comment===m.comment).sort((a,b)=>a[1].time<b[1].time?-1:1).pop(),
+stale=last&&last[0]!==id&&(c||!st.state&&m.time<last[0].split('#')[0]);
+return{id,text:d.text,comment:stale?null:c||null,was:st.was,revising:by.length>0&&!by[by.length-1].answers.length,
+state:stale?'replaced':c?'used':by.some(x=>x.answers.some(a=>a.drafts.some(e=>e.hash!==d.hash)))?'replaced':st.state==='dismissed'?'dismissed':'proposed'};}
 // A comment of yours with what you asked Claude about it (cts: the threads of revisits naming it as their
 // comment), and ask, for its mark and the header's counts: whether Claude is on one, and an answer unread.
 function withAsks(c){const ts=threads(data.revisits.filter(r=>r.comment===c.id)).map(t=>({...t,draftOf:c.id}));
@@ -574,8 +579,14 @@ bd.append(...(own?[mk('blockquote',{textContent:own.quote})]:[]),...ghBodies(it,
 // ✎ Ask Claude about a comment of yours not posted ("shorter", "as a question"): a revisit naming it as its
 // comment and quoting its text, in the thread of what you asked about it before; a reworked draft in the
 // answer offers Use, in its place. What you asked shows under the comment, private.
-const askAbout=c=>{card.hidden=true;
-openRev({quote:c.body,el:elOf(c),key:c.key,fields:{comment:c.id,section:c.section,...(c.cts[0]?{thread:c.cts[0].time}:{})},context:'asks about your draft “'+short(c.body)+'”'});};
+const askAbout=(c,focus=takeHeldPart())=>{card.hidden=true;
+openRev({quote:c.body,el:elOf(c),key:c.key,focus,fields:{comment:c.id,section:c.section,...(c.cts[0]?{thread:c.cts[0].time}:{})},context:'asks about your draft “'+short(c.body)+'”'});};
+// Text selected in a card part or panel entry when one of its buttons is pressed (taken at mousedown,
+// before the press can clear it): an ask from that button is about that part (its focus).
+let heldPart=null;const takeHeldPart=()=>{const t=heldPart;heldPart=null;return t||undefined;};
+document.addEventListener('mousedown',e=>{const b=e.target.closest?.('.rvx'),s=getSelection(),box=b?.closest('.rvpart,.rvi');
+heldPart=box&&!s.isCollapsed&&s.rangeCount&&box.contains(s.anchorNode)&&box.contains(s.focusNode)?quoteOf(s):null;},true);
+document.addEventListener('click',()=>setTimeout(()=>heldPart=null),true);
 const askDraft=c=>act('✎ Ask Claude',ca.title,()=>askAbout(c));
 const draftAsks=c=>c.cts.length?[mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:'✎ Asked Claude · private',title:'Between you and Claude'}),...discussion('c'+c.id,c.cts)]:[];
 const drafts=(it,incard)=>it.rts.length?[mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:'✎ Drafted replies · private',title:'Between you and Claude, until you post one on '+it.src.source}),...discussion(it.rid,it.rts,{it,incard})]:[];
@@ -613,14 +624,16 @@ cs.onclick=()=>{const t=ct.value.trim();if(!draft)return;if(!t)return draft.id?s
 save(draft.id?{id:draft.id,body:t}:{...draft,body:t});};
 cd.onclick=()=>draft?.id&&save({id:draft.id,delete:true});cc.onclick=closeCm;
 // Ask Claude about the comment as it reads: text edited here is saved first, and a save that fails asks nothing.
-ca.onclick=async()=>{const id=draft?.id,t=ct.value.trim();if(!id)return;if(t&&t!==draft.body)await save({id,body:t});else closeCm();
-const c=cp.hidden&&items.find(i=>i.kind==='c'&&i.id===id);if(c)askAbout(c);};
+// A part selected in the text is what the ask is about (its focus).
+ca.onclick=async()=>{const id=draft?.id,t=ct.value.trim(),f=ct.value.slice(ct.selectionStart,ct.selectionEnd).trim();if(!id)return;if(t&&t!==draft.body)await save({id,body:t});else closeCm();
+const c=cp.hidden&&items.find(i=>i.kind==='c'&&i.id===id);if(c)askAbout(c,f||undefined);};
 ct.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();cs.click();}if(e.key==='Escape')closeCm();});
 const act=(t,title,f)=>{const b=mk('button',{className:'rvx',textContent:t,title});b.onclick=e=>{e.stopPropagation();f();};return b;};
 const short=t=>(t=norm(t)).length>70?t.slice(0,70).replace(/\\s+\\S*$/,'')+'…':t;
 // A thread's requests, each with its answers, a revision with the draft it revises. Under a header that
 // reads its first request whole (led), that one is not said again.
 const asks=(it,shown=new Set(),led)=>[...it.members.flatMap((m,i)=>middle(it,m,i,[...(m.revises?[mk('div',{className:'rvm',textContent:'↻ revise the draft “'+short(m.quote)+'”'})]:[]),
+...(m.focus?[mk('div',{className:'rvm',textContent:'on “'+short(m.focus)+'”',title:m.focus})]:[]),
 ...(led&&!i&&norm(m.prompt)===titleOf(it)?[]:[mk('div',{className:'rvt',textContent:m.remote&&!m.revises&&m.mode!=='ask'?(m.mode==='polish'?'Your reply: ':m.prompt?'Notes: ':'No notes: Claude drafts on its own')+m.prompt:m.prompt})]),...answers(it,m,shown)])),...replyTo(it)];
 // In a thread of three or more requests, one between the first and the last folds to a line (its request,
 // answered), as a mail thread does, so the last is near: when its answers are long and hold no draft still to
@@ -711,9 +724,9 @@ const first=it=>short((it.members.find(m=>!m.revises)||it.members[0]).prompt);
 const titleOf=it=>first(it)||short(it.sent),titled=it=>mk('span',{className:'rvtt',textContent:titleOf(it)});
 // A header's buttons, kept together where its line wraps.
 const grouped=bs=>{const s=mk('span',{className:'rvas'});s.append(...bs);return s;};
-function revise(it,p){card.hidden=true;openRev({quote:p.text,el:elOf(it),key:it.key,fields:{thread:it.time,revises:p.id,section:it.section,
+function revise(it,p,focus=takeHeldPart()){card.hidden=true;openRev({quote:p.text,el:elOf(it),key:it.key,focus,fields:{thread:it.time,revises:p.id,section:it.section,
 ...(it.draftOf?{comment:it.draftOf}:{}),...(it.reply?{remote:it.remote,lead:'Revise this reply drafted for a thread on '+it.file}:{})},context:'revises a draft in “'+first(it)+'”'});}
-function more(it){card.hidden=true;openRev({quote:it.sent,el:elOf(it),key:it.key,fields:{thread:it.time,section:it.section},context:'goes on from “'+first(it)+'”'});}
+function more(it,focus=takeHeldPart()){card.hidden=true;openRev({quote:it.sent,el:elOf(it),key:it.key,focus,fields:{thread:it.time,section:it.section},context:'goes on from “'+first(it)+'”'});}
 // A mark's card, under it or, with more room there, over it: what the mark holds (its), each a box of its
 // own where it holds several, under a header (what it is, its state and actions) that stays at the top
 // while its part scrolls under it. A question's header leads with its first ask, and it shows each ask
@@ -1016,7 +1029,7 @@ def state(run, refresh=None, source=None):
             c['html'] = markdown(c['body'])
     return {'comments': doc['comments'], 'proposals': doc['proposals'], 'threads': doc['threads'], 'remotes': remotes,
             'revisits': [{**{k: r.get(k) for k in ('time', 'file', 'section', 'quote', 'view', 'prompt', 'key',
-                                                    'thread', 'revises', 'remote', 'mode', 'weigh', 'comment')},
+                                                    'thread', 'revises', 'remote', 'mode', 'weigh', 'comment', 'focus')},
                           'answers': answers.get(r.get('time'), []), **doc['revisits'].get(r.get('time'), {})}
                          for r in revisit_records(run)],
             # Whether Claude is watching each shared store: read by the pages built before a reply request's

@@ -162,7 +162,10 @@ The server writes both into the review's dir, `<out>`:
   answer the new question in that light. A revision asks to rework the draft it quotes: answer with the
   new draft as a blockquote. One with `comment` (the id of a comment of the user's not posted, from ✎ Ask
   Claude on it) quotes that comment's text and asks about it ("shorter", "as a question"): edit nothing,
-  and give a reworked comment as a blockquote, which its card offers to use in its place. One with `remote` (a thread from elsewhere, `<source>:<comment id>`, its
+  and give a reworked comment as a blockquote, which its card offers to use in its place. One with `focus`
+  is about that part of its quote (text selected when the ask was opened; the request's text has it
+  after the quote, "About this part of it"): answer about that part, and a reworked comment is still the
+  whole comment. One with `remote` (a thread from elsewhere, `<source>:<comment id>`, its
   text starting "Draft a reply to this … thread") asks for a reply to that Google Docs or GitHub thread,
   its quote the thread (the text it is on, then each comment): edit nothing, answer with the reply as a
   blockquote, which the thread's card offers to copy; a revision of it has `remote` too. Its `mode`
@@ -639,8 +642,14 @@ Claude's answers, show under the comment as **✎ Asked Claude · private** (not
 and its mark and the drafts count say when one waits or an answer is unread; a comment with asks opens in
 its card rather than its editor. A reworked draft in an answer offers **Use**, which puts it in place of
 the comment's text (✓ used), and **↶ Undo**, which brings that text back; ✎ Ask Claude and Dismiss work as
-for any proposal. While a reworked draft is proposed, the asks fold under Discussion with Claude, as a
-drafted reply's do.
+for any proposal. Reworks are versions of the comment: once one is used, the ones used before it, and the
+ones asked for before it and still proposed, fold as replaced, so a stale one cannot be used over it.
+While a reworked draft is proposed, the asks fold under Discussion with Claude, as a drafted reply's do.
+
+Text selected in a card or panel entry when you press its ✎ Ask Claude, ↩ Reply or ✎ Ask more (or in the
+editor's text, for its ✎ Ask Claude) is what the ask is about: the revisit panel shows that part, and
+Claude gets the whole text with the part after it (the request's `focus`); the thread shows it as
+on “…” above the question.
 
 `review.json` keeps each revisit's state by its time, `revisits: {<time>: {resolved, resolved_by, seen}}`,
 `resolved_by` `accept` when its change's accept resolved it, `seen` how many of its answers were read, and each proposal's by the time of the revisit that first proposed it and

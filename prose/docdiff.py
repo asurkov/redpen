@@ -970,10 +970,11 @@ function heading(el){const v=el.closest('.v');if(!v)return '';
 const h=[...v.querySelectorAll('h1,h2,h3,h4')].filter(h=>h.compareDocumentPosition(el)&Node.DOCUMENT_POSITION_FOLLOWING).pop();
 if(!h)return '';const k=h.cloneNode(true);k.querySelectorAll('del').forEach(d=>d.remove());return k.textContent.trim();}
 // g: the text revisited (quote), an element in it (el), its change's key, fields plugins add to the
-// request, and words on what it goes on from (context), shown above the quote.
+// request, and words on what it goes on from (context), shown above the quote. A part of the quote the
+// ask is about (focus) shows in its place; Claude gets the whole quote, and the part after it.
 function openRev(g){const s=g&&g.el.closest('section');if(!s){pos.textContent='select text, or step to a change, then press r';return;}
-req={file:s.dataset.file,section:heading(g.el),quote:g.quote,view:cur,key:g.key,...g.fields};rq.textContent=g.quote;
-$('rx').textContent=g.context||'';$('rx').hidden=!g.context;rp.hidden=false;rt.focus();}
+req={file:s.dataset.file,section:heading(g.el),quote:g.quote,view:cur,key:g.key,...g.fields,...(g.focus?{focus:g.focus}:{})};rq.textContent=g.focus||g.quote;
+const x=[g.context,g.focus&&'on the part you selected'].filter(Boolean).join(', ');$('rx').textContent=x;$('rx').hidden=!x;rp.hidden=false;rt.focus();}
 function closeRev(){rp.hidden=true;rt.value='';req=null;}
 // Text for the clipboard; with h, that as formatted text (HTML) beside it, for a paste that keeps formatting.
 async function copy(t,h){try{await(h?navigator.clipboard.write([new ClipboardItem({'text/plain':new Blob([t],{type:'text/plain'}),'text/html':new Blob([h],{type:'text/html'})})]):navigator.clipboard.writeText(t));return true;}
@@ -981,7 +982,8 @@ catch(e){const a=document.createElement('textarea'),both=e=>{e.clipboardData.set
 a.value=t;body.append(a);a.select();if(h)document.addEventListener('copy',both);const done=document.execCommand('copy');document.removeEventListener('copy',both);a.remove();return done;}}
 // The request as Claude reads it: what it is about (a plugin may lead it its own way: lead), the quote, the ask.
 async function send(){const ask=rt.value.trim();if(!ask||!req)return;
-const text=(req.lead||W.prompt+repo+'/'+req.file+(req.section?', section "'+req.section+'"':'')+(req.view==='old'?' (old version)':''))+':\\n> '+req.quote.replace(/\\n/g,'\\n> ')+'\\n\\n'+ask;
+const q=t=>'> '+t.replace(/\\n/g,'\\n> '),text=(req.lead||W.prompt+repo+'/'+req.file+(req.section?', section "'+req.section+'"':'')+(req.view==='old'?' (old version)':''))+':\\n'+q(req.quote)+
+(req.focus?'\\n\\nAbout this part of it:\\n'+q(req.focus):'')+'\\n\\n'+ask;
 let queued=true,got={};try{got=await post('revisit',{...req,prompt:ask,text});}catch(e){queued=false;}
 // The server says whether Claude is watching (watched); with nobody, the clipboard is the way in.
 const watched=queued&&got.watched;
@@ -1268,7 +1270,8 @@ def load_plugins():
       off the reload after a rebuild while it shows, and clicks in it leave the doc alone, as they do in
       an element of class ui (a card or side panel), which does not hold off the reload; openRev(g) opens
       the revisit panel on g.quote, g.fields adding to the request it sends and g.context shown above
-      it; wordsOf(x), which a plugin may replace, gives the words for accepting change x, W (WORDS for
+      it, and g.focus, a part of the quote the ask is about, shown in its place and sent after it (the
+      request's focus); wordsOf(x), which a plugin may replace, gives the words for accepting change x, W (WORDS for
       the run's mode) by default; onAccept(xs, accepting), which it may replace too, runs before changes
       xs are accepted or taken back.
     get(run, path, query), post(out, path, req): the server's routes. None for a path not its own, else
