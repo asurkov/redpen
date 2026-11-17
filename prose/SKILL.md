@@ -638,7 +638,8 @@ header says "drafts handled" and urges Resolve, where the card has no change to 
 A comment of yours not posted has **✎ Ask Claude** in its editor, card and panel entry: the revisit panel on
 the comment's text, for "shorter", "as a question" or anything else about it; from the editor, text edited
 there is saved first. What you ask about it, and
-Claude's answers, show under the comment as **✎ Asked Claude · private** (not as a question of its own),
+Claude's answers, show under the comment as **✎ Asked Claude · private**, in a tinted box of its own (not
+as a question of its own; a drafted reply's **✎ Drafted replies · private** is boxed the same way),
 and its mark and the drafts count say when one waits or an answer is unread; a comment with asks opens in
 its card rather than its editor. A reworked draft in an answer offers **Use**, which puts it in place of
 the comment's text (✓ used), and **↶ Undo**, which brings that text back; ✎ Ask Claude and Dismiss work as

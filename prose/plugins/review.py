@@ -84,6 +84,7 @@ STYLE = '''
 .rvweigh{display:flex;gap:4px;align-items:center;color:var(--muted)}
 .rvpol del{color:var(--delb);text-decoration:line-through;background:none} .rvpol ins{color:var(--insb);text-decoration:none;background:var(--ins)}
 .rvib:has(>.rva>blockquote.rvredo)>.rvt,.rvcb:has(>.rva>blockquote.rvredo)>.rvt{display:none}
+.rvpriv{margin:10px 0 2px;padding:4px 10px 6px;border:1px dashed var(--line);border-radius:6px;background:var(--code)}
 ::highlight(rvgq){background-color:rgba(212,167,44,.22)} ::highlight(rvgq-on){background-color:rgba(212,167,44,.6)}
 .rvfc{font:12px -apple-system,BlinkMacSystemFont,sans-serif;color:var(--link);text-decoration:none} .rvfc:hover{text-decoration:underline}
 .rvb-posted::after{content:" " url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 16 16'%3E%3Cpath fill='%23848d97' d='M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z'/%3E%3C/svg%3E") attr(data-r)}
@@ -590,8 +591,12 @@ document.addEventListener('mousedown',e=>{const b=e.target.closest?.('.rvx'),s=g
 heldPart=box&&!s.isCollapsed&&s.rangeCount&&box.contains(s.anchorNode)&&box.contains(s.focusNode)?quoteOf(s):null;},true);
 document.addEventListener('click',()=>setTimeout(()=>heldPart=null),true);
 const askDraft=c=>act('✎ Ask Claude',ca.title,()=>askAbout(c));
-const draftAsks=c=>c.cts.length?[mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:'✎ Asked Claude · private',title:'Between you and Claude'}),...discussion('c'+c.id,c.cts)]:[];
-const drafts=(it,incard)=>it.rts.length?[mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:'✎ Drafted replies · private',title:'Between you and Claude, until you post one on '+it.src.source}),...discussion(it.rid,it.rts,{it,incard})]:[];
+// What is between you and Claude sits in a box of its own, apart from the text that is posted; a rework
+// of your comment, proposed, stays out of it, in the comment's place.
+const privateBox=(label,title,els)=>{const w=mk('div',{className:'rvpriv'}),lead=els[0]?.matches('.rva:has(>blockquote.rvredo)')?[els.shift()]:[];
+w.append(mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:label,title}),...els);return[...lead,w];};
+const draftAsks=c=>c.cts.length?privateBox('✎ Asked Claude · private','Between you and Claude',discussion('c'+c.id,c.cts)):[];
+const drafts=(it,incard)=>it.rts.length?privateBox('✎ Drafted replies · private','Between you and Claude, until you post one on '+it.src.source,discussion(it.rid,it.rts,{it,incard})):[];
 // With a draft ready to send (proposed), threads show the latest one, with its actions and its box while
 // open, and fold the rest, the requests, Claude's notes and the earlier drafts, into a Discussion with
 // Claude, to open when needed; it stays open or shut as the page draws again (discOpen). A thread from
