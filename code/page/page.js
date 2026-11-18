@@ -71,7 +71,8 @@ const state = {
   // When the review was last carried over to another base commit, as the server said it.
   rebase: null,
 };
-// Where the browser keeps whether the list is the full tree, for every review's page.
+// Where the browser keeps whether the list is the full tree, for every review's page: 'no' once turned
+// off, as it is on until then.
 const keptFullTree = 'redpenFullTree';
 let diffView;
 // One request after another: a poll never reads between an action and its redraw.
@@ -330,7 +331,7 @@ function turnFullTree(isOn) {
     state.isFullTree = isOn;
     byId('treeButton').classList.toggle('chosen', isOn);
     try {
-      localStorage.setItem(keptFullTree, isOn ? 'yes' : '');
+      localStorage.setItem(keptFullTree, isOn ? 'yes' : 'no');
     } catch {
       // A browser that keeps nothing: the choice lasts until the page is loaded again.
     }
@@ -965,10 +966,11 @@ async function main() {
   diffView.openable = () => state.files.map(file => file.key);
   byId('threadsButton').addEventListener('click', () => stepThread('next'));
   byId('listButton').addEventListener('click', () => document.body.classList.toggle('listHidden'));
+  state.isFullTree = true;
   try {
-    state.isFullTree = localStorage.getItem(keptFullTree) === 'yes';
+    state.isFullTree = localStorage.getItem(keptFullTree) !== 'no';
   } catch {
-    // A browser that keeps nothing: the list starts with the changed files alone.
+    // A browser that keeps nothing: the list starts as the full tree.
   }
   byId('treeButton').classList.toggle('chosen', state.isFullTree);
   byId('treeButton').addEventListener('click', () => turnFullTree(!state.isFullTree));
