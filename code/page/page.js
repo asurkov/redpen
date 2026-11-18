@@ -317,6 +317,7 @@ async function readFolders(named) {
 
 // Widens a folder of the full tree, to show all it holds, opened; or narrows it to its changed files.
 function widen(path, isWide) {
+  const wasFocused = byId('list').contains(document.activeElement);
   return queued(async () => {
     state.widenedFolders.delete(path);
     state.narrowedFolders.delete(path);
@@ -328,6 +329,10 @@ function widen(path, isWide) {
       }
     }
     drawList();
+    // The keys stay on the folder: its name, drawn anew.
+    if (wasFocused) {
+      [...byId('list').querySelectorAll('.segment')].find(made => made.dataset.path === path)?.focus();
+    }
   });
 }
 
@@ -754,9 +759,20 @@ function drawList() {
         const isWide = at === folder.segments.length - 1 && folder.isWide;
         const made = name.appendChild(span(`segment${isWide ? ' wide' : ''}`, segment));
         made.title = isWide ? `Show only the changed files of ${segment}` : `Show every file of ${segment}${hidden ? ` (${hidden} more)` : ''}`;
+        // A button to the keys too: Tab reaches it, Enter or Space widens or narrows.
+        made.tabIndex = 0;
+        made.setAttribute('role', 'button');
+        made.dataset.path = path;
         made.addEventListener('click', event => {
           event.preventDefault();
           widen(path, !isWide);
+        });
+        made.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            event.stopPropagation();
+            widen(path, !isWide);
+          }
         });
         if (at < folder.segments.length - 1) {
           name.append('/');
