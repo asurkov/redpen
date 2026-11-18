@@ -468,8 +468,9 @@ function drawProgress() {
 }
 
 // What the list and the waiting comments were last drawn from: a poll that found nothing new
-// leaves them alone, with the pointer's place and the open fold.
-const drawn = { list: '', waiting: '' };
+// leaves them alone, with the pointer's place and the open fold. And the file the list last brought
+// into sight.
+const drawn = { list: '', waiting: '', chosen: null };
 
 function drawList() {
   const drawing = JSON.stringify([state.view, state.key, listed().map(file => [file.key, file[state.view], file.isNew, file.isGone, file.isUncarried, !file.pending, !file.accepted])]);
@@ -536,6 +537,11 @@ function drawList() {
     // Their folders from the top, as they are far from the work's.
     const fromTop = treeOf(others, '/');
     fold.append(...rowsOf({ ...fromTop, folders: fromTop.folders.map(folder => ({ ...folder, name: `/${folder.name}` })) }, 0));
+  }
+  // A file stepped to comes into sight; a redraw for anything else leaves the list where it was scrolled.
+  if (state.key !== drawn.chosen) {
+    drawn.chosen = state.key;
+    list.querySelector('.file.chosen')?.scrollIntoView({ block: 'nearest' });
   }
 }
 
