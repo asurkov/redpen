@@ -524,8 +524,9 @@ def apply(pieces, side, flip):
 def news(last, new_html, k, diffed):
     """What changed since the last review (last, rendered): each change of base to head it touches, with the
     changes of last to now that touch it, {key: [since keys]}; of such a change in several boxes of whole
-    blocks (whole_blocks()), the boxes they touch, where not all of them, {key: [box]}; and the blocks of
-    last to now that changed, for the page to show what changed in a change since its last review."""
+    blocks (whole_blocks()), the boxes they touch, where not all of them, {key: [box]}; the blocks of
+    last to now that changed, for the page to show what changed in a change since its last review; and the
+    whole diff of last to now, for its view."""
     since = block_diff(last, new_html, f's{k}')
     hit, fresh, touched, spans = [(c, s, e) for c, _, _, s, e in places(since) if c], {}, {}, by_key(places(diffed))
     for c, ss in spans.items():
@@ -544,7 +545,7 @@ def news(last, new_html, k, diffed):
         on = sorted({b for b, s in zip(box, spans[c]) if overlaps([s], [(x, y) for h, x, y in hit if h in got])})
         if len(on) < len(set(box)):
             touched[c] = on
-    return fresh, touched, wrap_lists([b for b in split_blocks(since[0]) if 'data-k="' in b[1]])
+    return fresh, touched, wrap_lists([b for b in split_blocks(since[0]) if 'data-k="' in b[1]]), since[0]
 
 
 def states(diffed, reviewing, reviewed):
@@ -692,6 +693,7 @@ header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--
 .tl-base{left:0} .tl-head{right:0;align-items:flex-end} .tl-head i{background:var(--fg)} .tl-last{left:50%;transform:translateX(-50%);align-items:center} .tl-last i{background:var(--new)}
 .tlb{position:absolute;left:6px;right:6px;height:7px;border:1.5px solid var(--line);border-top:0;border-radius:0 0 4px 4px}
 .tlb span{position:absolute;left:50%;top:0;transform:translateX(-50%);padding:0 6px;background:var(--bg);color:var(--muted);white-space:nowrap}
+.tlb span[data-go]{cursor:pointer} .tlb span[data-go]:hover{text-decoration:underline}
 .tl-all{top:50px} .tl:has(.tl-mid) .tl-all span{left:25%} .tl-new{top:68px;border-color:color-mix(in srgb,var(--new) 55%,var(--bg))} .tl-new span{color:var(--new)} .tl-mid{left:50%}
 button:disabled{opacity:.4;cursor:default}
 button{font:inherit;padding:4px 10px;border:1px solid var(--line);background:var(--btn);color:var(--fg);border-radius:6px;cursor:pointer;transition:background-color .1s;-webkit-user-select:none;user-select:none}
@@ -737,8 +739,9 @@ img{max-width:100%}
 table{border-collapse:collapse;display:block;overflow-x:auto;font-size:14px} td,th{border:1px solid var(--line);padding:4px 8px;vertical-align:top}
 a{color:var(--link)} .cur{outline:2px solid #bf8700;outline-offset:2px}
 .ddhit{outline:2px solid var(--link);outline-offset:3px;border-radius:2px} #ddback{position:fixed;left:16px;bottom:16px;z-index:3;box-shadow:0 1px 4px rgba(0,0,0,.15)} #ddback[hidden]{display:none}
-body:not(.show-diff) .v-diff,body:not(.show-old) .v-old,body:not(.show-new) .v-new{display:none}
-.show-old .step,.show-new .step{display:none} body:not(.show-diff) .accf{display:none}
+body:not(.show-diff) .v-diff,body:not(.show-old) .v-old,body:not(.show-new) .v-new,body:not(.show-since) .v-since{display:none}
+.show-old .step,.show-new .step,.show-since :is(#filt,#fresh,#acc){display:none} body:not(.show-diff) .accf{display:none}
+.show-since #newp .pick button{margin-left:0;border-radius:6px}
 .seg,.pair{display:inline-flex;max-width:100%} .seg button,.pair button{border-radius:0;margin-left:-1px;white-space:nowrap}
 .seg button:first-child,.pair button:first-child{border-radius:6px 0 0 6px;margin-left:0} .seg button:last-child,.pair button:last-child{border-radius:0 6px 6px 0}
 .seg button[aria-pressed=true]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
@@ -776,6 +779,10 @@ const groups=[],byG=new Map(),dones=new Map([...document.querySelectorAll('scrip
 for(const e of document.querySelectorAll('.v-diff .chg')){let x=byG.get(e.dataset.g);if(!x){const s=e.closest('section');
 x={k:e.dataset.k,file:s.dataset.file,sec:s,view:'diff',done:!!dones.get(s)?.has(e.dataset.k),els:[]};byG.set(e.dataset.g,x);groups.push(x);}
 x.els.push(e);if(x.done)e.classList.add('done');}
+// The changes of the version last reviewed to the head, in the Since view: n and p step through them all,
+// with no filter (each is new).
+const sinceGroups=[];{const byS=new Map();for(const e of document.querySelectorAll('.v-since .chg')){let x=byS.get(e.dataset.g);
+if(!x){const s=e.closest('section');x={k:e.dataset.k,file:s.dataset.file,sec:s,view:'since',els:[]};byS.set(e.dataset.g,x);sinceGroups.push(x);}x.els.push(e);}}
 // What changed since the last review (see news()): per doc, the changes it touched, each with the changes
 // of last review to now in it (x.since). Each is new: a blue edge on it, or on the block it is in; of a change
 // in several boxes, on the boxes those touched (on).
@@ -839,12 +846,19 @@ if(tl){const n=groups.length,m=groups.filter(x=>x.since).length,go=(cls,f,said)=
 p.querySelector('.tlw').textContent=p.dataset.date?' · '+day(p.dataset.date):'';if(f){p.dataset.go='';p.onclick=f;p.title+=' · '+said;}};
 go('.tl-base',view('old'),'click to see it clean');go('.tl-head',view('new'),'click to see it clean');
 go('.tl-last',pk&&(()=>pk.querySelector('button').click()),'click to pick another version');
-$('tl-all').textContent='Diff: '+n+' change'+(n===1?'':'s');if($('tl-new'))$('tl-new').textContent=m?m+' new':'nothing new';}}
+// Under each span, its view and that view's own count of changes; with no view of its own, how many of the
+// Diff's are new.
+const ns=n=>n+' change'+(n===1?'':'s'),sv=document.querySelector('#views button[data-v=since]');
+$('tl-all').textContent='Diff: '+ns(n);if($('tl-new'))$('tl-new').textContent=sv?sv.textContent+': '+ns(sinceGroups.length):m?m+' new':'nothing new';
+// The counts under the line open the views of those diffs: the base's to the head, and the last reviewed's.
+for(const[id,v]of[['tl-all','diff'],['tl-new','since']]){const s=$(id),b=document.querySelector('#views button[data-v='+v+']');
+if(s&&b)Object.assign(s,{title:b.title+' · click to see it',onclick:view(v)}).dataset.go='';}}}
 for(const b of fbs){const f=b.dataset.f,n=count(f),m=fresh&&count(f,true);b.append(' '+n);
 if(m)b.title=n+' '+named[f]+', '+m+' of them new since '+since;
 b.onclick=()=>filter(f);}
 let cur=body.dataset.view,c=null,anchor=null,mark=null,req=null,filt='todo',onlyNew=false;
-const gi=x=>groups.indexOf(x),L=()=>groups.filter(x=>x.view===cur&&inF[filt](x)&&(!onlyNew||x.since)),said=()=>(onlyNew?'new ':'')+named[filt];
+const listed=()=>cur==='since'?sinceGroups:groups,gi=x=>(x.view==='since'?sinceGroups:groups).indexOf(x),
+L=()=>cur==='since'?sinceGroups:groups.filter(x=>x.view===cur&&inF[filt](x)&&(!onlyNew||x.since)),said=()=>(onlyNew?'new ':'')+named[filt];
 function filter(f,o=onlyNew){filt=f;onlyNew=fresh&&o;body.classList.toggle('only-new',onlyNew);fbs.forEach(b=>b.setAttribute('aria-pressed',b.dataset.f===f));
 if(fresh){const n=count(f),m=count(f,true);fb.textContent=m+' new'+(pk?'':' since '+since);fb.setAttribute('aria-pressed',onlyNew);fb.disabled=!m&&!onlyNew;
 fb.title=onlyNew?'Stepping through the '+m+' of the '+n+' '+named[f]+' that are new since '+since+'; click for all '+n:'Step through only the '+m+' of the '+n+' '+named[f]+' that are new since '+since;}
@@ -866,7 +880,8 @@ const where=x=>new Set(groups.map(y=>y.file)).size>1?' · '+x.file:'';
 function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabled=!step(1);
 const w=wordsOf(c),un=!!c?.done;acc.disabled=!c||cur!=='diff';acc.textContent=un?w.unaccept:w.accept;acc.classList.toggle('primary',!un);
 acc.title=un?w.unaccept_title:w.accept_title;
-pos.textContent=cur!=='diff'?W.select:i>=0?(i+1)+' of '+l.length+' '+said()+where(c):
+pos.textContent=cur==='since'?(i>=0?(i+1)+' of ':'')+l.length+' change'+(l.length===1?'':'s')+' since '+since+(c?where(c):''):
+cur!=='diff'?W.select:i>=0?(i+1)+' of '+l.length+' '+said()+where(c):
 c?'change '+(gi(c)+1)+' of '+groups.length+' · '+(c.done?W.accepted:'to review')+(c.since?' · new':'')+where(c):'';pos.title=pos.textContent;}
 function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;if(x){anchor=x;mark=null;}
 if(c){c.els.forEach(e=>e.classList.add('cur'));if(scroll)c.els.find(e=>e.offsetParent)?.scrollIntoView({block:'center',behavior:'smooth'});}status();}
@@ -1006,7 +1021,7 @@ document.addEventListener('click',e=>{if(e.target.closest('header,.what,.files,#
 // A removed block's summary only folds and unfolds it.
 if(e.target.closest('summary')){hidePop();return;}
 const t=e.target.closest('.v-'+cur+' .chg');
-if(t){focus(groups.find(x=>x.view===cur&&x.els.includes(t)),false);showPop(t.getBoundingClientRect(),cur==='diff',c);}
+if(t){focus(listed().find(x=>x.view===cur&&x.els.includes(t)),false);showPop(t.getBoundingClientRect(),cur==='diff',c);}
 else{mark=e.clientY+scrollY;focus(null,false);}});
 // Without a current change, where n and p start moves with the screen.
 addEventListener('scroll',()=>{if(!c)status();},{passive:true});
@@ -1076,7 +1091,7 @@ addEventListener('pagehide',()=>{try{sessionStorage.setItem(sk('docdiff'),JSON.s
 // was the filter All with ● new.
 const was={review:'todo',acc:'done',diff:'all'};
 function restore(){let st=null;try{st=JSON.parse(sessionStorage.getItem(sk('docdiff')));}catch(e){}if(!st)return;
-const find=p=>p&&groups.find(x=>x.view===cur&&x.file===p[0]&&x.k===p[1])||null;
+const find=p=>p&&listed().find(x=>x.view===cur&&x.file===p[0]&&x.k===p[1])||null;
 if(views.includes(st.view)&&st.view!==cur){body.classList.replace('show-'+cur,'show-'+st.view);cur=st.view;vb.forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===cur));}
 const f=st.filter==='new'?'all':st.filter||was[st.view];if(inF[f])filt=f;onlyNew=fresh&&(!!st.fresh||st.filter==='new');
 anchor=find(st.a);const x=find(st.c)||(st.c&&L()[Math.min(st.ci,L().length-1)]);if(x)focus(x,false);
@@ -1496,7 +1511,7 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         done = sorted(c for c, (t, _) in stand.items() if not t)
         todo, accepted = len(stand) - len(done), len(done)
         acts = plugin_actions(actors, old, new, pieces)
-        fresh, boxes, since = news(last, new_html, k, diffed) if last is not None else ({}, {}, '')
+        fresh, boxes, since, interdiff = news(last, new_html, k, diffed) if last is not None else ({}, {}, '', None)
         counts[0] += todo
         counts[1] += accepted
         per[name] = [todo, accepted]
@@ -1534,6 +1549,7 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
                         f'{f" <span class=state>· {html.escape(state)}</span>" if state else ""}{copier}'
                         f'{f"<span class=fbar>{bar}</span>" if bar else ""}</div>'
                         f'{view("diff", body)}{view("old", plain(old_html, "new file"))}{view("new", plain(new_html, "deleted"))}'
+                        f'{view("since", plain(interdiff, "deleted") if interdiff is not None else plain("", "not reviewed before: all of it is new, as in Diff"))}'
                         f'</section>')
     # This build's counts, for what is made of the run from here on: the strip of versions, plugins' tops.
     run['counted'] = {'todo': counts[0], 'done': counts[1], 'files': per}
@@ -1557,15 +1573,26 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
            f'data-waiting="{html.escape(json.dumps(waiting, ensure_ascii=False))}" '
            f'title="Commit the {len(commits)} file(s) whose changes are all accepted, as they read on disk">⇪ commit accepted ({len(commits)})</button>'
            if commits else '')
-    # Comparing commits, the views are named by the versions they show: the base and the head.
+    # Comparing commits, the views are named by the versions they show: the base and the head. Since is the
+    # diff of the version last reviewed to the head, where that is neither (to the working tree: where a
+    # doc was reviewed before).
     its, last, gone = versions_compared(repo, base, head, lasts)
     named = its and not new_label
-    buttons = [('diff', 'Diff', None), ('old', 'Base', its and its[0]), ('new', 'Head', its and its[-1])] if named else [
-        ('diff', 'Diff', None), ('old', 'Old', None), ('new', 'New', None)]
-    told = lambda label, at: html.escape(f'{label}, {at[1]}: {at[2]}' + (' — ' + at[3] if at[3] else ''))
+    told = lambda label, at: f'{label}, {at[1]}: {at[2]}' + (' — ' + at[3] if at[3] else '')
+    if named:
+        between = last and last[0] not in (its[0][0], its[-1][0])
+        buttons = [('diff', 'Diff', None, f'Diff of the base, {its[0][1]}, to the head, {its[-1][1]}: every change'),
+                   *([('since', f'Since {last[1]}', last, f'Diff of {last[1]}, the version last reviewed, to the head, '
+                       f'{its[-1][1]}: what changed since your review. {told("Last reviewed", last)}')] if between else []),
+                   ('old', 'Base', its[0], told('Base', its[0])), ('new', 'Head', its[-1], told('Head', its[-1]))]
+    else:
+        buttons = [('diff', 'Diff', None, None),
+                   *([('since', 'Since review', None, 'Diff of the version last reviewed to now: what changed since your review')]
+                     if lasts - {None} else []),
+                   ('old', 'Old', None, None), ('new', 'New', None, None)]
     seg = ''.join(f'<button data-v="{v}" aria-pressed="{str(v == "diff").lower()}"'
-                  + (f' data-date="{html.escape(at[4])}" title="{told(label, at)}"' if at else '')
-                  + f'>{label}</button>' for v, label, at in buttons)
+                  + (f' data-date="{html.escape(at[4])}"' if at else '') + (f' title="{html.escape(title)}"' if title else '')
+                  + f'>{label}</button>' for v, label, at, title in buttons)
     sides = '' if named else f'<span class="n" title="{html.escape(sides_title)}">{html.escape(sides)}</span>'
     # The filter: which changes n and p step through, and the status counts; ● new narrows it to the new ones.
     filters = [('all', 'All'), ('todo', 'To review'), ('done', words['Accepted'])]
@@ -1574,7 +1601,7 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
 <title>{html.escape(title)}</title><style>{STYLE}{"".join(getattr(m, 'STYLE', '') for m in PLUGINS)}</style></head><body class="show-diff" data-view="diff" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
 <div class="what"><b>{shown}</b>{sides}</div>
 {timeline(its, last, gone) if named else ""}<div class="files">{files}</div>
-<header>{flow(run)}<span id="views" class="seg" data-key="v" title="v cycles the views: the diff, and the old and new versions clean">{seg}</span>
+<header>{flow(run)}<span id="views" class="seg" data-key="v" title="v cycles the views: the diffs, and the old and new versions clean">{seg}</span>
 <span id="filt" class="seg step">{filt}</span><span id="newp" class="pair step"><button id="fresh" class="step" aria-pressed="false"></button>{last_picker(repo, head, its, last, gone, docs)}</span><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑<span class="lbl"> prev</span></button><button id="next" class="step" data-key="n" title="Next change (n or j)"><span class="lbl">next change </span>↓</button></span>
 <span id="pos" class="n"></span><button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button>{pub}{cmt}</header>
 <main>{page_top(run)}{"".join(sections)}</main>

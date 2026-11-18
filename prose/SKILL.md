@@ -15,10 +15,13 @@ section are one change, all its old text first, then all its new, each in one bo
 paragraphs and list items together; only a change of one-to-one rewrites keeps each old paragraph above its new one. The page
 opens with what is compared and its docs, each a link to it (with its change counts where there are
 several), and both scroll away; under them, a sticky toolbar, one row where wide: first the view switch
-(`v` cycles), then, in Diff only, the filter, ↑ prev / next change ↓ buttons and `n`/`p` (or `j`/`k`) keys,
+(`v` cycles), then, in Diff only, the filter, and in Diff and Since, ↑ prev / next change ↓ buttons and `n`/`p` (or `j`/`k`) keys,
 "N of M to review" (with the doc where there are several; cut short where narrow, whole in its tooltip),
 then the actions. The views: **Diff**, every change from base to new in one
-view, each either still **to review** or accepted (✓), and **Old** / **New**, each version clean, for
+view, each either still **to review** or accepted (✓); **Since 04041c3** (**Since review** for the working
+tree), the diff of the version last reviewed to new, where there is one between them ([Review
+rounds](#review-rounds)): what changed since, read as its own diff, `n`/`p` through all of its changes,
+no filter and no accepting there; and **Old** / **New**, each version clean, for
 rewrites too large to read inline (comparing commits, **Base** / **Head**, each with its hash, subject,
 author and date in its tooltip); switching keeps the reader at the same place in the doc. In Diff, a
 **filter** picks which changes `n`/`p` step through and the status counts: **All**, **To review** (the
@@ -33,8 +36,10 @@ short, the base revision and `--head`'s with its commit's subject, or the workin
 it otherwise); its title has both in full. Comparing commits, a timeline under it names them instead: the
 base, the version last reviewed and the head as points on a line, each with its short hash, its role and
 its date (subject and author in its tooltip), and under the line a bracket from base to head, **Diff: 12
-changes**, and one from the last reviewed to the head, **8 new** ("nothing new" where it is the head). The
-base and the head open their views, and the last reviewed the version list (`timeline()`).
+changes**, and one from the last reviewed to the head, **Since 04041c3: 14 changes** (its view's own
+count), or, where the last reviewed is the base, **8 new** ("nothing new" where it is the head). The
+base and the head open their views, the last reviewed the version list, and each bracket's words its
+diff's view (`timeline()`).
 Whitespace-only rewraps do not count as changes. Relative images are embedded. With `--head <rev>`, new
 is the files at that revision instead of the working tree (a PR, say). A changed `.html` file under an
 `index.html` that holds a `respecConfig` stands for that ReSpec spec, which shows as one doc
@@ -241,7 +246,10 @@ rewrote since, keeps its red bar. **● 6 new since 04041c3** counts the ones in
 filter's tooltip has its own: "9 to review, 6 of them new since 04041c3"): pressed, it has
 `n`/`p` step through those alone ("2 of 6 new to review"), and it stays pressed across filters (All: every
 new change). A new change's popup has **Δ since 04041c3** (`s`): a
-card under it with the blocks of last-to-now that it holds, what changed in it since you reviewed it.
+card under it with the blocks of last-to-now that it holds, what changed in it since you reviewed it. The
+**Since 04041c3** view shows all of last-to-now at once, as a diff of its own (`news()` returns it whole):
+its changes are not the Diff's (one Diff change rewritten twice is several there, a section moved before
+last is none), so its count can differ from ● new's.
 
 **When a round starts.** last moves up to seen when the head moves on, if by then every change that was
 new had been reviewed (or there was no last yet); if one was still to review, last stays, and what the next
