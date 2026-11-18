@@ -127,7 +127,7 @@ button.main:hover:not(:disabled) {
 }
 
 #views button.chosen,
-#treeButton.chosen {
+#unchangedButton.chosen {
   background: var(--chosen);
   color: var(--ink);
 }

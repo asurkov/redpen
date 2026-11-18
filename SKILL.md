@@ -57,16 +57,16 @@ What to tell the user when it matters:
 - The list nests the files in their folders, a folder holding only one folder joined with it
   (`tests/www/unit`). A folder has ✓ when nothing in it is pending and ◐ when part of it is accepted,
   and, folded, its lines added and removed. Stepping into a file opens the folders it is in.
-- **All files**, in the header and on until turned off, adds the other files, up to the top of the
-  repository (a git review's work tree; for a session, the repository its files are in, else the
-  folder they all are in), what git ignores left out. A folder holding a changed file shows
-  everything in it, its other folders folded; any other folder shows its changed files alone, ending
-  in "N more". A click on a folder's name, also within a joined row (`www` in `tests/www/unit`), or on
-  "N more" widens it to everything in it; a click on the name of a widened one narrows it again; the
-  arrow and the rest of the row fold it. The name of a folder leaving something out is dotted under,
-  its tooltip saying how much. An unchanged file is greyed and opens as it is, with nothing to accept
-  or comment on; `n` and `p` still step through the changed files. The open folders follow the disk
-  within two seconds. The browser keeps the choice.
+- The tree starts at the top of the repository (a git review's work tree; for a session, the
+  repository its files are in, else the folder they all are in). Each folder shows its changed files
+  and ends in "N more" for the rest, what git ignores left out; the name of a folder leaving something
+  out is dotted under, its tooltip saying how much. A click on a folder's name, also within a joined
+  row (`www` in `tests/www/unit`), or on "N more" widens it to everything in it, its folders folded; a
+  click on the name of a widened one narrows it again; the arrow and the rest of the row fold it.
+  **Unchanged**, in the header, starts each folder holding a changed file widened; the browser keeps
+  the choice. An unchanged file is greyed and opens as it is, with nothing to accept or comment on;
+  `n` and `p` still step through the changed files. The open folders follow the disk within two
+  seconds.
 - Files under `~/.claude` and temporary folders are listed apart, under "other".
 - The page follows the files: an edit by Claude or the user shows up within two seconds.
 

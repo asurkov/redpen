@@ -56,11 +56,12 @@ const state = {
   // changed file in them, the ones opened by hand.
   closedFolders: new Set(),
   openedFolders: new Set(),
-  // The full tree: whether the list can show the other files of the folders too; the folder it starts
-  // from, as the server said it; what the folders read hold, by their paths ({folders, files, more});
-  // and how many reads found them changed. A folder holding a changed file shows all it holds, others
-  // their changed files alone, unless widened or narrowed by hand.
-  isFullTree: false,
+  // The tree: the folder it starts from, as the server said it (none: the changed files' own folder,
+  // and nothing else of the folders); what the folders read hold, by their paths ({folders, files,
+  // more}); and how many reads found them changed. A folder shows its changed files alone, the rest
+  // behind "N more", unless widened or narrowed by hand; with the unchanged files shown, a folder
+  // holding a changed file starts widened.
+  areUnchangedShown: false,
   top: null,
   folders: new Map(),
   foldersRead: 0,
@@ -71,9 +72,8 @@ const state = {
   // When the review was last carried over to another base commit, as the server said it.
   rebase: null,
 };
-// Where the browser keeps whether the list is the full tree, for every review's page: 'no' once turned
-// off, as it is on until then.
-const keptFullTree = 'redpenFullTree';
+// Where the browser keeps whether the list shows the unchanged files, for every review's page.
+const keptUnchangedShown = 'redpenUnchangedShown';
 let diffView;
 // One request after another: a poll never reads between an action and its redraw.
 let chain = Promise.resolve();
@@ -247,10 +247,8 @@ async function refresh() {
   drawProgress();
   drawWaiting();
   state.top = listing.top;
-  byId('treeButton').hidden = !state.top;
-  if (state.isFullTree) {
-    await readFolders();
-  }
+  byId('unchangedButton').hidden = !state.top;
+  await readFolders();
   if (state.plain) {
     drawList();
     return;
@@ -325,21 +323,16 @@ function widen(path, isWide) {
   });
 }
 
-// Shows or hides the full tree, and keeps the choice.
-function turnFullTree(isOn) {
+// Shows the unchanged files of the folders holding changed ones, or leaves them behind "N more", and
+// keeps the choice.
+function showUnchanged(isOn) {
   return queued(async () => {
-    state.isFullTree = isOn;
-    byId('treeButton').classList.toggle('chosen', isOn);
+    state.areUnchangedShown = isOn;
+    byId('unchangedButton').classList.toggle('chosen', isOn);
     try {
-      localStorage.setItem(keptFullTree, isOn ? 'yes' : 'no');
+      localStorage.setItem(keptUnchangedShown, isOn ? 'yes' : '');
     } catch {
       // A browser that keeps nothing: the choice lasts until the page is loaded again.
-    }
-    if (isOn) {
-      await readFolders();
-    }
-    if (state.plain && !isOn) {
-      await show(listed()[0]?.key || null);
     }
     drawList();
   });
@@ -668,13 +661,13 @@ const drawn = { list: '', waiting: '', chosen: null };
 
 function drawList() {
   const drawing = JSON.stringify([state.view, state.key, state.plain,
-    state.isFullTree && [state.top, state.foldersRead, ...state.widenedFolders, '', ...state.narrowedFolders],
+    state.areUnchangedShown, state.top, state.foldersRead, ...state.widenedFolders, '', ...state.narrowedFolders,
     listed().map(file => [file.key, file[state.view], file.isNew, file.isGone, file.isUncarried, !file.pending, !file.accepted])]);
   if (drawing === drawn.list) {
     return;
   }
   drawn.list = drawing;
-  const isFull = Boolean(state.isFullTree && state.top);
+  const isFull = Boolean(state.top);
   // A file of the full tree with no change in the view: greyed, with its mark if the review has it.
   const plainRow = (file, depth) => {
     const made = document.createElement('button');
@@ -726,7 +719,7 @@ function drawList() {
       }
       state.closedFolders.delete(folder.path);
       state.openedFolders.add(folder.path);
-      if (state.isFullTree && !state.folders.has(folder.path)) {
+      if (canWiden && !state.folders.has(folder.path)) {
         queued(async () => {
           await readFolders([folder.path]);
           drawList();
@@ -789,9 +782,10 @@ function drawList() {
   const others = files.filter(file => file.isOther);
   const work = files.filter(file => !file.isOther);
   const list = byId('list');
-  // A folder of the full tree holding a changed file shows all it holds, unless narrowed by hand.
+  // A folder shows all it holds once widened by hand, or, with the unchanged files shown, if it holds
+  // a changed file, unless narrowed by hand.
   const holdsChanged = new Set(work.map(file => file.path.slice(0, file.path.lastIndexOf('/') + 1)));
-  const isWide = path => !state.narrowedFolders.has(path) && (state.widenedFolders.has(path) || holdsChanged.has(path));
+  const isWide = path => !state.narrowedFolders.has(path) && (state.widenedFolders.has(path) || state.areUnchangedShown && holdsChanged.has(path));
   list.replaceChildren(...rowsOf(isFull ? treeOf(work, state.top, state.folders, isWide) : treeOf(work, workRoot()), 0, isFull));
   if (!files.length) {
     list.append(span('none', views[state.view].none));
@@ -966,14 +960,13 @@ async function main() {
   diffView.openable = () => state.files.map(file => file.key);
   byId('threadsButton').addEventListener('click', () => stepThread('next'));
   byId('listButton').addEventListener('click', () => document.body.classList.toggle('listHidden'));
-  state.isFullTree = true;
   try {
-    state.isFullTree = localStorage.getItem(keptFullTree) !== 'no';
+    state.areUnchangedShown = localStorage.getItem(keptUnchangedShown) === 'yes';
   } catch {
-    // A browser that keeps nothing: the list starts as the full tree.
+    // A browser that keeps nothing: the unchanged files wait behind "N more".
   }
-  byId('treeButton').classList.toggle('chosen', state.isFullTree);
-  byId('treeButton').addEventListener('click', () => turnFullTree(!state.isFullTree));
+  byId('unchangedButton').classList.toggle('chosen', state.areUnchangedShown);
+  byId('unchangedButton').addEventListener('click', () => showUnchanged(!state.areUnchangedShown));
   sizeListBySplitter();
   for (const tab of document.querySelectorAll('#views button')) {
     tab.addEventListener('click', () => queued(async () => {
