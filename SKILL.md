@@ -54,6 +54,9 @@ What to tell the user when it matters:
   previous thread, through every file's.
 - The header says how many files are reviewed (nothing of them pending) of those the review has; in
   the list such a file has ✓, and one accepted in part ◐.
+- The list nests the files in their folders, a folder holding only one folder joined with it
+  (`tests/www/unit`). A folder has ✓ when nothing in it is pending and ◐ when part of it is accepted,
+  and, folded, its lines added and removed. Stepping into a file opens the folders it is in.
 - Files under `~/.claude` and temporary folders are listed apart, under "other".
 - The page follows the files: an edit by Claude or the user shows up within two seconds.
 

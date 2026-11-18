@@ -52,6 +52,8 @@ const state = {
   signature: null,
   isText: false,
   areOthersOpen: false,
+  // The list's folders folded by hand, by their paths with the closing slash.
+  closedFolders: new Set(),
   // When the review was last carried over to another base commit, as the server said it.
   rebase: null,
 };
@@ -90,6 +92,50 @@ function workRoot() {
 }
 
 const shortened = (file, root) => (!file.isOther && root && file.path.startsWith(root) ? file.path.slice(root.length) : file.path);
+
+// The list's order, the tree's: in each folder its folders, then its files, each by name; Claude's own
+// and temporary files after the work's.
+function treeOrder(a, b) {
+  if (a.isOther !== b.isOther) {
+    return a.isOther - b.isOther;
+  }
+  const left = a.path.split('/');
+  const right = b.path.split('/');
+  // The first place where they part, or where one of them reaches its file's name.
+  let at = 0;
+  while (left[at] === right[at] && at < left.length - 1 && at < right.length - 1) {
+    at++;
+  }
+  return (at === left.length - 1) - (at === right.length - 1) || left[at].localeCompare(right[at]);
+}
+
+// The files as a tree of their folders under root, in the files' order. A folder holding one folder
+// and no file is one row with it: "tests/www/unit".
+function treeOf(files, root) {
+  const folderAt = (path, name) => ({ path, name, folders: new Map(), files: [] });
+  const top = folderAt(root, '');
+  for (const file of files) {
+    let folder = top;
+    for (const name of file.path.slice(root.length).split('/').slice(0, -1)) {
+      if (!folder.folders.has(name)) {
+        folder.folders.set(name, folderAt(`${folder.path}${name}/`, name));
+      }
+      folder = folder.folders.get(name);
+    }
+    folder.files.push(file);
+  }
+  const joined = folder => {
+    let row = folder;
+    while (!row.files.length && row.folders.size === 1) {
+      const [only] = row.folders.values();
+      row = { ...only, name: `${row.name}/${only.name}` };
+    }
+    return { ...row, folders: [...row.folders.values()].map(joined) };
+  };
+  return { ...top, folders: [...top.folders.values()].map(joined) };
+}
+
+const filesUnder = folder => [...folder.files, ...folder.folders.flatMap(filesUnder)];
 
 // What the page takes up again after loading itself: the view, the file and the line at the top.
 const resumed = 'redpenResumed';
@@ -130,7 +176,7 @@ async function resume() {
 async function refresh() {
   const order = listed().map(file => file.key);
   const listing = await asked('/files');
-  state.files = listing.files.sort((a, b) => a.isOther - b.isOther || a.path.localeCompare(b.path));
+  state.files = listing.files.sort(treeOrder);
   state.comments = listing.comments;
   state.threads = listing.threads;
   state.isWatched = listing.isWatched;
@@ -183,6 +229,12 @@ function tellRebase(rebased) {
 async function show(key, place) {
   const file = state.files.find(candidate => candidate.key === key);
   const view = views[state.view];
+  // A file stepped to opens the folders it is in.
+  for (const folder of state.closedFolders) {
+    if (file && key !== state.key && file.path.startsWith(folder)) {
+      state.closedFolders.delete(folder);
+    }
+  }
   state.key = file ? key : null;
   state.opened = file ? await asked(`/file/${key}`) : null;
   state.signature = file?.signature;
@@ -200,7 +252,7 @@ async function show(key, place) {
   state.isText = isText;
   byId('filePath').textContent = `‎${shortened(file, root)}`;
   byId('filePath').title = file.path;
-  byId('fileCounts').replaceChildren(...counts(file));
+  byId('fileCounts').replaceChildren(...counts(file[state.view]));
   byId('fileActions').replaceChildren();
   for (const [action, label, kind] of view.fileActions) {
     button(byId('fileActions'), label, () => act(action, null), kind);
@@ -377,8 +429,7 @@ async function refreshAll() {
   }
 }
 
-function counts(file) {
-  const count = file[state.view];
+function counts(count) {
   if (!count) {
     return [];
   }
@@ -426,39 +477,65 @@ function drawList() {
     return;
   }
   drawn.list = drawing;
-  const root = workRoot();
-  const row = file => {
+  const fileRow = (file, depth) => {
     const made = document.createElement('button');
-    const path = shortened(file, root);
     made.className = `file${file.key === state.key ? ' chosen' : ''}`;
+    made.style.setProperty('--depth', depth);
     made.title = file.path;
     // ✓ with nothing of the file pending, ◐ with a part of it accepted.
     const mark = made.appendChild(span(`mark${file.pending ? '' : ' done'}`, !file.pending ? '✓' : file.accepted ? '◐' : ''));
     mark.title = !file.pending ? 'Nothing pending' : file.accepted ? 'Accepted in part' : '';
-    made.append(span('name', nameOf(path)), span('folder', `‎${path.slice(0, Math.max(path.lastIndexOf('/'), 0))}`));
+    made.append(span('name', nameOf(file.path)), span('spring', ''));
     if (file.isGone || file.isNew) {
       made.append(span('state', file.isGone ? 'gone' : 'new'));
     }
     if (file.isUncarried) {
       made.appendChild(span('state again', 'rebased')).title = 'The branch was rebased, and what was accepted in this file did not fit the new base: nothing of it is accepted now, look at it again';
     }
-    made.append(...counts(file));
+    made.append(...counts(file[state.view]));
     made.addEventListener('click', () => queued(() => show(file.key)));
     return made;
   };
+  // A folder's row folds what is in it. It says how far the files in it are, ✓ and ◐ as a file's
+  // mark, and, folded, their lines added and removed.
+  const folderRow = (folder, depth) => {
+    const fold = document.createElement('details');
+    fold.className = 'folder';
+    fold.open = !state.closedFolders.has(folder.path);
+    fold.addEventListener('toggle', () => (fold.open ? state.closedFolders.delete(folder.path) : state.closedFolders.add(folder.path)));
+    const head = fold.appendChild(document.createElement('summary'));
+    head.style.setProperty('--depth', depth);
+    head.title = folder.path;
+    const under = filesUnder(folder);
+    const isDone = under.every(file => !file.pending);
+    const isBegun = under.some(file => file.accepted || !file.pending);
+    head.append(span('name', folder.name));
+    head.appendChild(span(`mark${isDone ? ' done' : ''}`, isDone ? '✓' : isBegun ? '◐' : '')).title =
+      isDone ? 'Nothing pending in it' : isBegun ? 'Accepted in part' : '';
+    head.append(span('spring', ''));
+    const texts = under.map(file => file[state.view]).filter(count => count && !count.isBinary);
+    const total = side => texts.reduce((sum, count) => sum + count[side], 0);
+    head.append(...counts(texts.length ? { added: total('added'), removed: total('removed') } : null));
+    fold.append(...rowsOf(folder, depth + 1));
+    return fold;
+  };
+  const rowsOf = (folder, depth) => [...folder.folders.map(child => folderRow(child, depth)), ...folder.files.map(file => fileRow(file, depth))];
   const files = listed();
   const others = files.filter(file => file.isOther);
   const list = byId('list');
-  list.replaceChildren(...files.filter(file => !file.isOther).map(row));
+  list.replaceChildren(...rowsOf(treeOf(files.filter(file => !file.isOther), workRoot()), 0));
   if (!files.length) {
     list.append(span('none', views[state.view].none));
   }
   if (others.length) {
     const fold = list.appendChild(document.createElement('details'));
+    fold.className = 'others';
     fold.open = state.areOthersOpen || others.some(file => file.key === state.key);
     fold.addEventListener('toggle', () => (state.areOthersOpen = fold.open));
     fold.appendChild(document.createElement('summary')).textContent = `${others.length} other: Claude's own and temporary`;
-    fold.append(...others.map(row));
+    // Their folders from the top, as they are far from the work's.
+    const fromTop = treeOf(others, '/');
+    fold.append(...rowsOf({ ...fromTop, folders: fromTop.folders.map(folder => ({ ...folder, name: `/${folder.name}` })) }, 0));
   }
 }
 

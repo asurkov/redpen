@@ -174,49 +174,72 @@ body.listHidden #splitter {
   display: none;
 }
 
-.file {
+/* A row of the list, a file's or a folder's, set in by its depth in the tree of folders. */
+.file,
+.folder > summary {
   display: flex;
   align-items: baseline;
   gap: 6px;
   width: 100%;
-  padding: 3px 10px;
+  padding: 3px 10px 3px calc(10px + var(--depth, 0) * 12px);
   border: 0;
   border-radius: 0;
   background: none;
   text-align: left;
+  white-space: nowrap;
 }
 
 .file.chosen {
   background: var(--chosen);
 }
 
-.file .name {
-  flex: none;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.folder > summary {
+  list-style: none;
+  cursor: pointer;
 }
 
-.file .folder {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--dim);
-  font-size: 11px;
-  direction: rtl;
-  text-align: left;
+.folder > summary::-webkit-details-marker {
+  display: none;
 }
 
-/* How far the file is: nothing of it pending, or a part of it accepted. */
-.file .mark {
+.folder > summary:hover {
+  background: var(--hover);
+}
+
+/* A folder's fold, where a file has its mark. */
+.folder > summary::before {
+  content: '▸';
   flex: none;
   width: 10px;
   color: var(--dim);
   font-size: 11px;
 }
 
-.file .mark.done {
+.folder[open] > summary::before {
+  content: '▾';
+}
+
+/* Open, a folder leaves its lines to its files. */
+.folder[open] > summary :is(.plus, .minus) {
+  display: none;
+}
+
+#list .name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* How far the file is: nothing of it pending, or a part of it accepted; a folder's, its files. */
+#list .mark {
+  flex: none;
+  width: 10px;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+#list .mark.done {
   color: var(--added);
 }
 
@@ -239,20 +262,20 @@ body.listHidden #splitter {
   color: var(--removed);
 }
 
-.file .plus,
-.file .minus,
+#list .plus,
+#list .minus,
 #fileCounts {
   flex: none;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
-#list details {
+#list .others {
   margin-top: 6px;
   border-top: 1px solid var(--line);
 }
 
-#list summary {
+#list .others > summary {
   padding: 5px 10px;
   color: var(--dim);
   cursor: pointer;
