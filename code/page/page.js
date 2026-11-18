@@ -427,10 +427,8 @@ async function show(key, place) {
   const file = state.files.find(candidate => candidate.key === key);
   const view = views[state.view];
   // A file stepped to opens the folders it is in.
-  for (const folder of state.closedFolders) {
-    if (file && key !== state.key && file.path.startsWith(folder)) {
-      state.closedFolders.delete(folder);
-    }
+  if (file && key !== state.key) {
+    unfold(file.path);
   }
   state.plain = null;
   state.key = file ? key : null;
@@ -553,6 +551,7 @@ function open({ key, line }) {
     }
     state.view = diskView(file);
     drawViews();
+    unfold(file.path);
     await show(key, line || undefined);
   });
 }
@@ -579,7 +578,18 @@ async function showThread(thread) {
     drawViews();
   }
   const right = views[state.view].right;
+  // Its file comes into sight even when it is the one open, in a folder folded since.
+  unfold(file.path);
   await show(thread.key, thread.side === right ? thread.start : thread.anchorSide === right ? thread.anchor : undefined);
+}
+
+// Opens the folders the file at path is in that were folded by hand.
+function unfold(path) {
+  for (const folder of state.closedFolders) {
+    if (path.startsWith(folder)) {
+      state.closedFolders.delete(folder);
+    }
+  }
 }
 
 // Steps to the next or previous thread, through every file's, round the ends.
@@ -683,7 +693,7 @@ const drawn = { list: '', waiting: '', chosen: null };
 
 function drawList() {
   const drawing = JSON.stringify([state.view, state.key, state.plain,
-    state.areUnchangedShown, state.top, state.foldersRead, ...state.widenedFolders, '', ...state.narrowedFolders,
+    state.areUnchangedShown, state.top, state.foldersRead, ...state.widenedFolders, '', ...state.narrowedFolders, '', ...state.closedFolders,
     listed().map(file => [file.key, file[state.view], file.isNew, file.isGone, file.isUncarried, !file.pending, !file.accepted])]);
   if (drawing === drawn.list) {
     return;
