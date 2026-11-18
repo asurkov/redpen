@@ -275,7 +275,9 @@ the page reloads into the diff. So the page must be open in the built-in browser
 (ReSpec, xref and specref load online). Renders are kept in `<out>/rendered/<sources id>.html`, by the hash of the spec's directory
 on that side, so an unchanged side never renders twice. Before diffing, the frame drops the table of
 contents, the index, section numbers and permalinks, and unwraps sections, so the diff pairs headings,
-paragraphs and list items. The diff sees through an algorithm's wrapper (`div.algorithm`) the same way, so
+paragraphs and list items. The references' dates ("W3C. 22 June 2026."), which ReSpec looks up when it
+renders, are left out where the diff reads a render (`undated()`), so two renders made on different days
+do not differ there. The diff sees through an algorithm's wrapper (`div.algorithm`) the same way, so
 each step is an item of its own, and so is the text that opens it when no paragraph holds that text
 (it shows as one in Diff); notes, examples and issues stay one block each. On "not rendered: …" in the
 bar, reload the page to retry.

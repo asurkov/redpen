@@ -86,11 +86,22 @@ def htmls(repo, base, head, old, new, out):
     sides = [(s, rev, p, spec_id(repo, rev, p)) for s, rev, p in (('old', base, old), ('new', head, new)) if p]
     got = {s: out / 'rendered' / f'{i}.html' for s, _, _, i in sides}
     pending = [x for x in sides if not got[x[0]].exists()]
-    text = lambda s: got[s].read_text() if s in got and got[s].exists() else ''
+    text = lambda s: undated(got[s].read_text()) if s in got and got[s].exists() else ''
     frames = ''.join(f'<iframe class="render" sandbox="allow-scripts allow-same-origin" data-id="{i}" '
                      f'data-src="src/{docdiff.commit(repo, rev) if rev else "new"}/{html.escape(p)}?render=1"></iframe>'
                      for s, rev, p, i in pending)
     return text('old'), text('new'), ('rendering with ReSpec…', frames) if pending else None
+
+
+# A reference's date in the bibliography, " 22 June 2026.": ReSpec looks it up (specref) when it renders,
+# so two renders on different days differ there with no edit to the spec.
+LOOKED_UP_DATE = re.compile(r' \d{1,2} (?:January|February|March|April|May|June|July|August|September|October|November|December) \d{4}\.')
+
+
+def undated(page):
+    """A render with its references' dates taken out (see LOOKED_UP_DATE), as the diff and the versions a
+    review round keeps see it; the renders kept stay as ReSpec made them."""
+    return re.sub(r'<dl class="bibliography">.*?</dl>', lambda m: LOOKED_UP_DATE.sub('', m.group(0)), page, flags=re.S)
 
 
 def get(run, path, query):
