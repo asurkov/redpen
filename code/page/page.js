@@ -67,8 +67,9 @@ const state = {
   foldersRead: 0,
   widenedFolders: new Set(),
   narrowedFolders: new Set(),
-  // The unchanged file open, by its path, instead of a changed one.
+  // The unchanged file open, by its path, instead of a changed one, and the hash of its text shown.
   plain: null,
+  plainSha: null,
   // When the review was last carried over to another base commit, as the server said it.
   rebase: null,
 };
@@ -258,8 +259,7 @@ async function refresh() {
     queued(drawList);
   });
   if (state.plain) {
-    drawList();
-    return;
+    return openPlain(state.plain, 'kept');
   }
   const files = listed();
   const open = files.find(file => file.key === state.key);
@@ -349,46 +349,55 @@ function showUnchanged(isOn) {
 // Shows a file the review has no change in, as it is on disk: nothing to accept or comment on there.
 // A file of the review's with no change in the view open opens in one where it has some.
 function showPlain(path) {
-  return queued(async () => {
-    const recorded = state.files.find(file => file.path === path);
-    if (recorded) {
-      state.view = diskView(recorded);
-      drawViews();
-      return show(recorded.key);
-    }
-    let opened;
-    try {
-      opened = await asked(`/plain?path=${encodeURIComponent(path)}`);
-    } catch (error) {
-      return toast(error.message);
-    }
-    const view = views[state.view];
-    state.key = null;
-    state.opened = null;
-    state.signature = null;
-    state.plain = path;
-    state.isText = opened.text !== null;
-    drawList();
-    byId('fileBar').hidden = false;
-    byId('filePath').textContent = `‎${path.startsWith(state.top) ? path.slice(state.top.length) : path}`;
-    byId('filePath').title = path;
-    byId('fileCounts').replaceChildren(span('state', 'unchanged'));
-    byId('fileActions').replaceChildren();
-    byId('work').classList.toggle('bare', !state.isText);
-    byId('note').textContent = state.isText ? '' : 'Not a text the page can show: too large, or not UTF-8.';
-    if (state.isText) {
-      diffView.show({
-        path,
-        left: opened.text,
-        right: opened.text,
-        changeActions: [],
-        canSplice: false,
-        sides: { left: view.left, right: view.right },
-        threads: [],
-        canComment: false,
-      });
-    }
-  });
+  return queued(() => openPlain(path));
+}
+
+// Opens a file the review has no change in; with place 'kept', the one open again, at the poll, only
+// as its text changed, and the first changed file instead once it is gone.
+async function openPlain(path, place) {
+  const recorded = state.files.find(file => file.path === path);
+  if (recorded) {
+    state.view = diskView(recorded);
+    drawViews();
+    return show(recorded.key);
+  }
+  let opened;
+  try {
+    opened = await asked(`/plain?path=${encodeURIComponent(path)}`);
+  } catch (error) {
+    return place === 'kept' ? show(listed()[0]?.key || null) : toast(error.message);
+  }
+  if (place === 'kept' && opened.sha === state.plainSha) {
+    return drawList();
+  }
+  const view = views[state.view];
+  state.key = null;
+  state.opened = null;
+  state.signature = null;
+  state.plain = path;
+  state.plainSha = opened.sha;
+  state.isText = opened.text !== null;
+  drawList();
+  byId('fileBar').hidden = false;
+  byId('filePath').textContent = `‎${path.startsWith(state.top) ? path.slice(state.top.length) : path}`;
+  byId('filePath').title = path;
+  byId('fileCounts').replaceChildren(span('state', 'unchanged'));
+  byId('fileActions').replaceChildren();
+  byId('work').classList.toggle('bare', !state.isText);
+  byId('note').textContent = state.isText ? '' : 'Not a text the page can show: too large, or not UTF-8.';
+  if (state.isText) {
+    diffView.show({
+      path,
+      left: opened.text,
+      right: opened.text,
+      changeActions: [],
+      canSplice: false,
+      sides: { left: view.left, right: view.right },
+      threads: [],
+      place,
+      canComment: false,
+    });
+  }
 }
 
 // Says once that the review was carried over to another base commit, to a page open then or
