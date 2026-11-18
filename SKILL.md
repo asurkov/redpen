@@ -59,8 +59,8 @@ What to tell the user when it matters:
   and, folded, its lines added and removed. Stepping into a file opens the folders it is in.
 - The tree starts at the top of the repository (a git review's work tree; for a session, the
   repository its files are in, else the folder they all are in). Each folder shows its changed files
-  and ends in "N more" for the rest, what git ignores left out; the name of a folder leaving something
-  out is dotted under, its tooltip saying how much. A click on a folder's name, also within a joined
+  and ends in "N more" for the rest, what git ignores left out; a folder name's tooltip says how much
+  it leaves out. A click on a folder's name, also within a joined
   row (`www` in `tests/www/unit`), or on "N more" widens it to everything in it, its folders folded; a
   click on the name of a widened one narrows it again; the arrow and the rest of the row fold it.
   **Unchanged**, in the header, starts each folder holding a changed file widened; the browser keeps

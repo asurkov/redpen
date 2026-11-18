@@ -732,10 +732,10 @@ function drawList() {
     const name = head.appendChild(span('name', canWiden && isChanged ? '' : folder.name));
     if (canWiden && isChanged) {
       // In the full tree each folder of the row widens or narrows on a click, the fold the rest of it.
-      // A narrow one leaving something out is dotted under.
+      // Its tooltip says how much a narrow one leaves out.
       folder.segments.forEach(({ name: segment, path, hidden }, at) => {
         const isWide = at === folder.segments.length - 1 && folder.isWide;
-        const made = name.appendChild(span(`segment${isWide ? ' wide' : hidden ? ' hiding' : ''}`, segment));
+        const made = name.appendChild(span(`segment${isWide ? ' wide' : ''}`, segment));
         made.title = isWide ? `Show only the changed files of ${segment}` : `Show every file of ${segment}${hidden ? ` (${hidden} more)` : ''}`;
         made.addEventListener('click', event => {
           event.preventDefault();

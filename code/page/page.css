@@ -311,12 +311,6 @@ body.listHidden #splitter {
   cursor: pointer;
 }
 
-/* A narrow folder leaving files or folders out. */
-.folder > summary .segment.hiding {
-  text-decoration: underline dotted var(--dim);
-  text-underline-offset: 3px;
-}
-
 .folder > summary .segment:hover,
 #list button.more:hover {
   text-decoration: underline;
