@@ -78,6 +78,8 @@ let diffView;
 // One request after another: a poll never reads between an action and its redraw.
 let chain = Promise.resolve();
 const queued = work => (chain = chain.then(work, work));
+// The poll's reading of the folders while it runs.
+let folderReading = null;
 
 async function asked(path, body) {
   const response = await fetch(api + path, body && {
@@ -248,7 +250,13 @@ async function refresh() {
   drawWaiting();
   state.top = listing.top;
   byId('unchangedButton').hidden = !state.top;
-  await readFolders();
+  // What the folders hold is read beside the list's drawing and the actions, one read at a time, as
+  // it takes a while in a large repository: the list shows the changed files at once, "N more" once
+  // read.
+  folderReading ||= readFolders().finally(() => {
+    folderReading = null;
+    queued(drawList);
+  });
   if (state.plain) {
     drawList();
     return;
@@ -786,7 +794,8 @@ function drawList() {
   // a changed file, unless narrowed by hand.
   const holdsChanged = new Set(work.map(file => file.path.slice(0, file.path.lastIndexOf('/') + 1)));
   const isWide = path => !state.narrowedFolders.has(path) && (state.widenedFolders.has(path) || state.areUnchangedShown && holdsChanged.has(path));
-  list.replaceChildren(...rowsOf(isFull ? treeOf(work, state.top, state.folders, isWide) : treeOf(work, workRoot()), 0, isFull));
+  // With no changed file in the view, the list says so alone, not the rest of the repository.
+  list.replaceChildren(...!work.length ? [] : rowsOf(isFull ? treeOf(work, state.top, state.folders, isWide) : treeOf(work, workRoot()), 0, isFull));
   if (!files.length) {
     list.append(span('none', views[state.view].none));
   }
