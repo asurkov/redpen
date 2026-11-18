@@ -14,15 +14,17 @@ past that; a lightly edited one is word-diffed inline; consecutive added and rem
 section are one change, all its old text first, then all its new, each in one box with one bar,
 paragraphs and list items together; only a change of one-to-one rewrites keeps each old paragraph above its new one. The page
 opens with what is compared and its docs, each a link to it (with its change counts where there are
-several), and both scroll away; under them, a sticky toolbar, one row where wide: the filter, ↑ prev / next
-change ↓ buttons and `n`/`p` (or `j`/`k`) keys, "N of M to review" (with the doc where there are several),
-the actions, and a view switch (`v` cycles): **Diff**, every change from base to new in one
+several), and both scroll away; under them, a sticky toolbar, one row where wide: first the view switch
+(`v` cycles), then, in Diff only, the filter, ↑ prev / next change ↓ buttons and `n`/`p` (or `j`/`k`) keys,
+"N of M to review" (with the doc where there are several; cut short where narrow, whole in its tooltip),
+then the actions. The views: **Diff**, every change from base to new in one
 view, each either still **to review** or accepted (✓), and **Old** / **New**, each version clean, for
 rewrites too large to read inline; switching keeps the reader at the same place in the doc. In Diff, a
 **filter** picks which changes `n`/`p` step through and the status counts: **All**, **To review** (the
 default: the changes not accepted yet) or **Accepted** (what the user has signed off); beside it, **● N new
 since <rev>** ([Review rounds](#review-rounds)), pressed, narrows the filter to its changes new since the
-last review. It hides nothing, and a reload keeps both. `n`/`p` step from the
+last review (each filter's tooltip says how many of its own are new), and where the diff spans several
+commits, **since <rev> ▾** picks that version. It hides nothing, and a reload keeps both. `n`/`p` step from the
 current change; with none, from where the reader last clicked
 or selected, while that is on screen, and otherwise from the top of the screen. The page's first line says what is compared
 (Uncommitted edits, Commits, GitHub PR or Google Docs vs Markdown, with the repo) and names both sides in
@@ -87,7 +89,7 @@ has a dotted amber underline (the comment's quote, or the change's text when the
 change) and its 💬 beside it; a removed block, or a rewritten one's old text, with something open said on it
 keeps its stub ("removed: …", "was: …"), where the mark is. Clicking a settled change, the bar beside its
 block or the tick shows the diff again, with its green ✓ (a double click selects a word, as anywhere, and
-leaves the diff as it was); **± diffs** beside the view switch, remembered per
+leaves the diff as it was); **± diffs** at the toolbar's end, in Diff only, remembered per
 viewer, shows them all. Changes to review always show their diffs. Each doc's line at the top counts the accepted changes that
 carry comments or open questions ("· 3 with comments · 1 open question"), each count stepping through
 them.
@@ -230,8 +232,8 @@ inline change) while it is to review. Reviewed again, it settles as any other ch
 so blue always means new and still to review; it stays new in the counts and for ● new, and its blue edge is
 back while ● new is pressed or its diff shows. A change in several boxes (removed blocks, then the added ones) gets
 it only on the boxes the update shares text with: a TODO removed before last, next to steps the author
-rewrote since, keeps its red bar. Each filter's count has its new ones beside it in blue ("To review
-9 ●6", "Reviewed 45 ●3"), and **● 6 new since 04041c3** counts the ones in the filter on: pressed, it has
+rewrote since, keeps its red bar. **● 6 new since 04041c3** counts the ones in the filter on (each
+filter's tooltip has its own: "9 to review, 6 of them new since 04041c3"): pressed, it has
 `n`/`p` step through those alone ("2 of 6 new to review"), and it stays pressed across filters (All: every
 new change). A new change's popup has **Δ since 04041c3** (`s`): a
 card under it with the blocks of last-to-now that it holds, what changed in it since you reviewed it.
@@ -248,6 +250,13 @@ the version each changed file was last reviewed at, for a review from before rou
 what changed since rev is new, and what is reviewed stays as it is; a round there was goes to
 `<out>/backup` first. A spec's rev renders in the page first ("rendering 04041c3, last reviewed, with
 ReSpec…"), and so does any version a round names that is not rendered yet.
+
+**Picking it on the page.** Where the diff spans two commits or more on top of the base (a PR pushed to
+again), ● new is split: **● 6 new** | **since 04041c3 ▾**, a menu of the base ("all of it is new"), each
+commit, first parents only, as GitHub lists a PR's, and the head ("nothing is new"), with a last reviewed
+that is none of them (a head from before a force push) first. A pick does what `--reviewed-at` does
+(`POST /reviewed-at`, `last_picker()`), and the page reloads into the rebuild; with nothing new since the
+pick, ● new reads **0 new**, and with no last reviewed yet, the menu alone reads **new since… ▾**.
 
 ## ReSpec specs
 

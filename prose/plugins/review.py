@@ -108,7 +108,7 @@ STYLE = '''
 .rv-settled .rvtick:not(.rvshow,.cur):hover>.was{display:block;position:absolute;left:14px;top:-12px;z-index:2;pointer-events:none;max-width:min(640px,80vw);padding:1px 8px;background:var(--bg);border:1px solid var(--line);border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.12)}
 .rv-settled .rvtick:not(.rvshow,.cur):hover>.was>summary{list-style:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .rv-settled .rvtick:not(.rvshow,.cur):hover>.was>summary::-webkit-details-marker{display:none}
 ::highlight(rvcm){text-decoration:underline dotted;text-decoration-color:var(--rw);text-decoration-thickness:2px;text-underline-offset:3px}
-body:not(.show-diff) #rvsd{visibility:hidden}
+body:not(.show-diff) #rvsd{display:none}
 #rvsd[aria-pressed=true]:not(:disabled){background:color-mix(in srgb,var(--fg) 10%,var(--bg));border-color:color-mix(in srgb,var(--fg) 45%,var(--bg));box-shadow:inset 0 1px 2px rgba(0,0,0,.12)}
 #rvsum{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0 6px;font-size:13px;color:var(--muted)} #rvsum button:hover{text-decoration:underline} #rvsum .rvarmed{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px}
 .files .rvn button,.files .rvn button:hover,#rvsum button,#rvsum button:hover{border:0;background:none;padding:0;height:auto;line-height:inherit;font:inherit;color:var(--link);cursor:pointer}
@@ -431,7 +431,7 @@ function settle(){body.classList.toggle('rv-settled',!diffs);sd.setAttribute('ar
 sd.title=sd.disabled?'No '+W.accepted+' changes yet: their diffs show here once there are':
 diffs?'Showing the diffs of '+W.accepted+' changes: click to show them settled':'Show the diffs of '+W.accepted+' changes';}
 sd.onclick=()=>{diffs=!diffs;try{localStorage.setItem(sk('docdiff-diffs'),diffs?'1':'');}catch(e){}settle();};
-$('views').before(sd);for(const g of groups)if(g.done)for(const el of g.els){if(!el.classList.contains('blk'))el.closest(blocks)?.classList.add('rvbar');else if(el.dataset.kind==='del')el.classList.add('rvtick');}
+document.querySelector('header').append(sd);for(const g of groups)if(g.done)for(const el of g.els){if(!el.classList.contains('blk'))el.closest(blocks)?.classList.add('rvbar');else if(el.dataset.kind==='del')el.classList.add('rvtick');}
 // The word at a point of the page selected, as a double click there selects it; nothing where no word is.
 function wordAt(x,y){const p=document.caretPositionFromPoint?.(x,y),r=!p&&document.caretRangeFromPoint?.(x,y),n=p?p.offsetNode:r&&r.startContainer,s=getSelection();
 let i=p?p.offset:r?r.startOffset:0,j=i;const w=/[\\p{L}\\p{N}_]/u;s.removeAllRanges();if(n?.nodeType!==3||n.parentElement.closest('.rvb,.rvok'))return;

@@ -16,7 +16,7 @@ the server started if it is not running, and "URL: ..." printed. The server stor
 sends in the review's dir: accepted/<file>.html, the file as accepted so far, which tells which changes
 are still to review; revisit requests in revisit.jsonl. When the head or the base moves, the accepted copy is carried
 over by where its changes are, and what changed since the last review is new, with a blue edge (see
-accepted_html(), next_round()); --reviewed-at REV makes REV the version last reviewed. The server runs
+accepted_html(), next_round()); --reviewed-at REV, or the header's picker, makes REV the version last reviewed. The server runs
 docdiff's code as it is on disk at each request; restarting it, stopping it and the LaunchAgent that keeps
 it running are ../base/server.py's.
 
@@ -705,9 +705,11 @@ del{background:var(--del);color:var(--delb);text-decoration:line-through}
 .blk[data-kind=add]{border-color:var(--insb)} .blk[data-kind=del]{border-color:var(--delb)} .blk[data-kind=rw]{border-color:var(--rw)}
 .blk[data-kind=del] .was .old{border-left:0;padding-left:0}
 .blk.fresh{border-left-color:var(--new)} .fresh-b{box-shadow:-10px 0 0 var(--bg),-13px 0 0 var(--new)} li.fresh-b,td.fresh-b,th.fresh-b{box-shadow:inset 3px 0 var(--new);padding-left:9px}
-#fresh::before,.nw::before{content:'';display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;background:var(--new)}
-.nw{margin-left:7px;font-size:12px;font-weight:400;opacity:.8} .nw::before{width:6px;height:6px;margin-right:3px;vertical-align:1px}
-.seg button[aria-pressed=true] .nw::before{background:color-mix(in srgb,var(--new) 60%,var(--bg))}
+#fresh::before{content:'';display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;background:var(--new)}
+.pick{position:relative;display:inline-flex} .pick button::after{content:'▾';margin-left:5px;color:var(--muted)}
+.pick select{position:absolute;inset:0;width:100%;opacity:0;cursor:pointer;font:inherit} .pick:has(select:hover:not(:disabled)) button{background:var(--btnh)}
+.pick:has(select:focus-visible) button{outline:2px solid var(--link);outline-offset:-2px}
+#newp .pick button{margin-left:-1px;border-radius:0 6px 6px 0} #newp .pick:first-child button{margin-left:0;border-radius:6px}
 #fresh[aria-pressed=true]{background:color-mix(in srgb,var(--new) 14%,var(--bg));border-color:var(--new);color:var(--new)}
 #since{position:absolute;z-index:3;overflow:auto;overscroll-behavior:contain;box-sizing:border-box;background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--new);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12);font-size:15px}
 #since[hidden]{display:none} #since .sch{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--bg);border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
@@ -721,11 +723,11 @@ table{border-collapse:collapse;display:block;overflow-x:auto;font-size:14px} td,
 a{color:var(--link)} .cur{outline:2px solid #bf8700;outline-offset:2px}
 .ddhit{outline:2px solid var(--link);outline-offset:3px;border-radius:2px} #ddback{position:fixed;left:16px;bottom:16px;z-index:3;box-shadow:0 1px 4px rgba(0,0,0,.15)} #ddback[hidden]{display:none}
 body:not(.show-diff) .v-diff,body:not(.show-old) .v-old,body:not(.show-new) .v-new{display:none}
-.show-old .step,.show-new .step{visibility:hidden} body:not(.show-diff) .accf{display:none}
+.show-old .step,.show-new .step{display:none} body:not(.show-diff) .accf{display:none}
 .seg,.pair{display:inline-flex;max-width:100%} .seg button,.pair button{border-radius:0;margin-left:-1px;white-space:nowrap}
 .seg button:first-child,.pair button:first-child{border-radius:6px 0 0 6px;margin-left:0} .seg button:last-child,.pair button:last-child{border-radius:0 6px 6px 0}
 .seg button[aria-pressed=true]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
-#pos{flex:1 1 8em;min-width:0;margin:0 6px;font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#pos{flex:1 1 0;min-width:0;margin:0 6px;font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 header button,.panel button{height:28px;padding:0 12px;line-height:26px;font-size:13px;font-weight:500}
 .primary{background:var(--ins);color:var(--insb);border-color:color-mix(in srgb,var(--insb) 40%,transparent)} .primary:not(:disabled):hover{background:color-mix(in srgb,var(--ins),var(--insb) 14%)}
 header .step:disabled{opacity:1;color:color-mix(in srgb,var(--muted) 60%,var(--bg));background:var(--bg);border-color:var(--line)}
@@ -768,19 +770,25 @@ for(const x of groups){const r=rounds.get(x.sec),on=r?.boxes?.[x.k];x.since=r?.f
 if(x.since)x.els.forEach((e,i)=>{if(on&&!on.includes(i))return;e.classList.add('fresh');if(!e.classList.contains('blk'))e.closest(blocks)?.classList.add('fresh-b');});}
 // The filter: which changes n and p step through and the status counts, all of them, the ones to review or
 // the reviewed ones; ● new (onlyNew), pressed, narrows it to the ones in it new since the last review. It
-// hides nothing (the body's class only-new says it is pressed, for styles). Each filter's count has its new
-// ones beside it, and ● new counts the ones in the filter on.
-const fb=$('fresh'),fresh=groups.some(x=>x.since),lasts=[...new Set([...rounds.values()].map(r=>r.last))],since=lasts.length===1?lasts[0]:'last review';
+// hides nothing (the body's class only-new says it is pressed, for styles). ● new counts the ones in the
+// filter on; each filter's title says how many of its own are new. Beside it, the picker of the version last
+// reviewed (see last_picker()): a pick posts it, and the page reloads into the rebuild.
+const fb=$('fresh'),pk=$('lastp'),fresh=groups.some(x=>x.since),lasts=[...new Set([...rounds.values()].map(r=>r.last))],
+since=pk?.dataset.last||(lasts.length===1?lasts[0]:'last review');
 const fbs=[...document.querySelectorAll('#filt button')],inF={all:x=>true,todo:x=>!x.done,done:x=>x.done},
 named={all:'changes',todo:'to review',done:W.accepted},count=(f,n)=>groups.filter(x=>inF[f](x)&&(!n||x.since)).length;
-if(fresh)fb.onclick=()=>filter(filt,!onlyNew);else fb.remove();
+if(fresh)fb.onclick=()=>filter(filt,!onlyNew);
+else if(pk?.dataset.last)Object.assign(fb,{textContent:'0 new',disabled:true,title:'Nothing changed since '+since});else fb.remove();
+if(pk){const s=pk.querySelector('select'),b=pk.querySelector('button');
+s.onchange=async()=>{b.textContent='since '+s.selectedOptions[0].dataset.short+'…';s.disabled=true;
+try{await post('reviewed-at',{rev:s.value});location.reload();}catch(e){s.disabled=false;pos.textContent='not saved: '+e.message;}};}
 for(const b of fbs){const f=b.dataset.f,n=count(f),m=fresh&&count(f,true);b.append(' '+n);
-if(m){b.append(Object.assign(document.createElement('span'),{className:'nw',textContent:m}));b.title=n+' '+named[f]+', '+m+' of them new since '+since;}
+if(m)b.title=n+' '+named[f]+', '+m+' of them new since '+since;
 b.onclick=()=>filter(f);}
 let cur=body.dataset.view,c=null,anchor=null,mark=null,req=null,filt='todo',onlyNew=false;
 const gi=x=>groups.indexOf(x),L=()=>groups.filter(x=>x.view===cur&&inF[filt](x)&&(!onlyNew||x.since)),said=()=>(onlyNew?'new ':'')+named[filt];
 function filter(f,o=onlyNew){filt=f;onlyNew=fresh&&o;body.classList.toggle('only-new',onlyNew);fbs.forEach(b=>b.setAttribute('aria-pressed',b.dataset.f===f));
-if(fresh){const n=count(f),m=count(f,true);fb.textContent=m+' new since '+since;fb.setAttribute('aria-pressed',onlyNew);fb.disabled=!m&&!onlyNew;
+if(fresh){const n=count(f),m=count(f,true);fb.textContent=m+' new'+(pk?'':' since '+since);fb.setAttribute('aria-pressed',onlyNew);fb.disabled=!m&&!onlyNew;
 fb.title=onlyNew?'Stepping through the '+m+' of the '+n+' '+named[f]+' that are new since '+since+'; click for all '+n:'Step through only the '+m+' of the '+n+' '+named[f]+' that are new since '+since;}
 status();}
 // A change's removed (-) or added (+) text: an inline <del>/<ins>, or a whole block's old/new part.
@@ -801,7 +809,7 @@ function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabl
 const w=wordsOf(c),un=!!c?.done;acc.disabled=!c||cur!=='diff';acc.textContent=un?w.unaccept:w.accept;acc.classList.toggle('primary',!un);
 acc.title=un?w.unaccept_title:w.accept_title;
 pos.textContent=cur!=='diff'?W.select:i>=0?(i+1)+' of '+l.length+' '+said()+where(c):
-c?'change '+(gi(c)+1)+' of '+groups.length+' · '+(c.done?W.accepted:'to review')+(c.since?' · new':'')+where(c):'';}
+c?'change '+(gi(c)+1)+' of '+groups.length+' · '+(c.done?W.accepted:'to review')+(c.since?' · new':'')+where(c):'';pos.title=pos.textContent;}
 function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;if(x){anchor=x;mark=null;}
 if(c){c.els.forEach(e=>e.classList.add('cur'));if(scroll)c.els.find(e=>e.offsetParent)?.scrollIntoView({block:'center',behavior:'smooth'});}status();}
 function go(d){const x=step(d);if(x)focus(x);}
@@ -876,7 +884,7 @@ try{const r=await fetch('commit',{method:'POST',headers:{'Content-Type':'applica
 catch(e){t='✗ '+e.message;}cx.textContent=t;cs.textContent='Done';cs.disabled=false;cs.dataset.done=1;cc.hidden=true;cs.focus();};
 cm.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();cs.click();}if(e.key==='Escape')cc.click();});}
 function hidePop(){pop.hidden=true;popX=null;}
-fb.title='Changed since your last review, at '+lasts.join(', ')+': n and p step through these alone. '+
+if(fresh)fb.title='Changed since your last review, at '+lasts.join(', ')+': n and p step through these alone. '+
 'Once every new change is reviewed, the next update counts from the version you have now.';
 // A new change's diff since its last review: the blocks of last review to now that it holds, in a card under it.
 const sc=$('since'),psn=$('psn');
@@ -1401,6 +1409,8 @@ def copied_text(run, name, rich):
 
 def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=None, publish=False, actors=()):
     sections, nav, words, pubs, commits, waiting, counts, per = [], [], WORDS[bool(head)], [], [], [], [0, 0], {}
+    # The version each doc was last reviewed at, for the header's picker of it.
+    lasts = set()
     # Plugins' memo of what the docs' bars copy, for this build.
     memo = {}
     waiting_for = lambda k, name, wait: (f'<section id="f{k}" data-file="{html.escape(name)}"><div class="file">{html.escape(name)}'
@@ -1417,6 +1427,7 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
             continue
         copy, wait = accepted_html(repo, base, head, out, old, new, old_html, new_html)
         rnd = round_of(out, name)
+        lasts.add(rnd.get('last', {}).get('id'))
         last, wait = version(repo, head, out, name, old, new, rnd['last'], 'last') if 'last' in rnd and not wait else (None, wait)
         if wait:
             sections.append(waiting_for(k, name, wait))
@@ -1497,9 +1508,9 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
 <title>{html.escape(title)}</title><style>{STYLE}{"".join(getattr(m, 'STYLE', '') for m in PLUGINS)}</style></head><body class="show-diff" data-view="diff" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
 <div class="what"><b>{shown}</b><span class="n" title="{html.escape(sides_title)}">{html.escape(sides)}</span></div>
 <div class="files">{files}</div>
-<header>{flow(run)}<span id="filt" class="seg step">{filt}</span><button id="fresh" class="step" aria-pressed="false"></button><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑<span class="lbl"> prev</span></button><button id="next" class="step" data-key="n" title="Next change (n or j)"><span class="lbl">next change </span>↓</button></span>
-<span id="pos" class="n"></span><button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button>{pub}{cmt}
-<span id="views" class="seg" data-key="v" title="v cycles the views: the diff, and the old and new versions clean">{seg}</span></header>
+<header>{flow(run)}<span id="views" class="seg" data-key="v" title="v cycles the views: the diff, and the old and new versions clean">{seg}</span>
+<span id="filt" class="seg step">{filt}</span><span id="newp" class="pair step"><button id="fresh" class="step" aria-pressed="false"></button>{last_picker(repo, base, head, lasts)}</span><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑<span class="lbl"> prev</span></button><button id="next" class="step" data-key="n" title="Next change (n or j)"><span class="lbl">next change </span>↓</button></span>
+<span id="pos" class="n"></span><button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button>{pub}{cmt}</header>
 <main>{page_top(run)}{"".join(sections)}</main>
 <div id="rp" class="panel" hidden><div id="rx" class="n" hidden></div><blockquote id="rq"></blockquote><textarea id="rt" placeholder="{words['question']}"></textarea>
 <span class="hint n">⇧↵ adds a line</span><button id="rc" data-key="esc">Cancel</button><button id="rs" class="primary" data-key="↵">Send</button></div>
@@ -1763,6 +1774,42 @@ def reviewed_at(repo, base, head, out, paths, rev):
         save_round(out, name, rnd)
 
 
+def iterations(repo, base, head):
+    """The versions of base..head to count what is new from, oldest first, each (commit, short, subject):
+    the base, then the commits on top of it, first parents only, as GitHub lists a PR's. None for the
+    working tree."""
+    if not head:
+        return []
+    return commits_of(repo, '-1', base) + commits_of(repo, '--first-parent', '--reverse', f'{base}..{head}')
+
+
+def commits_of(repo, *args):
+    return [l.split('\0') for l in git(repo, 'log', '--format=%H%x00%h%x00%s', *args, check=False).stdout.decode().splitlines()]
+
+
+def last_picker(repo, base, head, lasts):
+    """The header's picker of the version last reviewed (see reviewed_at()): the button shows it, and a
+    select laid over it lists iterations() and, first, the one the docs' rounds name where it is not one of
+    them (a head from before a force push). Only where there is a choice: two commits on top of the base at
+    least, or such a last reviewed. lasts holds each doc's last reviewed, None for a doc with none."""
+    its, last = iterations(repo, base, head), next(iter(lasts)) if len(lasts) == 1 else None
+    gone = (commits_of(repo, '-1', last) or [[last, last[:7], '']]) if (
+        its and last and not last.startswith('tree:') and last not in {c for c, _, _ in its}) else []
+    if not gone and len(its) < 3:
+        return ''
+    e, cut = html.escape, lambda s: s if len(s) <= 60 else s[:59] + '…'
+    words = lambda i, s: ('base, so all of it is new' if i == 0 else
+                          f'{cut(s)} (head, so nothing is new)' if i == len(its) - 1 else cut(s))
+    option = lambda c, h, said: f'<option value="{c}" data-short="{h}"{" selected" if c == last else ""}>{e(h)} · {e(said)}</option>'
+    options = ''.join([*(option(c, h, f'{cut(s)} (no longer in this diff)') for c, h, s in gone),
+                       *(option(c, h, words(i, s)) for i, (c, h, s) in enumerate(its))])
+    picked = next((h for c, h, _ in gone + its if c == last), None)
+    return (f'<span id="lastp" class="pick"{f" data-last={picked}" if picked else ""}>'
+            f'<button type="button" tabindex="-1" aria-hidden="true">{f"since {picked}" if picked else "new since…"}</button>'
+            f'<select title="The version you last reviewed: what changed since then shows as new" aria-label="New since">'
+            f'{"" if picked else "<option selected disabled hidden>new since…</option>"}{options}</select></span>')
+
+
 def publish(out, name):
     """Runs the --publish command on the file's accepted copy, written as Markdown, and returns what it
     printed; once it succeeds, the accepted copy and its round start over from the base, which the command
@@ -1938,7 +1985,8 @@ def review_get(h, out, lock):
 
 def review_post(h, out, lock):
     """The page's POSTs in a review: /accept and /unaccept move a change into or out of the accepted copy
-    and rebuild the page; /revisit appends to revisit.jsonl; /commit and /publish commit or publish the
+    and rebuild the page; /reviewed-at makes a version the one last reviewed (see last_picker()) and rebuilds
+    it; /revisit appends to revisit.jsonl; /commit and /publish commit or publish the
     accepted changes (see commit_accepted(), publish()); /open opens a link. Plugins add routes of their
     own (see load_plugins)."""
     req = json.loads(h.rfile.read(int(h.headers['Content-Length'])))
@@ -1955,6 +2003,15 @@ def review_post(h, out, lock):
                 move(out, req, h.path == '/accept')
             except LookupError as e:
                 return h.send_error(409, str(e))
+            reply = {}
+        elif h.path == '/reviewed-at':
+            # The header's picker of the version last reviewed (see last_picker()).
+            run = json.loads((out / '.run.json').read_text())
+            repo, rev = pathlib.Path(run['repo']), str(req.get('rev', ''))
+            if not re.fullmatch(r'[0-9a-f]{40}', rev) or git(repo, 'cat-file', '-e', f'{rev}^{{commit}}', check=False).returncode:
+                return h.send_error(409, 'unknown revision')
+            reviewed_at(repo, run['base'], run.get('head'), out, run['paths'], rev)
+            rebuild(out)
             reply = {}
         elif h.path == '/revisit':
             # Through redpen's channel (../base/channel.py), which knows who hands it to Claude.
