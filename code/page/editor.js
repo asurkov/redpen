@@ -125,13 +125,15 @@ export class DiffView {
   // Shows the two texts of the file at path. changeActions: [action, label, key] for each change's
   // bar, the key where a key carries the action out on the current change; sides: the names of the
   // two texts, {left, right}; place: 'kept' to stay where the view is, 'last' for the last change, a
-  // line's number for that line, else the first change comes into view.
-  show({ path, left, right, changeActions, canSplice, sides, threads, place }) {
+  // line's number for that line, else the first change comes into view; canComment: false for a text
+  // nothing can be said on.
+  show({ path, left, right, changeActions, canSplice, sides, threads, place, canComment = true }) {
     const was = { top: this.viewTop(), position: this.shown.getPosition(), hadCurrent: this.current >= 0 };
     const language = languageOf(path);
     const old = this.editor.getModel();
     this.dropWidget('offer');
     this.dropWidget('box');
+    this.canComment = canComment;
     this.changeActions = canSplice ? changeActions : [];
     this.sides = sides;
     // No change is current until the editor has compared the two texts.
@@ -576,7 +578,7 @@ export class DiffView {
   }
 
   offerComment() {
-    const target = this.widgets?.box ? null : this.selectionTarget();
+    const target = this.widgets?.box || !this.canComment ? null : this.selectionTarget();
     if (!target) {
       return;
     }

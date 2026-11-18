@@ -126,7 +126,8 @@ button.main:hover:not(:disabled) {
   color: var(--dim);
 }
 
-#views button.chosen {
+#views button.chosen,
+#treeButton.chosen {
   background: var(--chosen);
   color: var(--ink);
 }
@@ -284,6 +285,18 @@ body.listHidden #splitter {
 #list .none {
   padding: 8px 10px;
   color: var(--dim);
+}
+
+/* The full tree's files and folders with no change, and a folder's files past what it lists. */
+.file.plain .name,
+.folder.plain > summary .name {
+  color: var(--dim);
+}
+
+#list .more {
+  display: block;
+  padding: 3px 10px 3px calc(26px + var(--depth, 0) * 12px);
+  font-size: 11px;
 }
 
 #work {

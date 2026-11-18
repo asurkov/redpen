@@ -52,11 +52,25 @@ const state = {
   signature: null,
   isText: false,
   areOthersOpen: false,
-  // The list's folders folded by hand, by their paths with the closing slash.
+  // The list's folders folded by hand, by their paths with the closing slash; and of those with no
+  // changed file in them, the ones opened by hand.
   closedFolders: new Set(),
+  openedFolders: new Set(),
+  // The full tree: whether the list shows every file of the folders, not only the changed ones; the
+  // folder it starts from, as the server said it; what the folders read hold, by their paths
+  // ({folders, files, more}); the changed files they were last read for; and how many reads there were.
+  isFullTree: false,
+  top: null,
+  folders: new Map(),
+  foldersReadFor: null,
+  foldersRead: 0,
+  // The unchanged file open, by its path, instead of a changed one.
+  plain: null,
   // When the review was last carried over to another base commit, as the server said it.
   rebase: null,
 };
+// Where the browser keeps whether the list is the full tree, for every review's page.
+const keptFullTree = 'redpenFullTree';
 let diffView;
 // One request after another: a poll never reads between an action and its redraw.
 let chain = Promise.resolve();
@@ -109,30 +123,52 @@ function treeOrder(a, b) {
   return (at === left.length - 1) - (at === right.length - 1) || left[at].localeCompare(right[at]);
 }
 
-// The files as a tree of their folders under root, in the files' order. A folder holding one folder
-// and no file is one row with it: "tests/www/unit".
-function treeOf(files, root) {
-  const folderAt = (path, name) => ({ path, name, folders: new Map(), files: [] });
+// The files as a tree of their folders under root, in the tree's order. A folder holding one folder
+// and no file is one row with it: "tests/www/unit". With what folders were read to hold (the full
+// tree), their other files and folders too, those files as {path, isPlain}; there a folder is joined
+// with the one it holds only once it was read, as else what it holds is not known.
+function treeOf(files, root, listings) {
+  const folderAt = (path, name) => ({ path, name, folders: new Map(), files: [], more: 0 });
   const top = folderAt(root, '');
-  for (const file of files) {
+  // The folder holding a path under root, made with those it is in where there are none yet.
+  const folderOf = path => {
     let folder = top;
-    for (const name of file.path.slice(root.length).split('/').slice(0, -1)) {
+    for (const name of path.slice(root.length).split('/').slice(0, -1)) {
       if (!folder.folders.has(name)) {
         folder.folders.set(name, folderAt(`${folder.path}${name}/`, name));
       }
       folder = folder.folders.get(name);
     }
-    folder.files.push(file);
+    return folder;
+  };
+  for (const file of files) {
+    folderOf(file.path).files.push(file);
   }
+  const changed = new Set(files.map(file => file.path));
+  for (const [path, listing] of listings || []) {
+    if (path.startsWith(root)) {
+      const folder = folderOf(path);
+      listing.folders.forEach(name => folderOf(`${path}${name}/`));
+      folder.files.push(...listing.files.filter(name => !changed.has(path + name)).map(name => ({ path: path + name, isPlain: true })));
+      folder.more = listing.more;
+    }
+  }
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  // A folder with what it holds in order, its folders joined with those they hold alone.
+  const ordered = folder => ({
+    ...folder,
+    files: folder.files.map(file => ({ file, name: nameOf(file.path) })).sort(byName).map(({ file }) => file),
+    folders: [...folder.folders.values()].sort(byName).map(joined),
+  });
   const joined = folder => {
     let row = folder;
-    while (!row.files.length && row.folders.size === 1) {
+    while (!row.files.length && row.folders.size === 1 && (!listings || listings.has(row.path))) {
       const [only] = row.folders.values();
       row = { ...only, name: `${row.name}/${only.name}` };
     }
-    return { ...row, folders: [...row.folders.values()].map(joined) };
+    return ordered(row);
   };
-  return { ...top, folders: [...top.folders.values()].map(joined) };
+  return ordered(top);
 }
 
 const filesUnder = folder => [...folder.files, ...folder.folders.flatMap(filesUnder)];
@@ -192,6 +228,15 @@ async function refresh() {
   drawViews();
   drawProgress();
   drawWaiting();
+  state.top = listing.top;
+  byId('treeButton').hidden = !state.top;
+  if (state.isFullTree) {
+    await readFolders();
+  }
+  if (state.plain) {
+    drawList();
+    return;
+  }
   const files = listed();
   const open = files.find(file => file.key === state.key);
   if (open) {
@@ -206,6 +251,105 @@ async function refresh() {
   const index = order.indexOf(state.key);
   const next = order.slice(index + 1).concat(order.slice(0, Math.max(index, 0))).find(key => files.some(file => file.key === key));
   await show(next || files[0]?.key || null);
+}
+
+// Reads what the full tree's folders hold. With none named, those on the way from the top to each
+// changed file and those read before, whenever the changed files are others than at the last read.
+async function readFolders(named) {
+  const top = state.top;
+  let folders = named;
+  if (!top) {
+    return;
+  }
+  if (!folders) {
+    const paths = state.files.filter(file => !file.isOther && file.path.startsWith(top)).map(file => file.path);
+    const readFor = `${top}\n${paths.join('\n')}`;
+    if (readFor === state.foldersReadFor) {
+      return;
+    }
+    state.foldersReadFor = readFor;
+    folders = new Set([top, ...[...state.folders.keys()].filter(path => path.startsWith(top))]);
+    for (const path of paths) {
+      for (let at = path.indexOf('/', top.length); at >= 0; at = path.indexOf('/', at + 1)) {
+        folders.add(path.slice(0, at + 1));
+      }
+    }
+  }
+  try {
+    const read = await asked('/folders', { folders: [...folders] });
+    for (const [path, listing] of Object.entries(read)) {
+      state.folders.set(path, listing);
+    }
+    state.foldersRead++;
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+// Shows or hides the full tree, and keeps the choice.
+function turnFullTree(isOn) {
+  return queued(async () => {
+    state.isFullTree = isOn;
+    byId('treeButton').classList.toggle('chosen', isOn);
+    try {
+      localStorage.setItem(keptFullTree, isOn ? 'yes' : '');
+    } catch {
+      // A browser that keeps nothing: the choice lasts until the page is loaded again.
+    }
+    state.foldersReadFor = null;
+    if (isOn) {
+      await readFolders();
+    }
+    if (state.plain && !isOn) {
+      await show(listed()[0]?.key || null);
+    }
+    drawList();
+  });
+}
+
+// Shows a file the review has no change in, as it is on disk: nothing to accept or comment on there.
+// A file of the review's with no change in the view open opens in one where it has some.
+function showPlain(path) {
+  return queued(async () => {
+    const recorded = state.files.find(file => file.path === path);
+    if (recorded) {
+      state.view = diskView(recorded);
+      drawViews();
+      return show(recorded.key);
+    }
+    let opened;
+    try {
+      opened = await asked(`/plain?path=${encodeURIComponent(path)}`);
+    } catch (error) {
+      return toast(error.message);
+    }
+    const view = views[state.view];
+    state.key = null;
+    state.opened = null;
+    state.signature = null;
+    state.plain = path;
+    state.isText = opened.text !== null;
+    drawList();
+    byId('fileBar').hidden = false;
+    byId('filePath').textContent = `‎${path.startsWith(state.top) ? path.slice(state.top.length) : path}`;
+    byId('filePath').title = path;
+    byId('fileCounts').replaceChildren(span('state', 'unchanged'));
+    byId('fileActions').replaceChildren();
+    byId('work').classList.toggle('bare', !state.isText);
+    byId('note').textContent = state.isText ? '' : 'Not a text the page can show: too large, or not UTF-8.';
+    if (state.isText) {
+      diffView.show({
+        path,
+        left: opened.text,
+        right: opened.text,
+        changeActions: [],
+        canSplice: false,
+        sides: { left: view.left, right: view.right },
+        threads: [],
+        canComment: false,
+      });
+    }
+  });
 }
 
 // Says once that the review was carried over to another base commit, to a page open then or
@@ -235,6 +379,7 @@ async function show(key, place) {
       state.closedFolders.delete(folder);
     }
   }
+  state.plain = null;
   state.key = file ? key : null;
   state.opened = file ? await asked(`/file/${key}`) : null;
   state.signature = file?.signature;
@@ -323,6 +468,14 @@ function flip(id) {
 function step(direction) {
   return queued(async () => {
     const files = listed();
+    if (state.plain && files.length) {
+      // From an unchanged file, to the changed one after or before it in the tree.
+      const here = { path: state.plain, isOther: false };
+      const next = direction === 'next'
+        ? files.find(file => treeOrder(file, here) > 0) || files[0]
+        : files.findLast(file => treeOrder(file, here) < 0) || files.at(-1);
+      return show(next.key, direction === 'next' ? undefined : 'last');
+    }
     if (!state.key || !files.length || (state.isText && diffView.go(direction))) {
       return;
     }
@@ -396,12 +549,13 @@ function takeKey(event) {
   const key = (event.altKey ? 'Alt+' : '') + event.key;
   // A letter typed into a field is the field's; the editor's own text is no such field.
   const isTyped = !event.altKey && event.target.closest?.('input, textarea') && !diffView.hasTextFocus();
-  if (event.metaKey || event.ctrlKey || event.isComposing || isTyped || (!state.key && !state.threads.length)) {
+  const isOpen = state.key || state.plain;
+  if (event.metaKey || event.ctrlKey || event.isComposing || isTyped || (!isOpen && !state.threads.length)) {
     return;
   }
   if (key === 't' || key === 'T') {
     stepThread(key === 't' ? 'next' : 'previous');
-  } else if (!state.key) {
+  } else if (!isOpen) {
     return;
   } else if (steps[key]) {
     step(steps[key]);
@@ -411,7 +565,9 @@ function takeKey(event) {
       diffView.actByKey(key);
     }
   } else if (key === 'r') {
-    if (!state.isText || !diffView.startComment()) {
+    if (state.plain) {
+      toast('Comments go on the changed files.');
+    } else if (!state.isText || !diffView.startComment()) {
       toast('Select text, or step to a change, then press r.');
     }
   } else {
@@ -473,12 +629,28 @@ function drawProgress() {
 const drawn = { list: '', waiting: '', chosen: null };
 
 function drawList() {
-  const drawing = JSON.stringify([state.view, state.key, listed().map(file => [file.key, file[state.view], file.isNew, file.isGone, file.isUncarried, !file.pending, !file.accepted])]);
+  const drawing = JSON.stringify([state.view, state.key, state.plain, state.isFullTree && [state.top, state.foldersRead],
+    listed().map(file => [file.key, file[state.view], file.isNew, file.isGone, file.isUncarried, !file.pending, !file.accepted])]);
   if (drawing === drawn.list) {
     return;
   }
   drawn.list = drawing;
+  // A file of the full tree with no change in the view: greyed, with its mark if the review has it.
+  const plainRow = (file, depth) => {
+    const made = document.createElement('button');
+    const recorded = state.files.find(candidate => candidate.path === file.path);
+    made.className = `file plain${file.path === state.plain ? ' chosen' : ''}`;
+    made.style.setProperty('--depth', depth);
+    made.title = file.path;
+    made.append(span(`mark${recorded && !recorded.pending ? ' done' : ''}`, !recorded ? '' : !recorded.pending ? '✓' : recorded.accepted ? '◐' : ''));
+    made.append(span('name', nameOf(file.path)));
+    made.addEventListener('click', () => showPlain(file.path));
+    return made;
+  };
   const fileRow = (file, depth) => {
+    if (file.isPlain) {
+      return plainRow(file, depth);
+    }
     const made = document.createElement('button');
     made.className = `file${file.key === state.key ? ' chosen' : ''}`;
     made.style.setProperty('--depth', depth);
@@ -497,34 +669,62 @@ function drawList() {
     made.addEventListener('click', () => queued(() => show(file.key)));
     return made;
   };
-  // A folder's row folds what is in it. It says how far the files in it are, ✓ and ◐ as a file's
-  // mark, and, folded, their lines added and removed.
+  // A folder's row folds what is in it. It says how far the changed files in it are, ✓ and ◐ as a
+  // file's mark, and, folded, their lines added and removed. A folder of the full tree with none is
+  // greyed and folded until opened, and read as it is.
   const folderRow = (folder, depth) => {
+    const under = filesUnder(folder).filter(file => !file.isPlain);
+    const isChanged = under.length > 0;
     const fold = document.createElement('details');
-    fold.className = 'folder';
-    fold.open = !state.closedFolders.has(folder.path);
-    fold.addEventListener('toggle', () => (fold.open ? state.closedFolders.delete(folder.path) : state.closedFolders.add(folder.path)));
+    fold.className = `folder${isChanged ? '' : ' plain'}`;
+    fold.open = isChanged ? !state.closedFolders.has(folder.path) : state.openedFolders.has(folder.path);
+    fold.addEventListener('toggle', () => {
+      if (!fold.open) {
+        state.closedFolders.add(folder.path);
+        state.openedFolders.delete(folder.path);
+        return;
+      }
+      state.closedFolders.delete(folder.path);
+      state.openedFolders.add(folder.path);
+      if (state.isFullTree && !state.folders.has(folder.path)) {
+        queued(async () => {
+          await readFolders([folder.path]);
+          drawList();
+        });
+      }
+    });
     const head = fold.appendChild(document.createElement('summary'));
     head.style.setProperty('--depth', depth);
     head.title = folder.path;
-    const under = filesUnder(folder);
-    const isDone = under.every(file => !file.pending);
-    const isBegun = under.some(file => file.accepted || !file.pending);
     head.append(span('name', folder.name));
-    head.appendChild(span(`mark${isDone ? ' done' : ''}`, isDone ? '✓' : isBegun ? '◐' : '')).title =
-      isDone ? 'Nothing pending in it' : isBegun ? 'Accepted in part' : '';
-    head.append(span('spring', ''));
-    const texts = under.map(file => file[state.view]).filter(count => count && !count.isBinary);
-    const total = side => texts.reduce((sum, count) => sum + count[side], 0);
-    head.append(...counts(texts.length ? { added: total('added'), removed: total('removed') } : null));
+    if (isChanged) {
+      const isDone = under.every(file => !file.pending);
+      const isBegun = under.some(file => file.accepted || !file.pending);
+      head.appendChild(span(`mark${isDone ? ' done' : ''}`, isDone ? '✓' : isBegun ? '◐' : '')).title =
+        isDone ? 'Nothing pending in it' : isBegun ? 'Accepted in part' : '';
+      head.append(span('spring', ''));
+      const texts = under.map(file => file[state.view]).filter(count => count && !count.isBinary);
+      const total = side => texts.reduce((sum, count) => sum + count[side], 0);
+      head.append(...counts(texts.length ? { added: total('added'), removed: total('removed') } : null));
+    }
     fold.append(...rowsOf(folder, depth + 1));
     return fold;
   };
-  const rowsOf = (folder, depth) => [...folder.folders.map(child => folderRow(child, depth)), ...folder.files.map(file => fileRow(file, depth))];
+  const rowsOf = (folder, depth) => {
+    const rows = [...folder.folders.map(child => folderRow(child, depth)), ...folder.files.map(file => fileRow(file, depth))];
+    if (folder.more) {
+      const more = span('none more', `${folder.more} more file${folder.more === 1 ? '' : 's'} not listed`);
+      more.style.setProperty('--depth', depth);
+      rows.push(more);
+    }
+    return rows;
+  };
   const files = listed();
   const others = files.filter(file => file.isOther);
+  const work = files.filter(file => !file.isOther);
   const list = byId('list');
-  list.replaceChildren(...rowsOf(treeOf(files.filter(file => !file.isOther), workRoot()), 0));
+  const isFull = state.isFullTree && state.top;
+  list.replaceChildren(...rowsOf(isFull ? treeOf(work, state.top, state.folders) : treeOf(work, workRoot()), 0));
   if (!files.length) {
     list.append(span('none', views[state.view].none));
   }
@@ -539,8 +739,8 @@ function drawList() {
     fold.append(...rowsOf({ ...fromTop, folders: fromTop.folders.map(folder => ({ ...folder, name: `/${folder.name}` })) }, 0));
   }
   // A file stepped to comes into sight; a redraw for anything else leaves the list where it was scrolled.
-  if (state.key !== drawn.chosen) {
-    drawn.chosen = state.key;
+  if ((state.key || state.plain) !== drawn.chosen) {
+    drawn.chosen = state.key || state.plain;
     list.querySelector('.file.chosen')?.scrollIntoView({ block: 'nearest' });
   }
 }
@@ -698,6 +898,13 @@ async function main() {
   diffView.openable = () => state.files.map(file => file.key);
   byId('threadsButton').addEventListener('click', () => stepThread('next'));
   byId('listButton').addEventListener('click', () => document.body.classList.toggle('listHidden'));
+  try {
+    state.isFullTree = localStorage.getItem(keptFullTree) === 'yes';
+  } catch {
+    // A browser that keeps nothing: the list starts with the changed files alone.
+  }
+  byId('treeButton').classList.toggle('chosen', state.isFullTree);
+  byId('treeButton').addEventListener('click', () => turnFullTree(!state.isFullTree));
   sizeListBySplitter();
   for (const tab of document.querySelectorAll('#views button')) {
     tab.addEventListener('click', () => queued(async () => {
