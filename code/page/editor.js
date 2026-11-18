@@ -108,6 +108,9 @@ export class DiffView {
     this.changes = [];
     // The current change, the one the keys act on: its place in changes, -1 with none.
     this.current = -1;
+    // The texts shown before, let go once the editor has compared those shown now: it may still be
+    // comparing them, and fails ("no diff result available") on texts let go meanwhile.
+    this.retired = [];
     this.editor.onDidUpdateDiff(() => this.drawBars());
     // The change the cursor is put into becomes the current one.
     this.shown.onDidChangeCursorPosition(() => {
@@ -143,8 +146,9 @@ export class DiffView {
       original: monaco.editor.createModel(left, language),
       modified: monaco.editor.createModel(right, language),
     });
-    old?.original.dispose();
-    old?.modified.dispose();
+    if (old) {
+      this.retired.push(old);
+    }
     if (place === 'kept') {
       this.scrollTo(was.top);
     }
@@ -517,6 +521,10 @@ export class DiffView {
     if (!changes) {
       // The editor has not compared the texts yet: it says so again once it has.
       return;
+    }
+    for (const { original, modified } of this.retired.splice(0)) {
+      original.dispose();
+      modified.dispose();
     }
     if (this.afterDiff) {
       this.afterDiff();
