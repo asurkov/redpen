@@ -24,7 +24,7 @@ rewrites too large to read inline; switching keeps the reader at the same place 
 default: the changes not accepted yet) or **Accepted** (what the user has signed off); beside it, **● N new
 since <rev>** ([Review rounds](#review-rounds)), pressed, narrows the filter to its changes new since the
 last review (each filter's tooltip says how many of its own are new), and where the diff spans several
-commits, **since <rev> ▾** picks that version. It hides nothing, and a reload keeps both. `n`/`p` step from the
+commits, **since <rev> ▾** picks that version from a list with each one's date and lines changed since. It hides nothing, and a reload keeps both. `n`/`p` step from the
 current change; with none, from where the reader last clicked
 or selected, while that is on screen, and otherwise from the top of the screen. The page's first line says what is compared
 (Uncommitted edits, Commits, GitHub PR or Google Docs vs Markdown, with the repo) and names both sides in
@@ -252,11 +252,15 @@ what changed since rev is new, and what is reviewed stays as it is; a round ther
 ReSpec…"), and so does any version a round names that is not rendered yet.
 
 **Picking it on the page.** Where the diff spans two commits or more on top of the base (a PR pushed to
-again), ● new is split: **● 6 new** | **since 04041c3 ▾**, a menu of the base ("all of it is new"), each
-commit, first parents only, as GitHub lists a PR's, and the head ("nothing is new"), with a last reviewed
-that is none of them (a head from before a force push) first. A pick does what `--reviewed-at` does
-(`POST /reviewed-at`, `last_picker()`), and the page reloads into the rebuild; with nothing new since the
-pick, ● new reads **0 new**, and with no last reviewed yet, the menu alone reads **new since… ▾**.
+again), ● new is split: **● 6 new** | **since 04041c3 ▾**, which opens a list of the versions: the base
+("base · all new"), each commit, first parents only, as GitHub lists a PR's, and the head ("head ·
+nothing new"), with a last reviewed that is none of them (a head from before a force push) first. Each
+row has its short hash and subject, its author and date, and on the right the lines the docs change from
+it to the head (+55 −91; none where the clone lacks a side, which it does not fetch for this); the last
+reviewed has ✓. `↓` on the button opens it; ↑ ↓, Home and End move, ↵ picks, esc or a click elsewhere
+closes, and the page's keys wait meanwhile. A pick does what `--reviewed-at` does (`POST /reviewed-at`,
+`last_picker()`), and the page reloads into the rebuild; with nothing new since the pick, ● new reads
+**0 new**, and with no last reviewed yet, the button alone reads **new since… ▾**.
 
 ## ReSpec specs
 
