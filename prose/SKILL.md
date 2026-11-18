@@ -19,7 +19,8 @@ several), and both scroll away; under them, a sticky toolbar, one row where wide
 "N of M to review" (with the doc where there are several; cut short where narrow, whole in its tooltip),
 then the actions. The views: **Diff**, every change from base to new in one
 view, each either still **to review** or accepted (✓), and **Old** / **New**, each version clean, for
-rewrites too large to read inline; switching keeps the reader at the same place in the doc. In Diff, a
+rewrites too large to read inline (comparing commits, **Base** / **Head**, each with its hash, subject,
+author and date in its tooltip); switching keeps the reader at the same place in the doc. In Diff, a
 **filter** picks which changes `n`/`p` step through and the status counts: **All**, **To review** (the
 default: the changes not accepted yet) or **Accepted** (what the user has signed off); beside it, **● N new
 since <rev>** ([Review rounds](#review-rounds)), pressed, narrows the filter to its changes new since the
@@ -29,7 +30,11 @@ current change; with none, from where the reader last clicked
 or selected, while that is on screen, and otherwise from the top of the screen. The page's first line says what is compared
 (Uncommitted edits, Commits, GitHub PR or Google Docs vs Markdown, with the repo) and names both sides in
 short, the base revision and `--head`'s with its commit's subject, or the working tree (`--new-label` names
-it otherwise); its title has both in full.
+it otherwise); its title has both in full. Comparing commits, a timeline under it names them instead: the
+base, the version last reviewed and the head as points on a line, each with its short hash, its role and
+its date (subject and author in its tooltip), and under the line a bracket from base to head, **Diff: 12
+changes**, and one from the last reviewed to the head, **8 new** ("nothing new" where it is the head). The
+base and the head open their views, and the last reviewed the version list (`timeline()`).
 Whitespace-only rewraps do not count as changes. Relative images are embedded. With `--head <rev>`, new
 is the files at that revision instead of the working tree (a PR, say). A changed `.html` file under an
 `index.html` that holds a `respecConfig` stands for that ReSpec spec, which shows as one doc

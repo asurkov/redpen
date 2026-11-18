@@ -685,6 +685,14 @@ header{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--
 .flow .ln.on{background:var(--fg);border-color:var(--fg);color:var(--bg)} .flow .ln.on b{color:var(--bg)}
 .what{display:flex;align-items:baseline;gap:10px;padding:10px 16px 0;font-size:13px;white-space:nowrap} .what b{flex:none;font-size:15px}
 .what .n{min-width:0;overflow:hidden;text-overflow:ellipsis} .files{padding:2px 16px 8px;font-size:14px} .files:empty{display:none}
+.tl{position:relative;height:86px;margin:10px 16px 0;font-size:12px;line-height:16px} .tll{position:absolute;left:6px;right:6px;top:5px;height:2px;background:var(--line)}
+.tlp{position:absolute;top:0;display:flex;flex-direction:column;align-items:flex-start;height:auto;padding:0;border:0;background:none;color:var(--fg);font:inherit;white-space:nowrap;cursor:default}
+.tlp:not(:disabled):hover{background:none} .tlp[data-go]{cursor:pointer} .tlp[data-go]:hover b{text-decoration:underline}
+.tlp i{width:12px;height:12px;margin-bottom:3px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 3px var(--bg)} .tlp b{font:600 12px ui-monospace,Menlo,monospace}
+.tl-base{left:0} .tl-head{right:0;align-items:flex-end} .tl-head i{background:var(--fg)} .tl-last{left:50%;transform:translateX(-50%);align-items:center} .tl-last i{background:var(--new)}
+.tlb{position:absolute;left:6px;right:6px;height:7px;border:1.5px solid var(--line);border-top:0;border-radius:0 0 4px 4px}
+.tlb span{position:absolute;left:50%;top:0;transform:translateX(-50%);padding:0 6px;background:var(--bg);color:var(--muted);white-space:nowrap}
+.tl-all{top:50px} .tl:has(.tl-mid) .tl-all span{left:25%} .tl-new{top:68px;border-color:color-mix(in srgb,var(--new) 55%,var(--bg))} .tl-new span{color:var(--new)} .tl-mid{left:50%}
 button:disabled{opacity:.4;cursor:default}
 button{font:inherit;padding:4px 10px;border:1px solid var(--line);background:var(--btn);color:var(--fg);border-radius:6px;cursor:pointer;transition:background-color .1s;-webkit-user-select:none;user-select:none}
 button:not(:disabled):hover{background:var(--btnh)} button:focus-visible{outline:2px solid var(--link);outline-offset:-2px}
@@ -821,6 +829,17 @@ const b=pk.getBoundingClientRect();menu.style.left=Math.max(8,Math.min(b.left,in
 tb.onclick=()=>menu?close():openMenu();
 tb.addEventListener('keydown',e=>{if(e.key==='ArrowDown'&&!menu){e.preventDefault();e.stopPropagation();openMenu();}});
 document.addEventListener('mousedown',e=>{if(menu&&!pk.contains(e.target))close();},true);}
+// The versions compared (see timeline()): the views' and the points' dates, the page's counts under the
+// line, and each point a way in: the base and the head open their views, the last reviewed the picker.
+{const day=d=>{const t=new Date(d);return isNaN(t)?'':t.toLocaleDateString(undefined,{month:'short',day:'numeric',
+...(t.getFullYear()===new Date().getFullYear()?{}:{year:'numeric'})});},tl=document.querySelector('.tl'),
+view=v=>()=>document.querySelector('#views button[data-v='+v+']').click();
+for(const b of document.querySelectorAll('#views button[data-date]'))b.title+=', '+day(b.dataset.date);
+if(tl){const n=groups.length,m=groups.filter(x=>x.since).length,go=(cls,f,said)=>{const p=tl.querySelector(cls);if(!p)return;
+p.querySelector('.tlw').textContent=p.dataset.date?' · '+day(p.dataset.date):'';if(f){p.dataset.go='';p.onclick=f;p.title+=' · '+said;}};
+go('.tl-base',view('old'),'click to see it clean');go('.tl-head',view('new'),'click to see it clean');
+go('.tl-last',pk&&(()=>pk.querySelector('button').click()),'click to pick another version');
+$('tl-all').textContent='Diff: '+n+' change'+(n===1?'':'s');if($('tl-new'))$('tl-new').textContent=m?m+' new':'nothing new';}}
 for(const b of fbs){const f=b.dataset.f,n=count(f),m=fresh&&count(f,true);b.append(' '+n);
 if(m)b.title=n+' '+named[f]+', '+m+' of them new since '+since;
 b.onclick=()=>filter(f);}
@@ -1538,17 +1557,25 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
            f'data-waiting="{html.escape(json.dumps(waiting, ensure_ascii=False))}" '
            f'title="Commit the {len(commits)} file(s) whose changes are all accepted, as they read on disk">⇪ commit accepted ({len(commits)})</button>'
            if commits else '')
-    buttons = [('diff', 'Diff'), ('old', 'Old'), ('new', 'New')]
-    seg = ''.join(f'<button data-v="{v}" aria-pressed="{str(v == "diff").lower()}">{label}</button>' for v, label in buttons)
+    # Comparing commits, the views are named by the versions they show: the base and the head.
+    its, last, gone = versions_compared(repo, base, head, lasts)
+    named = its and not new_label
+    buttons = [('diff', 'Diff', None), ('old', 'Base', its and its[0]), ('new', 'Head', its and its[-1])] if named else [
+        ('diff', 'Diff', None), ('old', 'Old', None), ('new', 'New', None)]
+    told = lambda label, at: html.escape(f'{label}, {at[1]}: {at[2]}' + (' — ' + at[3] if at[3] else ''))
+    seg = ''.join(f'<button data-v="{v}" aria-pressed="{str(v == "diff").lower()}"'
+                  + (f' data-date="{html.escape(at[4])}" title="{told(label, at)}"' if at else '')
+                  + f'>{label}</button>' for v, label, at in buttons)
+    sides = '' if named else f'<span class="n" title="{html.escape(sides_title)}">{html.escape(sides)}</span>'
     # The filter: which changes n and p step through, and the status counts; ● new narrows it to the new ones.
     filters = [('all', 'All'), ('todo', 'To review'), ('done', words['Accepted'])]
     filt = ''.join(f'<button data-f="{f}" aria-pressed="false">{label}</button>' for f, label in filters)
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(title)}</title><style>{STYLE}{"".join(getattr(m, 'STYLE', '') for m in PLUGINS)}</style></head><body class="show-diff" data-view="diff" data-repo="{html.escape(str(repo))}" data-build="{build_id}">
-<div class="what"><b>{shown}</b><span class="n" title="{html.escape(sides_title)}">{html.escape(sides)}</span></div>
-<div class="files">{files}</div>
+<div class="what"><b>{shown}</b>{sides}</div>
+{timeline(its, last, gone) if named else ""}<div class="files">{files}</div>
 <header>{flow(run)}<span id="views" class="seg" data-key="v" title="v cycles the views: the diff, and the old and new versions clean">{seg}</span>
-<span id="filt" class="seg step">{filt}</span><span id="newp" class="pair step"><button id="fresh" class="step" aria-pressed="false"></button>{last_picker(repo, base, head, lasts, docs)}</span><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑<span class="lbl"> prev</span></button><button id="next" class="step" data-key="n" title="Next change (n or j)"><span class="lbl">next change </span>↓</button></span>
+<span id="filt" class="seg step">{filt}</span><span id="newp" class="pair step"><button id="fresh" class="step" aria-pressed="false"></button>{last_picker(repo, head, its, last, gone, docs)}</span><span class="pair step"><button id="prev" class="step" data-key="p" title="Previous change (p or k)">↑<span class="lbl"> prev</span></button><button id="next" class="step" data-key="n" title="Next change (n or j)"><span class="lbl">next change </span>↓</button></span>
 <span id="pos" class="n"></span><button id="acc" class="step primary" data-key="a">{words['accept']}</button><button id="rev" data-key="r" title="{words['revisit_title']}">{words['revisit']}</button>{pub}{cmt}</header>
 <main>{page_top(run)}{"".join(sections)}</main>
 <div id="rp" class="panel" hidden><div id="rx" class="n" hidden></div><blockquote id="rq"></blockquote><textarea id="rt" placeholder="{words['question']}"></textarea>
@@ -1836,25 +1863,51 @@ def lines_to(repo, rev, head, paths):
     return [int(m.group(1)) if (m := re.search(rf'(\d+) {w}', said)) else 0 for w in ('insertion', 'deletion')]
 
 
-def last_picker(repo, base, head, lasts, paths):
-    """The header's picker of the version last reviewed (see reviewed_at()): a button that shows it and
-    opens a list of iterations() and, first, the one the docs' rounds name where it is not one of them (a
-    head from before a force push), each with its subject, author, date and the lines the docs (paths)
-    change from it to the head (the page's script draws the list). Only where there is a choice: two commits
-    on top of the base at least, or such a last reviewed. lasts holds each doc's last reviewed, None for a
-    doc with none."""
+def versions_compared(repo, base, head, lasts):
+    """The versions a review of commits compares: iterations(), and the version last reviewed, one of them
+    or, where the docs' rounds name another (a head from before a force push), that one, gone. ([], None,
+    False) for the working tree. lasts holds each doc's last reviewed, None for a doc with none."""
     its, last = iterations(repo, base, head), next(iter(lasts)) if len(lasts) == 1 else None
-    gone = (commits_of(repo, '-1', last) or [[last, last[:7], '', '', '']]) if (
-        its and last and not last.startswith('tree:') and last not in {c[0] for c in its}) else []
+    if not its or not last or last.startswith('tree:'):
+        return its, None, False
+    found = next((v for v in its if v[0] == last), None)
+    return its, found or (commits_of(repo, '-1', last) or [[last, last[:7], '', '', '']])[0], not found
+
+
+def last_picker(repo, head, its, last, gone, paths):
+    """The header's picker of the version last reviewed (see reviewed_at(), versions_compared()): a button
+    that shows it and opens a list of its and, first, last where it is gone, each with its subject, author,
+    date and the lines the docs (paths) change from it to the head (the page's script draws the list). Only
+    where there is a choice: two commits on top of the base at least, or a last reviewed that is gone."""
     if not gone and len(its) < 3:
         return ''
     kind = lambda i: 'base' if i == 0 else 'head' if i == len(its) - 1 else ''
     versions = [{'id': c, 'short': h, 'subject': s, 'author': a, 'date': d, 'tag': k, 'lines': lines_to(repo, c, head, paths)}
-                for (c, h, s, a, d), k in [*((g, 'gone') for g in gone), *((v, kind(i)) for i, v in enumerate(its))]]
-    picked = next((v['short'] for v in versions if v['id'] == last), None)
-    data = html.escape(json.dumps({'versions': versions, 'last': last if picked else None, 'head': its[-1][1]}, ensure_ascii=False))
+                for (c, h, s, a, d), k in [*([(last, 'gone')] if gone else []), *((v, kind(i)) for i, v in enumerate(its))]]
+    picked = last and last[1]
+    data = html.escape(json.dumps({'versions': versions, 'last': last and last[0], 'head': its[-1][1]}, ensure_ascii=False))
     return (f'<span id="lastp" class="pick"{f" data-last={picked}" if picked else ""} data-versions="{data}">'
             f'<button type="button" aria-haspopup="listbox" aria-expanded="false">{f"since {picked}" if picked else "new since…"}</button></span>')
+
+
+def timeline(its, last, gone):
+    """The versions a review of commits compares, on a line above the toolbar: the base and the head, with
+    the page's diff between them under it, and the version last reviewed, with what is new since it under
+    it (see versions_compared()). The page's script adds the dates and the counts, and makes each point a
+    way in: the base and the head open their views, the last reviewed the picker."""
+    if not its:
+        return ''
+    e, (b, h), lr = html.escape, (its[0], its[-1]), ' · last reviewed'
+    point = lambda v, role, cls: (f'<button type="button" class="tlp {cls}" data-date="{e(v[4])}" title="{e(v[2] + (" — " + v[3] if v[3] else ""))}">'
+                                  f'<i></i><b>{e(v[1])}</b><span class="n">{e(role)}<span class="tlw"></span></span></button>')
+    middle = last and last[0] not in (b[0], h[0])
+    return ('<div class="tl ui"><div class="tll"></div>'
+            + point(b, 'base' + (lr if last and last[0] == b[0] else ''), 'tl-base')
+            + (point(last, 'last reviewed' + (', gone' if gone else ''), 'tl-last') if middle else '')
+            + point(h, 'head' + (lr if last and last[0] == h[0] else ''), 'tl-head')
+            + '<div class="tlb tl-all"><span id="tl-all"></span></div>'
+            + (f'<div class="tlb tl-new{" tl-mid" if middle else ""}"><span id="tl-new"></span></div>' if last and last[0] != h[0] else '')
+            + '</div>')
 
 
 def publish(out, name):
