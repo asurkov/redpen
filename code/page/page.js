@@ -58,11 +58,10 @@ const state = {
   openedFolders: new Set(),
   // The full tree: whether the list shows every file of the folders, not only the changed ones; the
   // folder it starts from, as the server said it; what the folders read hold, by their paths
-  // ({folders, files, more}); the changed files they were last read for; and how many reads there were.
+  // ({folders, files, more}); and how many reads found them changed.
   isFullTree: false,
   top: null,
   folders: new Map(),
-  foldersReadFor: null,
   foldersRead: 0,
   // The unchanged file open, by its path, instead of a changed one.
   plain: null,
@@ -253,8 +252,9 @@ async function refresh() {
   await show(next || files[0]?.key || null);
 }
 
-// Reads what the full tree's folders hold. With none named, those on the way from the top to each
-// changed file and those read before, whenever the changed files are others than at the last read.
+// Reads what the full tree's folders hold, at each poll those the list shows open: the top, those on
+// the way from it to each changed file down to one folded by hand, and those opened by hand. Or,
+// named, just those, and says when they cannot be read.
 async function readFolders(named) {
   const top = state.top;
   let folders = named;
@@ -262,27 +262,30 @@ async function readFolders(named) {
     return;
   }
   if (!folders) {
-    const paths = state.files.filter(file => !file.isOther && file.path.startsWith(top)).map(file => file.path);
-    const readFor = `${top}\n${paths.join('\n')}`;
-    if (readFor === state.foldersReadFor) {
-      return;
-    }
-    state.foldersReadFor = readFor;
-    folders = new Set([top, ...[...state.folders.keys()].filter(path => path.startsWith(top))]);
-    for (const path of paths) {
-      for (let at = path.indexOf('/', top.length); at >= 0; at = path.indexOf('/', at + 1)) {
-        folders.add(path.slice(0, at + 1));
+    folders = new Set([top, ...[...state.openedFolders].filter(path => path.startsWith(top))]);
+    for (const file of state.files.filter(file => !file.isOther && file.path.startsWith(top))) {
+      for (let at = file.path.indexOf('/', top.length); at >= 0; at = file.path.indexOf('/', at + 1)) {
+        const folder = file.path.slice(0, at + 1);
+        if (state.closedFolders.has(folder)) {
+          break;
+        }
+        folders.add(folder);
       }
     }
   }
   try {
     const read = await asked('/folders', { folders: [...folders] });
+    let isChanged = false;
     for (const [path, listing] of Object.entries(read)) {
+      isChanged ||= JSON.stringify(listing) !== JSON.stringify(state.folders.get(path));
       state.folders.set(path, listing);
     }
-    state.foldersRead++;
+    // The list is drawn again only for what changed: a poll leaves the pointer's place alone.
+    state.foldersRead += isChanged ? 1 : 0;
   } catch (error) {
-    toast(error.message);
+    if (named) {
+      toast(error.message);
+    }
   }
 }
 
@@ -296,7 +299,6 @@ function turnFullTree(isOn) {
     } catch {
       // A browser that keeps nothing: the choice lasts until the page is loaded again.
     }
-    state.foldersReadFor = null;
     if (isOn) {
       await readFolders();
     }

@@ -63,6 +63,10 @@ shown_bytes = 16 << 20
 scanned_files = 5000
 # The most files of one folder the page's full tree lists.
 listed_files = 2000
+# Whether git ignores a path, by repository: {path: (whether, when git said it)}; said again after
+# this many seconds, so an edited .gitignore shows.
+ignore_verdicts = {}
+ignore_seconds = 60
 # A git review nothing was done in for this many seconds is not one the model is told to wait on.
 active_seconds = 12 * 3600
 # The git reviews whose files are being found now, and the lock that set is read and written under.
@@ -765,19 +769,25 @@ def repository_top(folder):
 
 
 def ignored(repository, paths):
-    """Which of the paths, each in the repository, git ignores; all of them when git cannot say."""
-    if not paths:
-        return set()
-    try:
-        ran = subprocess.run(['git', '-C', repository, 'check-ignore', '-z', '--stdin'],
-                             input=b'\0'.join(os.fsencode(path) for path in paths), capture_output=True,
-                             env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
-    except OSError:
-        return set(paths)
-    # 1: none of them is ignored.
-    if ran.returncode not in (0, 1):
-        return set(paths)
-    return {os.fsdecode(path) for path in ran.stdout.split(b'\0') if path}
+    """Which of the paths, each in the repository, git ignores; all of them when git cannot say. git
+    reads the whole index to say it, so what it said holds for ignore_seconds."""
+    known = ignore_verdicts.setdefault(repository, {})
+    if len(known) > 100_000:
+        known.clear()
+    asked = [path for path in paths if known.get(path, (False, 0))[1] < time.time() - ignore_seconds]
+    if asked:
+        try:
+            ran = subprocess.run(['git', '-C', repository, 'check-ignore', '-z', '--stdin'],
+                                 input=b'\0'.join(os.fsencode(path) for path in asked), capture_output=True,
+                                 env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
+        except OSError:
+            return set(paths)
+        # 1: none of them is ignored.
+        if ran.returncode not in (0, 1):
+            return set(paths)
+        said = {os.fsdecode(path) for path in ran.stdout.split(b'\0') if path}
+        known.update((path, (path in said, time.time())) for path in asked)
+    return {path for path in paths if known[path][0]}
 
 
 def is_other(path):

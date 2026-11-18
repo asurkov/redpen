@@ -61,7 +61,8 @@ What to tell the user when it matters:
   repository (a git review's work tree; for a session, the repository its files are in, else the folder
   they all are in), what git ignores left out. The folders on the way to a changed file are open, the
   others folded until opened. An unchanged file is greyed and opens as it is, with nothing to accept or
-  comment on; `n` and `p` still step through the changed files. The browser keeps the choice.
+  comment on; `n` and `p` still step through the changed files. The open folders follow the disk
+  within two seconds. The browser keeps the choice.
 - Files under `~/.claude` and temporary folders are listed apart, under "other".
 - The page follows the files: an edit by Claude or the user shows up within two seconds.
 
