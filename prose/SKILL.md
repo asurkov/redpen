@@ -584,11 +584,17 @@ leave this page. It counts the comments it holds, each of yours, each open quest
 thread from elsewhere (none written for one), and its state shows on it: dashed (with …) while Claude has a
 question or a reply to draft, filled green while an answer, a draft or a comment on GitHub is unread, GitHub's glyph and the
 replies' count (`1↩`) with a comment of yours posted there, and a faint dot when all it holds is resolved.
-Clicking it opens your one comment in its editor, or else a card of all it holds, each under its own
-header, which starts with who sees it: **💬 On GitHub**, **💬 Draft · not posted** (**in your pending
+Clicking it opens a card of all it holds, to read first (the editor opens from Edit), each under its own
+header, which starts with who sees it: **💬 On GitHub**, **💬 Suggested by Claude** (a comment Claude put
+there, `by: 'claude'`, until you accept or edit it), **💬 Draft · not posted** (**in your pending
 review** once pushed, **edited since pushed** after that), or **✎ Asked Claude · private** (on your own
-docs, where nothing is posted, **💬 Your comment**); then its state and actions: your comments (edit, copy,
-delete), threads from elsewhere, then questions, the resolved ones last. A card that holds several shows
+docs, where nothing is posted, **💬 Your comment**); then its state and actions, and **×** (esc, or a
+click elsewhere) at the end of the first header's. A comment reads rendered, as GitHub shows Markdown.
+A draft has the same buttons in its card and its panel entry: **Accept** on one Claude suggested (it
+becomes yours as it reads), or else **Post** (with a token: ⇪ Push of it alone to your pending review;
+without one, **Post ↗** copies it and opens its line on GitHub, to paste it there; none on your own docs);
+then **Edit**, **✎ Ask Claude** and **Delete** (pressed twice). Then threads from elsewhere, then
+questions, the resolved ones last. A card that holds several shows
 each as a box of its own, its header a grey band on top of it, so a header and its buttons are plainly one
 thread's. The editor and the Review panel's entries start the same way.
 
@@ -612,9 +618,9 @@ the counts of reviewed changes with comments or open questions step through thos
 · Monetization status"), and stays armed, underlined with an `n p` chip: `n` and `p` (`j` and `k`) then step
 through its marks instead of the changes, until Esc (with no card open) or another of the header's controls,
 such as next change, hands them back. The Review panel: the comments and revisits in the order they
-come in the doc, each a click from its place, comments with edit, copy and delete. Copy puts one comment's
-text on the clipboard, to paste in GitHub's comment box at its line, which its `path:line ↗` (in its
-panel entry and its card's header) opens.
+come in the doc, each a click from its place, drafts with a draft's buttons (above). Post ↗ puts one comment's
+text on the clipboard, to paste in GitHub's comment box at its line, which it opens, as its `path:line ↗` (in its
+panel entry and its card's header) does.
 **Copy drafts (N)**, shown while you have comments not posted yet (**Copy comments (N)** on your own docs),
 puts all of those on the clipboard as one Markdown post, each with its `path:line` (linked to the line on
 GitHub; without `--pr`, the file and section), the quote and the comment, whatever the
@@ -657,13 +663,16 @@ while the card is open) opens the revisit panel on the thread's own text, saying
 from: the question joins that thread whatever text is selected, and reopens it if it was resolved.
 
 Each drafted comment in an answer (a blockquote) is a **proposal**, labelled "Suggested by Claude" and shown
-once per thread however many answers repeat it, with its actions under it. **💬 Use** makes it a comment on the thread's change or
-quote and opens that to edit (edits go in the comment, never in the proposal); the proposal then shows ✓
-used with 💬 Open comment. **✎ Ask Claude**, named as a comment's own, opens the revisit panel on the draft, in its thread ("shorter",
+once per thread however many answers repeat it, with a draft's buttons under it. **Accept** makes it a
+comment of yours on the thread's change or quote, as it reads; **Edit** does too and opens that to edit
+(edits go in the comment, never in the proposal); the proposal then shows ✓ accepted with Edit.
+**✎ Ask Claude**, named as a comment's own, opens the revisit panel on the draft, in its thread ("shorter",
 "as a question"); the draft in that revision's answer replaces it, which folds to a summary, still
-readable. **Dismiss** folds it to a stub. **↶ Undo** takes back Use (deleting the comment, after asking
-if it was edited) or Dismiss. An answer with several proposed drafts also offers 💬 Use all as one
-comment. Using a draft resolves nothing: once every draft in a thread is used, dismissed or replaced, its
+readable. **Delete** folds it to a stub. **↶ Undo** takes back Accept (deleting the comment, after asking
+if it was edited) or Delete. An answer with several proposed drafts also offers Accept all as one
+comment. A comment drafted outside an answer (asked for in chat) goes on the page from the page itself,
+`POST /review` with the comment's fields and `by: 'claude'`, and shows as Suggested by Claude; Claude's
+own later edits pass `by: 'claude'` too, or the edit makes it the user's. Using a draft resolves nothing: once every draft in a thread is used, dismissed or replaced, its
 header says "drafts handled" and urges Resolve, where the card has no change to accept.
 
 A comment of yours not posted has **✎ Ask Claude** in its editor, card and panel entry: the revisit panel on
@@ -671,9 +680,9 @@ the comment's text, for "shorter", "as a question" or anything else about it; fr
 there is saved first. What you ask about it, and
 Claude's answers, show under the comment as **✎ Asked Claude · private**, in a tinted box of its own (not
 as a question of its own; a drafted reply's **✎ Drafted replies · private** is boxed the same way),
-and its mark and the drafts count say when one waits or an answer is unread; a comment with asks opens in
-its card rather than its editor. A reworked draft in an answer offers **Use**, which puts it in place of
-the comment's text (✓ used), and **↶ Undo**, which brings that text back; ✎ Ask Claude and Dismiss work as
+and its mark and the drafts count say when one waits or an answer is unread. A reworked draft in an answer
+offers **Accept**, which puts it in place of the comment's text (✓ accepted), **Edit**, which does too and
+opens it to edit, and **↶ Undo**, which brings that text back; ✎ Ask Claude and Delete work as
 for any proposal. Reworks are versions of the comment: once one is used, the ones used before it, and the
 ones proposed before it (asked for before it, or answered before it to the same ask) and still proposed,
 fold as replaced, so a stale one cannot be used over it.
@@ -715,12 +724,12 @@ request names the thread (`remote`) and its mode and weigh, and goes to Claude a
 says for a few seconds whether Claude is watching (or that it was copied to paste), and lists each
 request as Notes, Your reply or No notes. Claude's answer shows in the card under **✎ Drafted replies · private**,
 each draft with **Copy** (to paste as the reply there; Open in Google Docs ↗ or on GitHub ↗ goes to
-it), **✎ Revise** (a box under that draft) and **Dismiss**, as a draft for a comment of yours has Use. A
+it), **✎ Revise** (a box under that draft) and **Delete**, as a draft for a comment of yours has Accept. A
 polished reply shows its edits against your text, struck and inserted; Copy takes it clean. Once a
 draft is ready to send (proposed), the thread shows only its latest one, with its actions, and folds the
 rest, the requests, Claude's notes and earlier drafts, under **▸ Discussion with Claude · N requests**,
 to open when needed (it stays open or shut as the page draws again). **✎ Ask**, beside Copy, ✎ Revise
-and Dismiss, opens the discussion with the cursor in the field that ends it: a question to Claude about
+and Delete, opens the discussion with the cursor in the field that ends it: a question to Claude about
 the thread or its drafts (↵ or **Ask** sends, ⇧↵ adds a line), which stays there for the next one. A
 question changes no draft unless Claude's answer gives a new one; the thread says "question being
 answered", then "new answer", and the discussion opens on an answer not read yet. While a
