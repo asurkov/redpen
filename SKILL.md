@@ -63,7 +63,7 @@ What to tell the user when it matters:
   folded; any other folder shows its changed files alone, ending in "N more". A click on a folder's
   name, also within a joined row (`www` in `tests/www/unit`), or on "N more" widens it to everything
   in it; a click on the name of a widened one narrows it again; the arrow and the rest of the row
-  fold it. An unchanged file is greyed and opens as it is, with nothing to accept or comment on; `n`
+  fold it. The name of a folder leaving something out is dotted under, its tooltip saying how much. An unchanged file is greyed and opens as it is, with nothing to accept or comment on; `n`
   and `p` still step through the changed files. The open folders follow the disk within two seconds.
   The browser keeps the choice.
 - Files under `~/.claude` and temporary folders are listed apart, under "other".

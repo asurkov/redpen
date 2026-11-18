@@ -126,7 +126,8 @@ function treeOrder(a, b) {
 }
 
 // The files as a tree of their folders under root, in the tree's order. A folder holding one folder
-// and no file is one row with it, "tests/www/unit", its segments each the name and path of a folder.
+// and no file is one row with it, "tests/www/unit", its segments each the name, path and hidden count
+// of a folder.
 // With what folders were read to hold (the full tree), a folder that isWide(path) shows the rest of
 // what it holds too, its files as {path, isPlain}, and is a row of its own; another one says how many
 // it leaves out (hidden). A folder with no changed file in it shows all it holds.
@@ -177,10 +178,10 @@ function treeOf(files, root, listings, isWide = () => false) {
     folders: [...folder.folders.values()].sort(byName).map(joined),
   });
   const joined = folder => {
-    let row = { ...folder, segments: [{ name: folder.name, path: folder.path }] };
+    let row = { ...folder, segments: [{ name: folder.name, path: folder.path, hidden: folder.hidden }] };
     while (!row.isWide && !row.files.length && row.folders.size === 1) {
       const [only] = row.folders.values();
-      row = { ...only, name: `${row.name}/${only.name}`, segments: [...row.segments, { name: only.name, path: only.path }] };
+      row = { ...only, name: `${row.name}/${only.name}`, segments: [...row.segments, { name: only.name, path: only.path, hidden: only.hidden }] };
     }
     return ordered(row);
   };
@@ -737,10 +738,11 @@ function drawList() {
     const name = head.appendChild(span('name', canWiden && isChanged ? '' : folder.name));
     if (canWiden && isChanged) {
       // In the full tree each folder of the row widens or narrows on a click, the fold the rest of it.
-      folder.segments.forEach(({ name: segment, path }, at) => {
+      // A narrow one leaving something out is dotted under.
+      folder.segments.forEach(({ name: segment, path, hidden }, at) => {
         const isWide = at === folder.segments.length - 1 && folder.isWide;
-        const made = name.appendChild(span(`segment${isWide ? ' wide' : ''}`, segment));
-        made.title = isWide ? `Show only the changed files of ${segment}` : `Show every file of ${segment}`;
+        const made = name.appendChild(span(`segment${isWide ? ' wide' : hidden ? ' hiding' : ''}`, segment));
+        made.title = isWide ? `Show only the changed files of ${segment}` : `Show every file of ${segment}${hidden ? ` (${hidden} more)` : ''}`;
         made.addEventListener('click', event => {
           event.preventDefault();
           widen(path, !isWide);
