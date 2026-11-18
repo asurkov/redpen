@@ -21,7 +21,9 @@ then the actions. The views: **Diff**, every change from base to new in one
 view, each either still **to review** or accepted (✓); **Since 04041c3** (**Since review** for the working
 tree), the diff of the version last reviewed to new, where there is one between them ([Review
 rounds](#review-rounds)): what changed since, read as its own diff, `n`/`p` through all of its changes,
-no filter and no accepting there; and **Old** / **New**, each version clean, for
+with no filter; accepting one there accepts the Diff changes it lies in, whole (a Diff change rewritten in
+several places since is one accept for all of them), and it reads as accepted while they all are; and
+**Old** / **New**, each version clean, for
 rewrites too large to read inline (comparing commits, **Base** / **Head**, each with its hash, subject,
 author and date in its tooltip); switching keeps the reader at the same place in the doc. In Diff, a
 **filter** picks which changes `n`/`p` step through and the status counts: **All**, **To review** (the

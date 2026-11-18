@@ -108,7 +108,7 @@ STYLE = '''
 .rv-settled .rvtick:not(.rvshow,.cur):hover>.was{display:block;position:absolute;left:14px;top:-12px;z-index:2;pointer-events:none;max-width:min(640px,80vw);padding:1px 8px;background:var(--bg);border:1px solid var(--line);border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.12)}
 .rv-settled .rvtick:not(.rvshow,.cur):hover>.was>summary{list-style:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .rv-settled .rvtick:not(.rvshow,.cur):hover>.was>summary::-webkit-details-marker{display:none}
 ::highlight(rvcm){text-decoration:underline dotted;text-decoration-color:var(--rw);text-decoration-thickness:2px;text-underline-offset:3px}
-body:not(.show-diff) #rvsd{display:none}
+body:not(.show-diff,.show-since) #rvsd{display:none}
 #rvsd[aria-pressed=true]:not(:disabled){background:color-mix(in srgb,var(--fg) 10%,var(--bg));border-color:color-mix(in srgb,var(--fg) 45%,var(--bg));box-shadow:inset 0 1px 2px rgba(0,0,0,.12)}
 #rvsum{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0 6px;font-size:13px;color:var(--muted)} #rvsum button:hover{text-decoration:underline} #rvsum .rvarmed{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px}
 .files .rvn button,.files .rvn button:hover,#rvsum button,#rvsum button:hover{border:0;background:none;padding:0;height:auto;line-height:inherit;font:inherit;color:var(--link);cursor:pointer}

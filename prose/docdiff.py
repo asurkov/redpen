@@ -740,7 +740,7 @@ table{border-collapse:collapse;display:block;overflow-x:auto;font-size:14px} td,
 a{color:var(--link)} .cur{outline:2px solid #bf8700;outline-offset:2px}
 .ddhit{outline:2px solid var(--link);outline-offset:3px;border-radius:2px} #ddback{position:fixed;left:16px;bottom:16px;z-index:3;box-shadow:0 1px 4px rgba(0,0,0,.15)} #ddback[hidden]{display:none}
 body:not(.show-diff) .v-diff,body:not(.show-old) .v-old,body:not(.show-new) .v-new,body:not(.show-since) .v-since{display:none}
-.show-old .step,.show-new .step,.show-since :is(#filt,#fresh,#acc){display:none} body:not(.show-diff) .accf{display:none}
+.show-old .step,.show-new .step,.show-since :is(#filt,#fresh){display:none} body:not(.show-diff) .accf{display:none}
 .show-since #newp .pick button{margin-left:0;border-radius:6px}
 .seg,.pair{display:inline-flex;max-width:100%} .seg button,.pair button{border-radius:0;margin-left:-1px;white-space:nowrap}
 .seg button:first-child,.pair button:first-child{border-radius:6px 0 0 6px;margin-left:0} .seg button:last-child,.pair button:last-child{border-radius:0 6px 6px 0}
@@ -790,6 +790,10 @@ const rounds=new Map([...document.querySelectorAll('script.round')].map(j=>[j.cl
 const blocks='p,li,dt,dd,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figcaption';
 for(const x of groups){const r=rounds.get(x.sec),on=r?.boxes?.[x.k];x.since=r?.fresh[x.k]||null;
 if(x.since)x.els.forEach((e,i)=>{if(on&&!on.includes(i))return;e.classList.add('fresh');if(!e.classList.contains('blk'))e.closest(blocks)?.classList.add('fresh-b');});}
+// A change of the Since view lies in changes of base to head (x.diffs, those whose x.since names it): accepting
+// it accepts them, whole, and it reads as reviewed while they all are.
+for(const x of sinceGroups){x.diffs=groups.filter(y=>y.sec===x.sec&&y.since?.includes(x.k));
+x.done=x.diffs.length>0&&x.diffs.every(y=>y.done);if(x.done)x.els.forEach(e=>e.classList.add('done'));}
 // The filter: which changes n and p step through and the status counts, all of them, the ones to review or
 // the reviewed ones; ● new (onlyNew), pressed, narrows it to the ones in it new since the last review. It
 // hides nothing (the body's class only-new says it is pressed, for styles). ● new counts the ones in the
@@ -878,9 +882,9 @@ return (d>0?l.find(x=>r(x)?.bottom>y):l.findLast(x=>r(x)?.top<y))||null;}
 const where=x=>new Set(groups.map(y=>y.file)).size>1?' · '+x.file:'';
 // Accept (a) reads by the current change: accept on one to review, unaccept on a reviewed one.
 function status(){const l=L(),i=l.indexOf(c);prev.disabled=!step(-1);next.disabled=!step(1);
-const w=wordsOf(c),un=!!c?.done;acc.disabled=!c||cur!=='diff';acc.textContent=un?w.unaccept:w.accept;acc.classList.toggle('primary',!un);
+const w=wordsOf(c),un=!!c?.done;acc.disabled=!accepts(c);acc.textContent=un?w.unaccept:w.accept;acc.classList.toggle('primary',!un);
 acc.title=un?w.unaccept_title:w.accept_title;
-pos.textContent=cur==='since'?(i>=0?(i+1)+' of ':'')+l.length+' change'+(l.length===1?'':'s')+' since '+since+(c?where(c):''):
+pos.textContent=cur==='since'?(i>=0?(i+1)+' of ':'')+l.length+' change'+(l.length===1?'':'s')+' since '+since+(c?.done?' · '+W.accepted:'')+(c?where(c):''):
 cur!=='diff'?W.select:i>=0?(i+1)+' of '+l.length+' '+said()+where(c):
 c?'change '+(gi(c)+1)+' of '+groups.length+' · '+(c.done?W.accepted:'to review')+(c.since?' · new':'')+where(c):'';pos.title=pos.textContent;}
 function focus(x,scroll=true){hidePop();if(c)c.els.forEach(e=>e.classList.remove('cur'));c=x;if(x){anchor=x;mark=null;}
@@ -891,8 +895,11 @@ if(!r.ok)throw new Error(url+' '+r.status);return r.json();}
 // An accept moves the change into the accepted copy, an unaccept takes it back out; the server rebuilds
 // the page and it reloads. It stays where it is: the next change in the filter becomes current only if it
 // is already in view; otherwise nothing is current and n goes to it.
-async function accept(){if(!c||cur!=='diff')return;const x=c,l=L(),nx=l.find(y=>gi(y)>gi(x))||l.findLast(y=>gi(y)<gi(x))||null;
-try{await onAccept([x],!x.done).catch(()=>{});await post(x.done?'unaccept':'accept',{file:x.file,key:x.k});}catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';return;}
+// In the Since view, it moves the changes of base to head the current one lies in, the ones not yet as it goes.
+function accepts(x){return !!x&&x.view===cur&&(cur==='diff'||cur==='since'&&x.diffs.length>0);}
+async function accept(){if(!accepts(c))return;const x=c,l=L(),nx=l.find(y=>gi(y)>gi(x))||l.findLast(y=>gi(y)<gi(x))||null,
+xs=x.view==='since'?x.diffs.filter(y=>y.done===x.done):[x];
+try{await onAccept(xs,!x.done).catch(()=>{});for(const y of xs)await post(x.done?'unaccept':'accept',{file:y.file,key:y.k});}catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';return;}
 focus(nx&&inView(nx)?nx:null,false);if(!c)anchor=x;location.reload();}
 function inView(x){const top=document.querySelector('header').getBoundingClientRect().bottom;
 return x.els.some(e=>{const r=e.getBoundingClientRect();return e.offsetParent&&r.bottom>top&&r.top<innerHeight;});}
@@ -1021,7 +1028,7 @@ document.addEventListener('click',e=>{if(e.target.closest('header,.what,.files,#
 // A removed block's summary only folds and unfolds it.
 if(e.target.closest('summary')){hidePop();return;}
 const t=e.target.closest('.v-'+cur+' .chg');
-if(t){focus(listed().find(x=>x.view===cur&&x.els.includes(t)),false);showPop(t.getBoundingClientRect(),cur==='diff',c);}
+if(t){focus(listed().find(x=>x.view===cur&&x.els.includes(t)),false);showPop(t.getBoundingClientRect(),accepts(c),c);}
 else{mark=e.clientY+scrollY;focus(null,false);}});
 // Without a current change, where n and p start moves with the screen.
 addEventListener('scroll',()=>{if(!c)status();},{passive:true});
