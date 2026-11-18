@@ -295,8 +295,25 @@ body.listHidden #splitter {
 
 #list .more {
   display: block;
+  width: 100%;
   padding: 3px 10px 3px calc(26px + var(--depth, 0) * 12px);
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--dim);
   font-size: 11px;
+  text-align: left;
+}
+
+/* What widens a folder of the full tree: a folder's name in a row, and the count of what it leaves out. */
+.folder > summary .segment,
+#list button.more {
+  cursor: pointer;
+}
+
+.folder > summary .segment:hover,
+#list button.more:hover {
+  text-decoration: underline;
 }
 
 #work {

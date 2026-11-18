@@ -56,13 +56,16 @@ const state = {
   // changed file in them, the ones opened by hand.
   closedFolders: new Set(),
   openedFolders: new Set(),
-  // The full tree: whether the list shows every file of the folders, not only the changed ones; the
-  // folder it starts from, as the server said it; what the folders read hold, by their paths
-  // ({folders, files, more}); and how many reads found them changed.
+  // The full tree: whether the list can show the other files of the folders too; the folder it starts
+  // from, as the server said it; what the folders read hold, by their paths ({folders, files, more});
+  // and how many reads found them changed. A folder holding a changed file shows all it holds, others
+  // their changed files alone, unless widened or narrowed by hand.
   isFullTree: false,
   top: null,
   folders: new Map(),
   foldersRead: 0,
+  widenedFolders: new Set(),
+  narrowedFolders: new Set(),
   // The unchanged file open, by its path, instead of a changed one.
   plain: null,
   // When the review was last carried over to another base commit, as the server said it.
@@ -123,33 +126,47 @@ function treeOrder(a, b) {
 }
 
 // The files as a tree of their folders under root, in the tree's order. A folder holding one folder
-// and no file is one row with it: "tests/www/unit". With what folders were read to hold (the full
-// tree), their other files and folders too, those files as {path, isPlain}; there a folder is joined
-// with the one it holds only once it was read, as else what it holds is not known.
-function treeOf(files, root, listings) {
-  const folderAt = (path, name) => ({ path, name, folders: new Map(), files: [], more: 0 });
+// and no file is one row with it, "tests/www/unit", its segments each the name and path of a folder.
+// With what folders were read to hold (the full tree), a folder that isWide(path) shows the rest of
+// what it holds too, its files as {path, isPlain}, and is a row of its own; another one says how many
+// it leaves out (hidden). A folder with no changed file in it shows all it holds.
+function treeOf(files, root, listings, isWide = () => false) {
+  const folderAt = (path, name) => ({ path, name, folders: new Map(), files: [], more: 0, hidden: 0, isChanged: false, isWide: false });
   const top = folderAt(root, '');
-  // The folder holding a path under root, made with those it is in where there are none yet.
-  const folderOf = path => {
+  // The folder holding a path under root, made with those it is in where there are none yet; all of
+  // them marked as holding a changed file, for a changed file's path.
+  const folderOf = (path, isChanged = false) => {
     let folder = top;
+    folder.isChanged ||= isChanged;
     for (const name of path.slice(root.length).split('/').slice(0, -1)) {
       if (!folder.folders.has(name)) {
         folder.folders.set(name, folderAt(`${folder.path}${name}/`, name));
       }
       folder = folder.folders.get(name);
+      folder.isChanged ||= isChanged;
     }
     return folder;
   };
   for (const file of files) {
-    folderOf(file.path).files.push(file);
+    folderOf(file.path, true).files.push(file);
   }
   const changed = new Set(files.map(file => file.path));
-  for (const [path, listing] of listings || []) {
-    if (path.startsWith(root)) {
-      const folder = folderOf(path);
+  // The folders read, a folder before those in it: what a folder shows decides which of those in it
+  // are in the tree at all.
+  const read = [...listings || []].filter(([path]) => path.startsWith(root)).sort(([a], [b]) => a.length - b.length);
+  for (const [path, listing] of read) {
+    const folder = path === root ? top : path.slice(root.length, -1).split('/').reduce((up, name) => up?.folders.get(name), top);
+    if (!folder) {
+      continue;
+    }
+    const plainFiles = listing.files.filter(name => !changed.has(path + name));
+    folder.isWide = !folder.isChanged || isWide(path);
+    if (folder.isWide) {
       listing.folders.forEach(name => folderOf(`${path}${name}/`));
-      folder.files.push(...listing.files.filter(name => !changed.has(path + name)).map(name => ({ path: path + name, isPlain: true })));
+      folder.files.push(...plainFiles.map(name => ({ path: path + name, isPlain: true })));
       folder.more = listing.more;
+    } else {
+      folder.hidden = listing.folders.filter(name => !folder.folders.has(name)).length + plainFiles.length + listing.more;
     }
   }
   const byName = (a, b) => a.name.localeCompare(b.name);
@@ -160,10 +177,10 @@ function treeOf(files, root, listings) {
     folders: [...folder.folders.values()].sort(byName).map(joined),
   });
   const joined = folder => {
-    let row = folder;
-    while (!row.files.length && row.folders.size === 1 && (!listings || listings.has(row.path))) {
+    let row = { ...folder, segments: [{ name: folder.name, path: folder.path }] };
+    while (!row.isWide && !row.files.length && row.folders.size === 1) {
       const [only] = row.folders.values();
-      row = { ...only, name: `${row.name}/${only.name}` };
+      row = { ...only, name: `${row.name}/${only.name}`, segments: [...row.segments, { name: only.name, path: only.path }] };
     }
     return ordered(row);
   };
@@ -253,8 +270,9 @@ async function refresh() {
 }
 
 // Reads what the full tree's folders hold, at each poll those the list shows open: the top, those on
-// the way from it to each changed file down to one folded by hand, and those opened by hand. Or,
-// named, just those, and says when they cannot be read.
+// the way from it to each changed file down to one folded by hand (to say how many files the narrow
+// ones leave out), and those opened or widened by hand. Or, named, just those, and says when they
+// cannot be read.
 async function readFolders(named) {
   const top = state.top;
   let folders = named;
@@ -262,7 +280,7 @@ async function readFolders(named) {
     return;
   }
   if (!folders) {
-    folders = new Set([top, ...[...state.openedFolders].filter(path => path.startsWith(top))]);
+    folders = new Set([top, ...[...state.openedFolders, ...state.widenedFolders].filter(path => path.startsWith(top))]);
     for (const file of state.files.filter(file => !file.isOther && file.path.startsWith(top))) {
       for (let at = file.path.indexOf('/', top.length); at >= 0; at = file.path.indexOf('/', at + 1)) {
         const folder = file.path.slice(0, at + 1);
@@ -287,6 +305,22 @@ async function readFolders(named) {
       toast(error.message);
     }
   }
+}
+
+// Widens a folder of the full tree, to show all it holds, opened; or narrows it to its changed files.
+function widen(path, isWide) {
+  return queued(async () => {
+    state.widenedFolders.delete(path);
+    state.narrowedFolders.delete(path);
+    (isWide ? state.widenedFolders : state.narrowedFolders).add(path);
+    if (isWide) {
+      state.closedFolders.delete(path);
+      if (!state.folders.has(path)) {
+        await readFolders([path]);
+      }
+    }
+    drawList();
+  });
 }
 
 // Shows or hides the full tree, and keeps the choice.
@@ -631,12 +665,14 @@ function drawProgress() {
 const drawn = { list: '', waiting: '', chosen: null };
 
 function drawList() {
-  const drawing = JSON.stringify([state.view, state.key, state.plain, state.isFullTree && [state.top, state.foldersRead],
+  const drawing = JSON.stringify([state.view, state.key, state.plain,
+    state.isFullTree && [state.top, state.foldersRead, ...state.widenedFolders, '', ...state.narrowedFolders],
     listed().map(file => [file.key, file[state.view], file.isNew, file.isGone, file.isUncarried, !file.pending, !file.accepted])]);
   if (drawing === drawn.list) {
     return;
   }
   drawn.list = drawing;
+  const isFull = Boolean(state.isFullTree && state.top);
   // A file of the full tree with no change in the view: greyed, with its mark if the review has it.
   const plainRow = (file, depth) => {
     const made = document.createElement('button');
@@ -674,7 +710,7 @@ function drawList() {
   // A folder's row folds what is in it. It says how far the changed files in it are, ✓ and ◐ as a
   // file's mark, and, folded, their lines added and removed. A folder of the full tree with none is
   // greyed and folded until opened, and read as it is.
-  const folderRow = (folder, depth) => {
+  const folderRow = (folder, depth, canWiden) => {
     const under = filesUnder(folder).filter(file => !file.isPlain);
     const isChanged = under.length > 0;
     const fold = document.createElement('details');
@@ -698,7 +734,22 @@ function drawList() {
     const head = fold.appendChild(document.createElement('summary'));
     head.style.setProperty('--depth', depth);
     head.title = folder.path;
-    head.append(span('name', folder.name));
+    const name = head.appendChild(span('name', canWiden && isChanged ? '' : folder.name));
+    if (canWiden && isChanged) {
+      // In the full tree each folder of the row widens or narrows on a click, the fold the rest of it.
+      folder.segments.forEach(({ name: segment, path }, at) => {
+        const isWide = at === folder.segments.length - 1 && folder.isWide;
+        const made = name.appendChild(span(`segment${isWide ? ' wide' : ''}`, segment));
+        made.title = isWide ? `Show only the changed files of ${segment}` : `Show every file of ${segment}`;
+        made.addEventListener('click', event => {
+          event.preventDefault();
+          widen(path, !isWide);
+        });
+        if (at < folder.segments.length - 1) {
+          name.append('/');
+        }
+      });
+    }
     if (isChanged) {
       const isDone = under.every(file => !file.pending);
       const isBegun = under.some(file => file.accepted || !file.pending);
@@ -709,11 +760,21 @@ function drawList() {
       const total = side => texts.reduce((sum, count) => sum + count[side], 0);
       head.append(...counts(texts.length ? { added: total('added'), removed: total('removed') } : null));
     }
-    fold.append(...rowsOf(folder, depth + 1));
+    fold.append(...rowsOf(folder, depth + 1, canWiden));
     return fold;
   };
-  const rowsOf = (folder, depth) => {
-    const rows = [...folder.folders.map(child => folderRow(child, depth)), ...folder.files.map(file => fileRow(file, depth))];
+  // A folder's rows: its folders', then its files', then how many it leaves out.
+  const rowsOf = (folder, depth, canWiden = false) => {
+    const rows = [...folder.folders.map(child => folderRow(child, depth, canWiden)), ...folder.files.map(file => fileRow(file, depth))];
+    if (folder.hidden) {
+      const more = document.createElement('button');
+      more.className = 'more';
+      more.textContent = `${folder.hidden} more`;
+      more.title = `Show every file of ${folder.path}`;
+      more.style.setProperty('--depth', depth);
+      more.addEventListener('click', () => widen(folder.path, true));
+      rows.push(more);
+    }
     if (folder.more) {
       const more = span('none more', `${folder.more} more file${folder.more === 1 ? '' : 's'} not listed`);
       more.style.setProperty('--depth', depth);
@@ -725,8 +786,10 @@ function drawList() {
   const others = files.filter(file => file.isOther);
   const work = files.filter(file => !file.isOther);
   const list = byId('list');
-  const isFull = state.isFullTree && state.top;
-  list.replaceChildren(...rowsOf(isFull ? treeOf(work, state.top, state.folders) : treeOf(work, workRoot()), 0));
+  // A folder of the full tree holding a changed file shows all it holds, unless narrowed by hand.
+  const holdsChanged = new Set(work.map(file => file.path.slice(0, file.path.lastIndexOf('/') + 1)));
+  const isWide = path => !state.narrowedFolders.has(path) && (state.widenedFolders.has(path) || holdsChanged.has(path));
+  list.replaceChildren(...rowsOf(isFull ? treeOf(work, state.top, state.folders, isWide) : treeOf(work, workRoot()), 0, isFull));
   if (!files.length) {
     list.append(span('none', views[state.view].none));
   }
