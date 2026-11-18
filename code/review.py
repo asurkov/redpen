@@ -330,61 +330,6 @@ class Review:
         top = repository_top(common)
         return (top if top and f'{common}/'.startswith(f'{top}/') else common).rstrip('/') + '/'
 
-    def folders(self, wanted):
-        """What each wanted folder of the full tree holds: {folder: {folders, files, more}}, the names
-        of its folders and files and how many files past listed_files are left out. Folders are paths
-        under top with their closing slash. What is on disk, one level of it, with what git ignores
-        left out in a git work tree."""
-        top = self.top()
-        if not top or not isinstance(wanted, list):
-            raise Refusal(404, 'The review has no folder to show.')
-        real_top = os.path.realpath(top).rstrip('/') + '/'
-        # Of each folder, its children's names, each with whether it is a folder.
-        found = {}
-        # Of each repository, its folders' children by their paths in it, for git to say which it ignores.
-        asked = {}
-        for folder in wanted:
-            is_under = isinstance(folder, str) and (folder == top or folder.startswith(top) and f'{os.path.normpath(folder)}/' == folder)
-            if not is_under or not f'{os.path.realpath(folder)}/'.startswith(real_top):
-                continue
-            try:
-                with os.scandir(folder) as entries:
-                    found[folder] = {entry.name: entry.is_dir(follow_symlinks=False) for entry in entries if entry.name != '.git'}
-            except OSError:
-                found[folder] = {}
-            repository = repository_top(folder)
-            if repository:
-                place = os.path.relpath(os.path.realpath(folder), repository)
-                if place.startswith('..'):
-                    found[folder] = {}
-                    continue
-                for name in found[folder]:
-                    asked.setdefault(repository, {})[os.path.normpath(os.path.join(place, name))] = (folder, name)
-        for repository, children in asked.items():
-            for path in ignored(repository, list(children)):
-                folder, name = children.get(path, (None, None))
-                found.get(folder, {}).pop(name, None)
-        shown_folders = {}
-        for folder, held in found.items():
-            files = sorted(name for name, is_folder in held.items() if not is_folder)
-            shown_folders[folder] = {'folders': sorted(name for name, is_folder in held.items() if is_folder),
-                                     'files': files[:listed_files], 'more': max(len(files) - listed_files, 0)}
-        return shown_folders
-
-    def plain(self, path):
-        """The text of a file the full tree lists, for the page to show unchanged."""
-        if not isinstance(path, str) or '/' not in path:
-            raise Refusal(404, 'No such file.')
-        folder, name = path.rsplit('/', 1)
-        listed = self.folders([f'{folder}/']).get(f'{folder}/')
-        real_top = os.path.realpath(self.top()).rstrip('/') + '/'
-        if not listed or name not in listed['files'] or not os.path.realpath(path).startswith(real_top):
-            raise Refusal(404, 'The tree has no such file.')
-        data = read_bytes(pathlib.Path(path))
-        if data is None:
-            raise Refusal(404, 'The file is not on disk.')
-        return {'path': path, 'sha': sha(data), 'text': shown(data)}
-
     def apply(self, key, action, change, expected):
         """Carries out accept, reject or unaccept, for one change, for the selected parts of some (a
         list) or, with no change named, the whole file, if the two texts are still the ones the page
@@ -787,7 +732,65 @@ def ignored(repository, paths):
             return set(paths)
         said = {os.fsdecode(path) for path in ran.stdout.split(b'\0') if path}
         known.update((path, (path in said, time.time())) for path in asked)
-    return {path for path in paths if known[path][0]}
+    # A path another read cleared meanwhile counts as ignored, till git is asked again.
+    return {path for path in paths if known.get(path, (True, 0))[0]}
+
+
+def listed_folders(top, wanted):
+    """What each wanted folder of a review's tree holds: {folder: {folders, files, more}}, the names of
+    its folders and files and how many files past listed_files are left out. top is the review's, from
+    Review.top(); folders are paths under it with their closing slash. What is on disk, one level of
+    it, with what git ignores left out in a git work tree. Read without the lock, as it reads no
+    record."""
+    if not top or not isinstance(wanted, list):
+        raise Refusal(404, 'The review has no folder to show.')
+    real_top = os.path.realpath(top).rstrip('/') + '/'
+    # Of each folder, its children's names, each with whether it is a folder.
+    found = {}
+    # Of each repository, its folders' children by their paths in it, for git to say which it ignores.
+    asked = {}
+    for folder in wanted:
+        is_under = isinstance(folder, str) and (folder == top or folder.startswith(top) and f'{os.path.normpath(folder)}/' == folder)
+        if not is_under or not f'{os.path.realpath(folder)}/'.startswith(real_top):
+            continue
+        try:
+            with os.scandir(folder) as entries:
+                found[folder] = {entry.name: entry.is_dir(follow_symlinks=False) for entry in entries if entry.name != '.git'}
+        except OSError:
+            found[folder] = {}
+        repository = repository_top(folder)
+        if repository:
+            place = os.path.relpath(os.path.realpath(folder), repository)
+            if place.startswith('..'):
+                found[folder] = {}
+                continue
+            for name in found[folder]:
+                asked.setdefault(repository, {})[os.path.normpath(os.path.join(place, name))] = (folder, name)
+    for repository, children in asked.items():
+        for path in ignored(repository, list(children)):
+            folder, name = children.get(path, (None, None))
+            found.get(folder, {}).pop(name, None)
+    shown_folders = {}
+    for folder, held in found.items():
+        files = sorted(name for name, is_folder in held.items() if not is_folder)
+        shown_folders[folder] = {'folders': sorted(name for name, is_folder in held.items() if is_folder),
+                                 'files': files[:listed_files], 'more': max(len(files) - listed_files, 0)}
+    return shown_folders
+
+
+def unchanged_text(top, path):
+    """The text of a file a review's tree lists, for the page to show unchanged; top as for
+    listed_folders(), and read without the lock too."""
+    if not isinstance(path, str) or '/' not in path:
+        raise Refusal(404, 'No such file.')
+    folder, name = path.rsplit('/', 1)
+    listed = listed_folders(top, [f'{folder}/']).get(f'{folder}/')
+    if not listed or name not in listed['files'] or not os.path.realpath(path).startswith(os.path.realpath(top).rstrip('/') + '/'):
+        raise Refusal(404, 'The tree has no such file.')
+    data = read_bytes(pathlib.Path(path))
+    if data is None:
+        raise Refusal(404, 'The file is not on disk.')
+    return {'path': path, 'sha': sha(data), 'text': shown(data)}
 
 
 def is_other(path):
@@ -1122,6 +1125,10 @@ def respond(h, method):
             raise Refusal(400, 'The request body is not JSON.')
         if not isinstance(body, dict):
             raise Refusal(400, 'The request body is not an object.')
+        # A read, but of a list of folders too long for a query; without the lock, as top_of() says.
+        found = re.fullmatch(r'/api/([\w-]+)/folders', path)
+        if found:
+            return send_json(h, listed_folders(top_of(h, found.group(1)), body.get('folders')))
         with kept_lock(h):
             return post(h, path, body)
     except Refusal as e:
@@ -1147,7 +1154,11 @@ def get(h, path):
             # at once, and the others as they are found.
             rescan(review, kept_lock(h))
         return send_file(h, here / 'page', 'page.html')
-    found = re.fullmatch(r'/api/([\w-]+)/(files|journal|plain|file/([0-9a-f]{16}))', path)
+    found = re.fullmatch(r'/api/([\w-]+)/plain', path)
+    if found:
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(h.path).query)
+        return send_json(h, unchanged_text(top_of(h, found.group(1)), (query.get('path') or [None])[0]))
+    found = re.fullmatch(r'/api/([\w-]+)/(files|journal|file/([0-9a-f]{16}))', path)
     if not found:
         raise Refusal(404, 'Not found.')
     with kept_lock(h):
@@ -1157,20 +1168,21 @@ def get(h, path):
             return send_json(h, review.listing())
         if found.group(2) == 'journal':
             return send_json(h, review.journal_shown())
-        if found.group(2) == 'plain':
-            query = urllib.parse.parse_qs(urllib.parse.urlsplit(h.path).query)
-            return send_json(h, review.plain((query.get('path') or [None])[0]))
         return send_json(h, review.opened(found.group(3)))
 
 
+def top_of(h, session):
+    """Where the review's tree starts, read under the lock; what is under it is read without, so a
+    large repository's slow listing holds up no other request, of this review or another."""
+    with kept_lock(h):
+        return Review(session).top()
+
+
 def post(h, path, body):
-    found = re.fullmatch(r'/api/([\w-]+)/(apply|flip|comment|uncomment|send|resolve|folders)', path)
+    found = re.fullmatch(r'/api/([\w-]+)/(apply|flip|comment|uncomment|send|resolve)', path)
     if not found:
         raise Refusal(404, 'Not found.')
     review = Review(found.group(1))
-    # A read, but of a list of folders too long for a query.
-    if found.group(2) == 'folders':
-        return send_json(h, review.folders(body.get('folders')))
     if found.group(2) == 'apply':
         return send_json(h, review.apply(body.get('key'), body.get('action'), body.get('change'), body.get('expected')))
     if found.group(2) == 'flip':
