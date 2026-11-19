@@ -35,7 +35,8 @@ What to tell the user when it matters:
 - **All** is everything the session changed, pending or accepted, with no buttons.
 - **History** lists every accept, reject and unaccept with Undo/Redo. An entry whose text changed
   since is greyed out.
-- A comment (select text → Comment, or Comment under a change) stays under its lines as a thread,
+- A comment (select text → Comment, Comment under a change, or Comment in the file bar for the
+  whole file, whose thread stands above its first line) stays under its lines as a thread,
   which says whether it is sent and whether Claude has it, and shows Claude's answer under it.
   **Reply** adds to the thread, **Resolve** takes it off the page. An answer that came with a change
   links to that change. The header counts the open threads, with how many Claude answered last, and
@@ -84,7 +85,8 @@ then answer or act on each. A comment reaches you once: from this command, or fr
 `UserPromptSubmit` hook with the user's next message. While a git review of the session's has no
 command waiting, the hook says so with the prompt: start the command then.
 
-Each comment names its file and lines and quotes them as the user saw them, and carries its id. A
+Each comment names its file and lines and quotes them as the user saw them, and carries its id; one
+on "the whole file" quotes nothing. A
 comment "of the accepted text" or "of the file as it was before your edits" is on lines the file may
 no longer have. A reply names the thread it is in.
 

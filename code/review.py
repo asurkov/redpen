@@ -460,6 +460,9 @@ class Review:
         # A comment on removed lines: the line of the text shown that they stood after, and that text.
         if isinstance(body.get('anchor'), int) and body.get('anchorSide') in sides:
             comment.update(anchor=body['anchor'], anchorSide=body['anchorSide'])
+        # A comment on the whole file, its lines all of the text it was made on.
+        if body.get('isFile') is True:
+            comment['isFile'] = True
         if body.get('thread'):
             if not any(thread['id'] == body['thread'] for thread in self.threads()):
                 raise Refusal(404, 'No such thread.')
@@ -515,7 +518,7 @@ class Review:
         for comment in said:
             first = comment.get('thread') if comment.get('thread') in threads else comment.get('id')
             firsts[comment.get('id')] = first
-            where = {name: comment.get(name) for name in ('key', 'path', 'side', 'start', 'end', 'quote', 'anchor', 'anchorSide')}
+            where = {name: comment.get(name) for name in ('key', 'path', 'side', 'start', 'end', 'quote', 'anchor', 'anchorSide', 'isFile')}
             thread = threads.setdefault(first, {**where, 'id': first, 'entries': []})
             thread['entries'].append({'id': comment.get('id'), 'by': 'user', 'time': comment.get('time'),
                                       'text': comment.get('text'), 'state': comment['state']})
@@ -569,6 +572,8 @@ def described(comments, git=None):
            'lines it is on as they saw them.']
     for comment in comments:
         lines = f"line {comment['start']}" if comment['start'] == comment['end'] else f"lines {comment['start']}-{comment['end']}"
+        if comment.get('isFile'):
+            lines = 'the whole file'
         side = sides.get(comment.get('side'), '')
         if git and comment.get('side') == 'orig':
             side = ' (of the file as it was at the base commit)'

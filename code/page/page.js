@@ -450,6 +450,9 @@ async function show(key, place) {
   byId('filePath').title = file.path;
   byId('fileCounts').replaceChildren(...counts(file[state.view]));
   byId('fileActions').replaceChildren();
+  if (isText) {
+    button(byId('fileActions'), 'Comment', () => diffView.openBox(diffView.fileTarget()), 'quiet').title = 'Comment for Claude on the whole file';
+  }
   for (const [action, label, kind] of view.fileActions) {
     button(byId('fileActions'), label, () => act(action, null), kind);
   }
@@ -580,7 +583,7 @@ async function showThread(thread) {
   const right = views[state.view].right;
   // Its file comes into sight even when it is the one open, in a folder folded since.
   unfold(file.path);
-  await show(thread.key, thread.side === right ? thread.start : thread.anchorSide === right ? thread.anchor : undefined);
+  await show(thread.key, thread.isFile || thread.side === right ? thread.start : thread.anchorSide === right ? thread.anchor : undefined);
 }
 
 // Opens the folders the file at path is in that were folded by hand.
@@ -893,7 +896,7 @@ function drawWaiting() {
     const row = document.createElement('li');
     const last = thread.entries.at(-1);
     const lines = thread.start === thread.end ? thread.start : `${thread.start}–${thread.end}`;
-    row.append(span('where', `${nameOf(thread.path)}:${lines}`));
+    row.append(span('where', thread.isFile ? nameOf(thread.path) : `${nameOf(thread.path)}:${lines}`));
     row.append(span(`state ${last.by}`, last.by === 'claude' ? 'Claude' : { draft: 'not sent', sent: 'sent', taken: 'Claude answers' }[last.state]));
     const text = button(row, last.text, () => queued(() => showThread(thread)));
     text.className = 'text';

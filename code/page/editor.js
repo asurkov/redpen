@@ -316,7 +316,7 @@ export class DiffView {
     this.threadsDrawn = drawing;
     this.threads = threads;
     const placed = threads.map(thread => ({ thread, lines: this.placeOf(thread, model) })).filter(({ lines }) => lines);
-    this.marks.set(placed.filter(({ lines }) => !lines.isRemoved).map(({ thread, lines }) => {
+    this.marks.set(placed.filter(({ lines }) => !lines.isRemoved && !lines.isFile).map(({ thread, lines }) => {
       const kind = thread.entries.at(-1).by === 'claude' ? 'answered' : 'commented';
       return {
         range: new monaco.Range(lines.start, 1, lines.end, 1),
@@ -336,7 +336,7 @@ export class DiffView {
       this.threadZones = placed.map(({ thread, lines }) => {
         const zone = {
           thread: thread.id,
-          afterLineNumber: lines.end,
+          afterLineNumber: lines.isFile ? 0 : lines.end,
           // Under the change's bar, when both stand after one line.
           ordinal: 10002,
           heightInPx: this.threadHeights.get(thread.id) ?? 34 + 36 * thread.entries.length,
@@ -401,6 +401,10 @@ export class DiffView {
   placeOf(thread, model) {
     const count = model.getLineCount();
     const within = line => Math.max(1, Math.min(line, count));
+    // A thread on the whole file stands above its first line, whichever text is shown.
+    if (thread.isFile) {
+      return { start: 1, end: 1, isFile: true };
+    }
     if (thread.side !== this.sides.right) {
       const isHere = thread.anchorSide === this.sides.right && thread.anchor >= 1;
       return isHere ? { start: within(thread.anchor), end: within(thread.anchor), isRemoved: true } : null;
@@ -567,6 +571,11 @@ export class DiffView {
     return { side: this.sides.left, start, end, quote, anchor: Math.max(1, change.modifiedStartLineNumber), isRemoved: true };
   }
 
+  // What a comment on the whole file is on: the text shown, all of it, with nothing quoted.
+  fileTarget() {
+    return { side: this.sides.right, start: 1, end: this.shown.getModel().getLineCount(), quote: '', anchor: 1, isFile: true };
+  }
+
   // What a comment on the selected text is on; nothing with no text selected.
   selectionTarget() {
     const selection = this.shown.getSelection();
@@ -614,7 +623,7 @@ export class DiffView {
     const head = box.appendChild(document.createElement('div'));
     head.className = 'head';
     const lines = target.start === target.end ? `line ${target.start}` : `lines ${target.start}–${target.end}`;
-    head.append(`Comment for Claude on ${target.isRemoved ? 'the removed ' : ''}${lines}`, spring());
+    head.append(`Comment for Claude on ${target.isFile ? 'the whole file' : `${target.isRemoved ? 'the removed ' : ''}${lines}`}`, spring());
     button(head, '✕', () => this.dropWidget('box'), 'quiet').title = 'Close';
     const input = box.appendChild(document.createElement('textarea'));
     input.placeholder = 'What should change here?';
@@ -631,6 +640,7 @@ export class DiffView {
           text: input.value,
           // Removed lines are not in the text shown: the comment stands at the line they followed.
           ...(target.isRemoved ? { anchor: target.anchor, anchorSide: this.sides.right } : {}),
+          ...(target.isFile ? { isFile: true } : {}),
         });
         this.dropWidget('box');
       }
@@ -648,6 +658,8 @@ export class DiffView {
         this.dropWidget('box');
       }
     });
+    // A comment on the whole file stands at its top, maybe far from where the view is.
+    this.shown.revealLineInCenterIfOutsideViewport(target.anchor);
     this.addWidget('box', node, { lineNumber: target.anchor, column: 1 }, false);
     focusLaidOut(input);
   }
