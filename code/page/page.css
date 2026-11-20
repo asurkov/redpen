@@ -8,6 +8,7 @@
   --accent: #b85c3a;
   --added: #2b7a3d;
   --removed: #b3372f;
+  --changed: #3a78c2;
   --hover: #ecebe6;
   --chosen: #e4e2da;
   --mark: #f1c04055;
@@ -24,6 +25,7 @@
     --accent: #d98a6a;
     --added: #6cc281;
     --removed: #ec8078;
+    --changed: #74a7e0;
     --hover: #32312e;
     --chosen: #3d3b37;
     --mark: #f1c04040;
@@ -127,7 +129,8 @@ button.main:hover:not(:disabled) {
 }
 
 #views button.chosen,
-#unchangedButton.chosen {
+#unchangedButton.chosen,
+#fileActions button.chosen {
   background: var(--chosen);
   color: var(--ink);
 }
@@ -408,6 +411,31 @@ body.listHidden #splitter {
 
 .currentEdge {
   border-left: 2px solid var(--accent);
+}
+
+/* With the diff hidden, a change is a mark in the margin: a bar beside added or changed lines, a
+   notch where lines were removed. */
+.addedMark {
+  border-left: 3px solid var(--added);
+}
+
+.changedMark {
+  border-left: 3px solid var(--changed);
+}
+
+.removedMark::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -4px;
+  border: 4px solid transparent;
+  border-left: 6px solid var(--removed);
+  z-index: 1;
+}
+
+.removedMark.atTop::after {
+  top: -4px;
+  bottom: auto;
 }
 
 .commentedLine {

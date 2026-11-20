@@ -92,6 +92,13 @@ export class DiffView {
     this.shown = this.editor.getModifiedEditor();
     this.marks = this.shown.createDecorationsCollection();
     this.currentEdge = this.shown.createDecorationsCollection();
+    // With the diff hidden, the editor shows the right text alone, and an unseen diff editor compares
+    // the two texts: its changes are marked in the margin and stepped through.
+    const unseen = document.body.appendChild(document.createElement('div'));
+    unseen.hidden = true;
+    this.comparer = monaco.editor.createDiffEditor(unseen, { ignoreTrimWhitespace: false, renderSideBySide: false, readOnly: true });
+    this.comparerRetired = [];
+    this.marginMarks = this.shown.createDecorationsCollection();
     this.zoneIds = [];
     // The threads' zones, what they were drawn from, and what follows their boxes' heights.
     this.threadZones = [];
@@ -111,7 +118,8 @@ export class DiffView {
     // The texts shown before, let go once the editor has compared those shown now: it may still be
     // comparing them, and fails ("no diff result available") on texts let go meanwhile.
     this.retired = [];
-    this.editor.onDidUpdateDiff(() => this.drawBars());
+    this.editor.onDidUpdateDiff(() => this.drawBars(this.editor));
+    this.comparer.onDidUpdateDiff(() => this.drawBars(this.comparer));
     // The change the cursor is put into becomes the current one.
     this.shown.onDidChangeCursorPosition(() => {
       if (!this.afterDiff) {
@@ -129,8 +137,8 @@ export class DiffView {
   // bar, the key where a key carries the action out on the current change; sides: the names of the
   // two texts, {left, right}; place: 'kept' to stay where the view is, 'last' for the last change, a
   // line's number for that line, else the first change comes into view; canComment: false for a text
-  // nothing can be said on.
-  show({ path, left, right, changeActions, canSplice, sides, threads, place, canComment = true }) {
+  // nothing can be said on; isDiffHidden: the right text alone, its changes marked in the margin.
+  show({ path, left, right, changeActions, canSplice, sides, threads, place, canComment = true, isDiffHidden = false }) {
     const was = { top: this.viewTop(), position: this.shown.getPosition(), hadCurrent: this.current >= 0 };
     const language = languageOf(path);
     const old = this.editor.getModel();
@@ -142,12 +150,23 @@ export class DiffView {
     // No change is current until the editor has compared the two texts.
     this.current = -1;
     this.afterDiff = () => this.settle(place, was);
+    this.isDiffHidden = isDiffHidden;
     this.editor.setModel({
-      original: monaco.editor.createModel(left, language),
+      original: monaco.editor.createModel(isDiffHidden ? right : left, language),
       modified: monaco.editor.createModel(right, language),
     });
     if (old) {
       this.retired.push(old);
+    }
+    if (isDiffHidden) {
+      const compared = this.comparer.getModel();
+      this.comparer.setModel({
+        original: monaco.editor.createModel(left, 'plaintext'),
+        modified: monaco.editor.createModel(right, 'plaintext'),
+      });
+      if (compared) {
+        this.comparerRetired.push(compared);
+      }
     }
     if (place === 'kept') {
       this.scrollTo(was.top);
@@ -506,29 +525,38 @@ export class DiffView {
     return zone;
   }
 
-  drawBars() {
-    const changes = this.editor.getLineChanges();
+  // Draws the changes the diff editor by has found, once it has compared its texts, or says there
+  // are none yet; by is the editor or, with the diff hidden, the comparer.
+  drawBars(by) {
+    const changes = by.getLineChanges();
+    if (changes) {
+      for (const { original, modified } of (by === this.editor ? this.retired : this.comparerRetired).splice(0)) {
+        original.dispose();
+        modified.dispose();
+      }
+    }
+    // With the diff hidden, the editor compares the right text with itself: its finding is none.
+    if (by !== (this.isDiffHidden ? this.comparer : this.editor)) {
+      return;
+    }
     this.changes = changes || [];
-    const zones = this.changes.map(change => this.bar(change));
+    this.marginMarks.set(this.isDiffHidden ? this.changes.map(marginMark) : []);
+    const zones = this.isDiffHidden ? [] : this.changes.map(change => this.bar(change));
     this.bars = zones.map(zone => zone.firstChild);
     this.shown.changeViewZones(accessor => {
       this.zoneIds.forEach(id => accessor.removeZone(id));
-      this.zoneIds = this.changes.map((change, index) => accessor.addZone({
-        afterLineNumber: change.modifiedEndLineNumber || change.modifiedStartLineNumber,
+      this.zoneIds = zones.map((zone, index) => accessor.addZone({
+        afterLineNumber: this.changes[index].modifiedEndLineNumber || this.changes[index].modifiedStartLineNumber,
         // Under the editor's own zone, the removed lines, when both stand after one line.
         ordinal: 10001,
         heightInPx: barHeight,
-        domNode: zones[index],
+        domNode: zone,
         suppressMouseDown: true,
       }));
     });
     if (!changes) {
       // The editor has not compared the texts yet: it says so again once it has.
       return;
-    }
-    for (const { original, modified } of this.retired.splice(0)) {
-      original.dispose();
-      modified.dispose();
     }
     if (this.afterDiff) {
       this.afterDiff();
@@ -793,6 +821,29 @@ function lastLineOf(change) {
 
 function holds(change, line) {
   return firstLineOf(change) <= line && line <= lastLineOf(change);
+}
+
+// A change's mark in the margin, with the diff hidden: a bar beside its lines, green for added ones
+// and blue for changed ones, or, for lines removed alone, a red notch where they were.
+function marginMark(change) {
+  const { Left } = monaco.editor.OverviewRulerLane;
+  if (!(change.modifiedEndLineNumber > 0)) {
+    const isAtTop = change.modifiedStartLineNumber < 1;
+    const line = Math.max(1, change.modifiedStartLineNumber);
+    return {
+      range: new monaco.Range(line, 1, line, 1),
+      options: { linesDecorationsClassName: isAtTop ? 'removedMark atTop' : 'removedMark', overviewRuler: { color: '#b3372f', position: Left } },
+    };
+  }
+  const isAdded = !(change.originalEndLineNumber > 0);
+  return {
+    range: new monaco.Range(change.modifiedStartLineNumber, 1, change.modifiedEndLineNumber, 1),
+    options: {
+      isWholeLine: true,
+      linesDecorationsClassName: isAdded ? 'addedMark' : 'changedMark',
+      overviewRuler: { color: isAdded ? '#2b7a3d' : '#3a78c2', position: Left },
+    },
+  };
 }
 
 function linesOf(model, start, end) {

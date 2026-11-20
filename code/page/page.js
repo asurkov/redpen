@@ -51,6 +51,8 @@ const state = {
   opened: null,
   signature: null,
   isText: false,
+  // Whether All shows its diff; else the file as it is, its changes marked in the margin.
+  isAllDiffShown: false,
   areOthersOpen: false,
   // The list's folders folded by hand, by their paths with the closing slash; and of those with no
   // changed file in them, the ones opened by hand.
@@ -450,6 +452,10 @@ async function show(key, place) {
   byId('filePath').title = file.path;
   byId('fileCounts').replaceChildren(...counts(file[state.view]));
   byId('fileActions').replaceChildren();
+  if (isText && state.view === 'all') {
+    const diff = button(byId('fileActions'), 'Diff', toggleAllDiff, `quiet${state.isAllDiffShown ? ' chosen' : ''}`);
+    diff.title = 'Show the removed lines and the changes in colour; off, the file as it is, its changes marked in the margin (d)';
+  }
   if (isText) {
     button(byId('fileActions'), 'Comment', () => diffView.openBox(diffView.fileTarget()), 'quiet').title = 'Comment for Claude on the whole file';
   }
@@ -468,8 +474,17 @@ async function show(key, place) {
       sides: { left: view.left, right: view.right },
       threads: state.threads.filter(thread => thread.key === key),
       place,
+      isDiffHidden: state.view === 'all' && !state.isAllDiffShown,
     });
   }
+}
+
+// Shows All's diff, or hides it for the file as it is; the view stays where it is.
+function toggleAllDiff() {
+  return queued(() => {
+    state.isAllDiffShown = !state.isAllDiffShown;
+    return show(state.key, 'kept');
+  });
 }
 
 // What an action was on: a change, the selected lines of some (a list), or the whole file.
@@ -610,7 +625,7 @@ function stepThread(direction) {
 
 // The page's keys: n or j and p or k step through the changes, as Alt+↓ and Alt+↑ do; a carries out
 // the current change's own action; r opens a comment on the selected text, or else on that change;
-// t and Shift+t step through the threads.
+// t and Shift+t step through the threads; d shows or hides All's diff.
 function takeKey(event) {
   const key = (event.altKey ? 'Alt+' : '') + event.key;
   // A letter typed into a field is the field's; the editor's own text is no such field.
@@ -629,6 +644,10 @@ function takeKey(event) {
     // One press, one change: a key held down does not go on accepting.
     if (state.isText && !event.repeat) {
       diffView.actByKey(key);
+    }
+  } else if (key === 'd') {
+    if (state.view === 'all' && state.key && state.isText) {
+      toggleAllDiff();
     }
   } else if (key === 'r') {
     if (state.plain) {

@@ -32,7 +32,9 @@ What to tell the user when it matters:
   away; rejecting a file the session created moves it to the Trash.
 - **Accepted** is what was accepted (the text before the session → accepted text). **Unaccept** makes
   a change pending again; the file is not touched.
-- **All** is everything the session changed, pending or accepted, with no buttons.
+- **All** is everything the session changed, pending or accepted, with no buttons: the file as it is,
+  its changes marked in the margin (green added, blue changed, a red notch where lines were removed)
+  and on the scrollbar. **Diff** in the file bar, or `d`, shows the removed lines and colours again.
 - **History** lists every accept, reject and unaccept with Undo/Redo. An entry whose text changed
   since is greyed out.
 - A comment (select text → Comment, Comment under a change, or Comment in the file bar for the
