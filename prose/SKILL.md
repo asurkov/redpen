@@ -448,18 +448,18 @@ clones and the server's log in `<dir>` instead of `~/.docdiff`, so a test server
 sees nor writes the reviews in use, and `DOCDIFF_GITHUB_API=<url>` sends its GitHub API calls, reads and
 pushes, to a stand-in at url.
 
-**Keeping it running.** The server's `--install-agent` prints a LaunchAgent, `com.asurkov.redpen`, which starts the
+**Keeping it running.** The server's `--install-agent` prints a LaunchAgent, `redpen`, which starts the
 server at login and again whenever it stops, its PATH set to find pandoc and git, its output in the same
 log. It is not installed until the user says so, as it changes their Mac for good; then:
 
 ```bash
-python3 -I ~/.claude/skills/redpen/base/server.py --install-agent > ~/Library/LaunchAgents/com.asurkov.redpen.plist
+python3 -I ~/.claude/skills/redpen/base/server.py --install-agent > ~/Library/LaunchAgents/redpen.plist
 python3 -I ~/.claude/skills/redpen/base/server.py --stop
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.asurkov.redpen.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/redpen.plist
 ```
 
 Under it, `--restart` has launchd restart the server, and `--stop` amounts to a restart, as launchd
-starts it again. To remove it: `launchctl bootout gui/$(id -u)/com.asurkov.redpen`, then delete the
+starts it again. To remove it: `launchctl bootout gui/$(id -u)/redpen`, then delete the
 plist. launchd starts the server with none of the shell's environment, so a `GITHUB_TOKEN` set there does
 not reach it: to push comments to a PR or resolve its threads from it, the plist needs `GITHUB_TOKEN` under
 `EnvironmentVariables`, where the token then sits in plain text.

@@ -32,7 +32,7 @@ module_name = 'redpen_base_server'
 scripts = {'prose': root / 'prose/docdiff.py', 'code': root / 'code/review.py'}
 # Where each part's requests are: prose's reviews keep the addresses they had.
 mounts = {'prose': '', 'code': '/code'}
-agent_label = 'com.asurkov.redpen'
+agent_label = 'redpen'
 log = pathlib.Path.home() / '.redpen/server.log'
 
 # Each part's code as last loaded: its sources and the module (see live()).
