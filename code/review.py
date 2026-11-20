@@ -46,7 +46,9 @@ names the repository, the base commit and the session that made it, in place of 
 each file that differs from the base commit has that commit's text as its orig and as its first
 baseline. Its files are found when the command runs and each time its page loads; git is only read.
 The review of a branch against another commit than HEAD follows its base: when the branch was rebased,
-the record is carried over to the new base commit then too (carried()), under the name it has.
+the record is carried over to the new base commit then too (carried()), under the name it has. One
+against HEAD keeps its base through commits made on top, and is carried over to HEAD once an amend or
+a rebase rewrote the branch (is_rewritten()).
 """
 import argparse, datetime, filecmp, functools, hashlib, importlib.util, json, os, pathlib, re, subprocess, sys
 import tempfile, threading, time, urllib.parse
@@ -860,22 +862,38 @@ def branch_of(info):
     return title[len(lead):-len(tail)] if title.startswith(lead) and title.endswith(tail) else ''
 
 
+def is_against_head(info):
+    """Whether a git review is against HEAD, or a commit HEAD names (HEAD~1, @^)."""
+    return bool(re.fullmatch(r'(HEAD|@)([~^].*)?', info['spec']))
+
+
 def is_followed(info):
     """Whether a git review follows its base: the review of a branch against another commit than its
     own HEAD. Against HEAD a rebase cannot be told from new work, and with no branch checked out
     (a rebase half done is so) there is none to follow."""
-    return not re.fullmatch(r'(HEAD|@)([~^].*)?', info['spec']) and branch_of(info) not in ('', 'HEAD')
+    return not is_against_head(info) and branch_of(info) not in ('', 'HEAD')
+
+
+def is_rewritten(info):
+    """Whether a review against HEAD lost its base: HEAD no longer comes from that commit, as an amend
+    or a rebase of its branch rewrote it. A commit made on top keeps the base, and the work it took in
+    stays in the review."""
+    return (is_against_head(info) and branch_of(info) not in ('', 'HEAD')
+            and git(info['repo'], 'merge-base', '--is-ancestor', info['base'], 'HEAD') is None)
 
 
 def record_named(info):
     """The name of the record of the git review info describes: the one there is of the repository
     and the spec, of the same branch whatever its base when the review follows its base, else of the
-    same base; the one refreshed last of several. With none, a new name, of the base it starts
-    from: a record keeps its name, and its page's URL, when its base moves."""
+    same base, or, against HEAD, of the same branch when an amend or a rebase rewrote it since; the
+    one refreshed last of several. With none, a new name, of the base it starts from: a record keeps
+    its name, and its page's URL, when its base moves."""
     def is_same(other):
         if (other['repo'], other['spec'], is_followed(other)) != (info['repo'], info['spec'], is_followed(info)):
             return False
-        return branch_of(other) == info['branch'] if is_followed(info) else other['base'] == info['base']
+        if is_followed(info):
+            return branch_of(other) == info['branch']
+        return other['base'] == info['base'] or branch_of(other) == info['branch'] and is_rewritten(other)
 
     found = [(str(other.get('updated') or ''), place.parent.name) for place in store.glob('git-*/git.json')
              for other in [git_info(place.parent)] if other and is_same(other)]
@@ -974,10 +992,11 @@ def carried(record, base):
 
 
 def followed(review):
-    """Carries a git review that follows its base over to the commit its branch and spec both come
-    from now, if that is another one: the branch was rebased. Says whether it was."""
+    """Carries a git review that follows its base, or one against HEAD whose branch was amended or
+    rebased, over to the commit its branch and spec both come from now, if that is another one. Says
+    whether it was."""
     info = review.git
-    if not info or not is_followed(info):
+    if not info or not (is_followed(info) or is_rewritten(info)):
         return False
     branch = (git(info['repo'], 'rev-parse', '--abbrev-ref', 'HEAD') or b'').decode().strip()
     base = (git(info['repo'], 'merge-base', info['spec'], 'HEAD') or b'').decode().strip()

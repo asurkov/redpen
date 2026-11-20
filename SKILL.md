@@ -134,6 +134,9 @@ branch's upstream, else `HEAD`. The script prints the page's URL,
   A review is found by its repository, `REV` and branch.
 - Against `HEAD`, or with no branch checked out, what was accepted stays accepted while the base
   commit is the same; another base commit (after a commit) is another review, with nothing accepted.
+  Once an amend or a rebase rewrote the branch, so that `HEAD` no longer comes from the base, the
+  review against `HEAD` is carried over to `HEAD` as above, under the same URL: with everything
+  committed it has nothing pending.
 - The page shows the files the record has at once and looks for others behind it (the header says
   so while it does). A file that changes after the page was opened appears when the page is reloaded
   or the command is run again.
