@@ -153,7 +153,10 @@ python3 ~/.claude/skills/redpen/code/review.py --git [REPO] [--base REV]
 ```
 
 The same page for a git work tree: every file that differs from a commit, whoever changed it and how
-(any session, a shell command, the user), untracked files included and ignored ones not. Use it for a
+(any session, a shell command, the user), untracked files included and ignored ones not, and in each
+submodule that differs, its files that differ from the commit the base keeps for it (a submodule
+moved to another commit shows the files that commit changed; one added or taken away, or whose base
+commit it does not have, is not followed; Reject writes its files, not its commit). Use it for a
 whole change, such as a CL made over several sessions. `REPO` is a folder in the work tree (default: the
 current one). The base is the commit the work tree and `REV` both come from: `--base origin/main` for a
 branch with its commits, `--base HEAD` for uncommitted work alone. With no `--base`, `REV` is the
@@ -284,7 +287,8 @@ before the session and as accepted) and `base/<key>` (the file's baseline: its t
 the session's first edit to it, or as last kept or accepted; a file the session created has none until
 then). The title is the one the desktop app shows, else the session's first prompt. Of a shell
 command, only what an `rm`, `mv`, `unlink`, `trash` or `find -delete` in it did in a git work tree the
-session works in (the command's folder's, and its recorded files') is recorded: a tracked file it
+session works in (the command's folder's, its recorded files', and those the paths it names are in,
+a submodule's included) is recorded: a tracked file it
 deleted, with its last committed text as its baseline, and a file it made, as new; git's status before
 and after the command tells them, of the places the command names (the whole tree when it names
 none). The review page keeps its own state beside them, in the record's `review/`

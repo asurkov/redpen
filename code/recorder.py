@@ -179,11 +179,15 @@ def stage_shell(session, data, name):
     cwd = data.get('cwd') or '/'
     trees = {}
     if moving.search(command):
-        named = named_paths(command, cwd)
-        for top in work_trees(session, cwd):
+        # As git spells them: its work trees' tops are real paths.
+        named = [os.path.realpath(path) for path in named_paths(command, cwd)]
+        # Each path is asked of the work tree it is in: a submodule's, not the one around it, which
+        # refuses a path in a submodule and with it the rest.
+        owners = {path: tree_of(path) for path in named}
+        for top in sorted(set(work_trees(session, cwd)) | {top for top in owners.values() if top}):
             # In a large tree git's status takes seconds: it is asked of the paths the command names
             # in the tree alone, and of a tree it names none in, not at all, unless it names no path.
-            paths = [path for path in named if path == top or path.startswith(f'{top}/')]
+            paths = [path for path, owner in owners.items() if owner == top]
             if paths or not named:
                 trees[top] = {'paths': paths, 'changed': changed(top, paths)}
     # Of a chmod, whether each file it names is executable before it: in a git work tree or not.
@@ -280,6 +284,15 @@ def named_paths(command, cwd):
             elif '/' in word and os.path.isdir(os.path.dirname(path)):
                 paths.add(path)
     return sorted(paths)
+
+
+def tree_of(path):
+    """The top of the git work tree a path is in, the innermost (a submodule's); None outside one."""
+    folder = path if os.path.isdir(path) else os.path.dirname(path)
+    while folder != '/' and not os.path.isdir(folder):
+        folder = os.path.dirname(folder)
+    top = git(folder, 'rev-parse', '--show-toplevel')
+    return os.fsdecode(top).rstrip('\n') if top else None
 
 
 def named_files(command, cwd):

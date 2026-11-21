@@ -65,9 +65,10 @@ shown_bytes = 16 << 20
 # How a symbolic link is kept as a text, before where it points: no text the page reads starts with
 # it, so one that does is a link to make, not bytes to write. recorder.py keeps links the same way.
 link_mark = b'\0symlink\0'
-# The modes git keeps a link and an executable file in.
+# The modes git keeps a link, an executable file and a submodule in.
 link_mode = b'120000'
 executable_mode = b'100755'
+submodule_mode = b'160000'
 # A git review of more changed files than this is refused: the base is not the one meant.
 scanned_files = 5000
 # The most files of one folder the page's full tree lists.
@@ -1280,6 +1281,9 @@ def carried(record, base):
             k, name = entry.stem, os.path.relpath(file['path'], top)
             if name.startswith('..') or moved is not None and name not in moved:
                 continue
+            # A submodule's file is compared with a commit of its own: the work tree's moving leaves it.
+            if repository_top(os.path.dirname(file['path'])) not in (None, str(top)):
+                continue
             places = {'orig': record / 'review/orig' / k, 'none': record / 'review/orig' / f'{k}.none',
                       'base': record / 'base' / k}
             orig, accepted = read_bytes(places['orig']), read_bytes(places['base'])
@@ -1343,30 +1347,38 @@ def followed(review):
 
 def scanned(record, info):
     """Adds to a git review's record each file that differs from the base commit now, tracked or not
-    (ignored ones apart), with that commit's text as its orig and its baseline. A file the record has
-    stays as it is, so what was accepted stays accepted. Returns how many it added."""
+    (ignored ones apart), with that commit's text as its orig and its baseline; and of each submodule
+    that differs, each of its files that differs from the commit the base keeps for it, with that
+    commit's text. A file the record has stays as it is, so what was accepted stays accepted. Returns
+    how many it added."""
     top = pathlib.Path(info['repo'])
-    # Of each file changed, its modes at the base and now, which say a link (120000).
-    changed = git(top, 'diff', '--raw', '-z', '--no-renames', '--ignore-submodules', info['base'], '--')
-    untracked = git(top, 'ls-files', '--others', '--exclude-standard', '-z')
-    if changed is None or untracked is None:
-        raise Refusal(404, f'git could not compare {top} with {info["base"][:10]}.')
-    parts = changed.split(b'\0')
-    modes = {os.fsdecode(name): header[1:].split(b' ')[:2] for header, name in zip(parts[0::2], parts[1::2])
-             if header.startswith(b':')}
-    names = sorted(set(modes) | {os.fsdecode(name) for name in untracked.split(b'\0') if name})
-    if len(names) > scanned_files:
-        raise Refusal(413, f'{len(names)} files differ from {info["spec"]}: not a change to review file by file.')
+    # The work tree and, under it, each submodule that differs, with the commit to compare it with:
+    # the one the base keeps for it.
+    found, trees = [], [(top, info['base'])]
+    while trees:
+        tree, base = trees.pop(0)
+        listed = changed_files(tree, base)
+        if listed is None:
+            if tree == top:
+                raise Refusal(404, f'git could not compare {top} with {info["base"][:10]}.')
+            continue
+        files, submodules = listed
+        found += [(tree, base, name, modes) for name, modes in sorted(files.items())]
+        # A submodule checked out, whose base commit it has: one added or taken away is not followed.
+        trees += [(tree / path, commit) for path, commit in submodules
+                  if (tree / path / '.git').exists() and git(tree / path, 'cat-file', '-e', f'{commit}^{{commit}}') is not None]
+        if len(found) > scanned_files:
+            raise Refusal(413, f'{len(found)} files differ from {info["spec"]}: not a change to review file by file.')
     added = 0
-    for name in names:
-        place = top / name
+    for tree, base, name, modes in found:
+        place = tree / name
         k = key(str(place))
         entry = record / 'files' / f'{k}.json'
-        is_link = link_mode in modes.get(name, ()) or place.is_symlink()
+        is_link = link_mode in modes or place.is_symlink()
         if entry.exists() or place.is_dir() and not place.is_symlink():
             continue
-        old_mode = modes.get(name, (b'',))[0]
-        old = checked_out(top, info['base'], name, old_mode == link_mode)
+        old_mode = modes[0] if modes else b''
+        old = checked_out(tree, base, name, old_mode == link_mode)
         if old is not None and old_mode == link_mode:
             old = link_mark + old
         if old is None and not os.path.lexists(place):
@@ -1383,6 +1395,32 @@ def scanned(record, info):
         write_atomic(entry, json.dumps(kept).encode())
         added += 1
     return added
+
+
+def changed_files(top, base):
+    """What differs under the work tree at top from the base commit: the files, tracked or not
+    (ignored ones apart), by their paths in it, each with its modes then and now, which say a link
+    (120000), () for an untracked one; and the submodules that differ, (path, the commit the base
+    keeps for it). None where git cannot compare."""
+    changed = git(top, 'diff', '--raw', '-z', '--no-renames', '--no-abbrev', base, '--')
+    untracked = git(top, 'ls-files', '--others', '--exclude-standard', '-z')
+    if changed is None or untracked is None:
+        return None
+    parts = changed.split(b'\0')
+    files, submodules = {}, []
+    for header, name in zip(parts[0::2], parts[1::2]):
+        if not header.startswith(b':'):
+            continue
+        old_mode, new_mode, old_commit = header[1:].split(b' ')[:3]
+        if submodule_mode in (old_mode, new_mode):
+            if old_mode == new_mode:
+                submodules.append((os.fsdecode(name), old_commit.decode()))
+            continue
+        files[os.fsdecode(name)] = (old_mode, new_mode)
+    for name in untracked.split(b'\0'):
+        if name:
+            files.setdefault(os.fsdecode(name), ())
+    return files, submodules
 
 
 def committed_text(top, commit, name):
