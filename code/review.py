@@ -367,9 +367,11 @@ def count(a, b):
     return {'added': int(found.group(1)), 'removed': int(found.group(2))}
 
 
-def moved_entry(entry, members):
-    """A journal entry as the page shows it: of an action on a moved file, at its new place, saying
-    the old one."""
+def shown_entry(entry, members):
+    """A journal entry as the page shows it: of an action on a folder's files, at the folder, saying
+    how many; of one on a moved file, at its new place, saying the old one."""
+    if entry.get('folder'):
+        return {**entry, 'path': entry['folder'], 'change': None}
     if len(members) < 2:
         return entry
     return {**entry, 'path': members[-1]['path'], 'movedFrom': members[0]['path']}
@@ -756,8 +758,16 @@ class Review:
         left, right = read_bytes(places[left_name]), read_bytes(places[right_name])
         if not isinstance(expected, dict) or (sha(left), sha(right)) != (expected.get('left'), expected.get('right')):
             raise Refusal(409, 'The file changed since it was shown.')
+        entries = self.moved_applied(key, file, old_key, old_file, action, f'move-{time.time_ns():x}')
+        if not entries:
+            raise Refusal(409, 'Nothing to do: the file changed since it was shown.')
+        return {**entries[0], 'path': file['path'], 'movedFrom': old_file['path']}
+
+    def moved_applied(self, key, file, old_key, old_file, action, group, marks=None):
+        """Carries out the action on a moved file's old place and its new one, each an entry of the
+        journal in group; returns the entries."""
+        left_name, right_name = actions[action][:2]
         entries = []
-        group = f'move-{time.time_ns():x}'
         # The old place first: a file put back is there before the new one goes. But for a file renamed
         # by its case the two places are one to the file system: the new name goes first, or putting
         # the old one back would write into it, and taking it away then would take the file.
@@ -769,14 +779,42 @@ class Review:
             member_left = self.read(member, left_name, member_places[left_name])
             member_right = self.read(member, right_name, member_places[right_name])
             if member_left != member_right:
-                entries.append(self.applied(member_key, member, action, None, member_left, member_right, group))
-        if not entries:
-            raise Refusal(409, 'Nothing to do: the file changed since it was shown.')
-        return {**entries[0], 'path': file['path'], 'movedFrom': old_file['path']}
+                entries.append(self.applied(member_key, member, action, None, member_left, member_right, group, marks))
+        return entries
 
-    def applied(self, key, file, action, change, left, right, group=None):
+    def apply_files(self, keys, action, signatures, folder):
+        """Carries out a whole-file action on each of the files, a folder's, that has something in
+        the action's view, as one entry of the journal, if each is still as the page listed it.
+        Returns that entry as the page shows it, its id the one Undo takes."""
+        if action not in actions:
+            raise Refusal(400, 'No such action.')
+        if not isinstance(keys, list) or not keys or not isinstance(signatures, dict) or not isinstance(folder, str):
+            raise Refusal(400, 'No files named.')
+        listed = {listed['key']: listed for listed in self.listing()['files']}
+        if any(key not in listed or listed[key]['signature'] != signatures.get(key) for key in keys):
+            raise Refusal(409, 'A file changed since the page showed it.')
+        view = {'accept': 'pending', 'reject': 'pending', 'unaccept': 'accepted'}[action]
+        todo = [key for key in keys if listed[key][view]]
+        if not todo:
+            raise Refusal(409, 'Nothing to do.')
+        left_name, right_name = actions[action][:2]
+        group = f'folder-{time.time_ns():x}'
+        marks = {'folder': folder, 'files': len(todo)}
+        entries = []
+        for key in todo:
+            file = self.file(key)
+            moved = self.move_of(key)
+            if moved:
+                entries += self.moved_applied(key, file, *moved, action, group, marks)
+                continue
+            places = self.places(key, file)
+            left, right = self.read(file, left_name, places[left_name]), self.read(file, right_name, places[right_name])
+            entries.append(self.applied(key, file, action, None, left, right, group, marks))
+        return shown_entry(entries[0], entries)
+
+    def applied(self, key, file, action, change, left, right, group=None, marks=None):
         """Writes what the action makes of the two texts, and adds it to the journal; group ties the
-        entries of one action on a moved file."""
+        entries of one action on a moved file, or a folder's files; marks go with each, the folder say."""
         right_name, target, is_left_taken = actions[action][1:]
         result = (left if is_left_taken else right) if change is None else spliced(left, right, change, is_left_taken)
         before = right if target == right_name else left
@@ -792,6 +830,7 @@ class Review:
             'after': self.kept(result),
             'isUndone': False,
             **({'group': group} if group else {}),
+            **(marks or {}),
         }
         self.write(key, file, target, result)
         # The whole file's action takes its executable bit along, as the text: [before, after].
@@ -831,7 +870,7 @@ class Review:
                 self.set_mode(member['key'], member['target'], member['executable'][0 if not member['isUndone'] else 1])
             member['isUndone'] = not member['isUndone']
         write_atomic(self.folder / 'journal.json', json.dumps(journal, indent=1).encode())
-        return moved_entry(entry, members)
+        return shown_entry(entry, members)
 
     def journal(self):
         journal = read_json(self.folder / 'journal.json', [])
@@ -861,7 +900,7 @@ class Review:
         for entry in reversed(journal):
             members = groups.get(entry.get('group')) or [entry]
             if entry is members[0]:
-                entries.append({**moved_entry(entry, members), 'canFlip': all(can_flip(member) for member in members)})
+                entries.append({**shown_entry(entry, members), 'canFlip': all(can_flip(member) for member in members)})
         return entries
 
     def kept(self, data):
@@ -1761,12 +1800,14 @@ def top_of(h, session):
 
 
 def post(h, path, body):
-    found = re.fullmatch(r'/api/([\w-]+)/(apply|flip|comment|uncomment|send|resolve)', path)
+    found = re.fullmatch(r'/api/([\w-]+)/(apply-files|apply|flip|comment|uncomment|send|resolve)', path)
     if not found:
         raise Refusal(404, 'Not found.')
     review = Review(found.group(1))
     if found.group(2) == 'apply':
         return send_json(h, review.apply(body.get('key'), body.get('action'), body.get('change'), body.get('expected')))
+    if found.group(2) == 'apply-files':
+        return send_json(h, review.apply_files(body.get('keys'), body.get('action'), body.get('signatures'), body.get('folder')))
     if found.group(2) == 'flip':
         return send_json(h, review.flip(body.get('id')))
     if found.group(2) == 'comment':

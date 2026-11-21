@@ -250,6 +250,23 @@ body.listHidden #splitter {
   color: var(--added);
 }
 
+/* A folder's Accept and Reject, for all its files: shown while the pointer or the keys are on its row. */
+.folderActions {
+  display: none;
+  flex: none;
+  gap: 4px;
+}
+
+.folder > summary:hover .folderActions,
+.folder > summary:focus-within .folderActions {
+  display: inline-flex;
+}
+
+.folderActions button {
+  padding: 0 6px;
+  font-size: 11px;
+}
+
 .file .state,
 .folder > summary .state {
   flex: none;

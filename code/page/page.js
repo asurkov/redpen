@@ -615,11 +615,35 @@ function act(action, change) {
   });
 }
 
+// Carries out a whole-file action on each file under a folder that has something in the view, as
+// one entry of History, undone with one Undo.
+function actFolder(action, folder, files) {
+  return queued(async () => {
+    try {
+      const entry = await asked('/apply-files', {
+        keys: files.map(file => file.key),
+        action,
+        signatures: Object.fromEntries(files.map(file => [file.key, file.signature])),
+        folder: folder.path,
+      });
+      toast(`${doneWords[action]} ${entry.files} file${entry.files === 1 ? '' : 's'} in ${placeName(entry)}`, 'Undo', () => flip(entry.id));
+    } catch (error) {
+      toast(error.message);
+    }
+    await refreshAll();
+  });
+}
+
+// What a History entry was on, by name: a file, or a folder its files were in.
+function placeName(entry) {
+  return entry.folder ? `${nameOf(entry.path.slice(0, -1))}/` : nameOf(entry.path);
+}
+
 function flip(id) {
   return queued(async () => {
     try {
       const entry = await asked('/flip', { id });
-      toast(`${entry.isUndone ? 'Undid' : 'Redid'}: ${doneWords[entry.action].toLowerCase()} in ${nameOf(entry.path)}`);
+      toast(`${entry.isUndone ? 'Undid' : 'Redid'}: ${doneWords[entry.action].toLowerCase()} in ${placeName(entry)}`);
     } catch (error) {
       toast(error.message);
     }
@@ -1021,6 +1045,22 @@ function drawList() {
       head.appendChild(span(`mark${isDone ? ' done' : ''}`, isDone ? '✓' : isBegun ? '◐' : '')).title =
         isDone ? 'Nothing pending in it' : isBegun ? 'Accepted in part' : '';
       head.append(span('spring', ''));
+      // The view's whole-file actions on every file in it with something in the view: shown on hover.
+      const acted = under.filter(file => file[state.view]);
+      const labels = { accept: 'Accept', reject: 'Reject', unaccept: 'Unaccept' };
+      if (acted.length && views[state.view].fileActions.length) {
+        const tools = head.appendChild(span('folderActions', ''));
+        for (const [action] of views[state.view].fileActions) {
+          const made = button(tools, labels[action], event => {
+            // The fold is not the button's.
+            event.preventDefault();
+            event.stopPropagation();
+            actFolder(action, folder, acted);
+          }, 'quiet');
+          const count = `${acted.length} file${acted.length === 1 ? '' : 's'}`;
+          made.title = { accept: `Accept the ${count} in it`, reject: `Reject the ${count} in it: their changes undone, deleted ones put back`, unaccept: `Unaccept the ${count} in it` }[action];
+        }
+      }
       if (isGone) {
         head.appendChild(span('state', 'gone')).title = 'The folder is gone, with the files deleted from it';
       }
@@ -1090,8 +1130,9 @@ async function drawJournal() {
       return row;
     }
     row.className = entry.isUndone ? 'undone' : '';
-    const what = row.appendChild(span('what', `${doneWords[entry.action]} ${whatOf(entry.change)}`));
-    what.append(span('where', entry.movedFrom ? `${nameOf(entry.movedFrom)} → ${nameOf(entry.path)}` : nameOf(entry.path)), span('when', new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
+    const done = entry.folder ? `${entry.files} file${entry.files === 1 ? '' : 's'} in` : whatOf(entry.change);
+    const what = row.appendChild(span('what', `${doneWords[entry.action]} ${done}`));
+    what.append(span('where', entry.movedFrom ? `${nameOf(entry.movedFrom)} → ${nameOf(entry.path)}` : placeName(entry)), span('when', new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
     const flipButton = button(row, entry.isUndone ? 'Redo' : 'Undo', () => flip(entry.id));
     flipButton.disabled = !entry.canFlip;
     flipButton.title = entry.canFlip ? '' : 'The file changed since';

@@ -98,7 +98,10 @@ What to tell the user when it matters:
   Unchanged files are lighter still, with no counts.
 - The list nests the files in their folders, a folder holding only one folder joined with it
   (`tests/www/unit`). A folder has ✓ when nothing in it is pending and ◐ when part of it is accepted,
-  and, folded, its lines added and removed. Stepping into a file opens the folders it is in.
+  and, folded, its lines added and removed. Stepping into a file opens the folders it is in. A
+  folder's row, under the pointer, has the view's whole-file actions for every file in it with
+  something in the view (Accept and Reject in Pending, Unaccept in Accepted): one line in History,
+  one Undo. On a folder gone with its files, Accept takes their deletion, Reject puts them back.
 - The tree starts at the top of the repository (a git review's work tree; for a session, the
   repository its files are in, else the folder they all are in). Each folder shows its changed files
   and ends in "N more" for the rest, what git ignores left out; a folder name's tooltip says how much
