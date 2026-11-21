@@ -19,7 +19,7 @@ before the session's first edit), and `prose/` reviews what git has. The ends ar
 
 | | `code/` | `prose/` |
 |---|---|---|
-| What records the changes | `recorder.py`, a Claude Code hook on its edit tools | nothing: git has them |
+| What records the changes | `recorder.py`, a Claude Code hook on its edit tools, and on its shell commands for the files they delete or move | nothing: git has them |
 | How a comment reaches the agent | `review.py --wait`, a command the skill has Claude keep waiting: a comment is handed over as it is made; else `review.py --prompt-hook`, a Claude Code hook, with the user's next message | `base/channel.py --wait`, a command the skill has Claude keep waiting on the review's `revisit.jsonl` |
 | Where the state is kept | `~/.redpen/code/<session>/`, under Claude Code's session id | `~/.docdiff/<name>/` |
 
@@ -34,7 +34,7 @@ first edit to it, which does not exist yet, and a way to hand the agent a commen
 
 | File | What |
 |---|---|
-| `recorder.py` | the hook that records a session's edits: each file's baseline, in `~/.redpen/code/<session>/` |
+| `recorder.py` | the hook that records a session's edits, and the files its shell commands delete or move: each file's baseline, in `~/.redpen/code/<session>/` |
 | `review.py` | answers the review page's requests (`/code/…` on the server), hands the page's comments to Claude (`--wait`, the command Claude keeps waiting, and `--prompt-hook`, the hook), and puts Claude's answer under a comment (`--answer`, with `--change` a link to the change made in answer) |
 | `page/` | the review page |
 | `cursor.py` | writes the record into Cursor as its inline diffs |
@@ -72,13 +72,13 @@ The hooks, in `~/.claude/settings.json`:
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
         "hooks": [{ "type": "command", "command": "python3 ~/.claude/skills/redpen/code/recorder.py pre" }]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
         "hooks": [{ "type": "command", "command": "python3 ~/.claude/skills/redpen/code/recorder.py post" }]
       }
     ],

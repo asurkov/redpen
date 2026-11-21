@@ -3,8 +3,8 @@
 
 Usage: recorder.py pre|post
 
-pre and post run as PreToolUse and PostToolUse hooks on Edit|Write|MultiEdit|NotebookEdit and read the
-hook's JSON on stdin. Each session's record is in ~/.redpen/code/<session>/:
+pre and post run as PreToolUse and PostToolUse hooks on Edit|Write|MultiEdit|NotebookEdit|Bash and read
+the hook's JSON on stdin. Each session's record is in ~/.redpen/code/<session>/:
 
   session.json      {session, title, updated}, rewritten after every edit
   files/<key>.json  {path, new}: a file the session edited; new when the session created it
@@ -14,12 +14,20 @@ hook's JSON on stdin. Each session's record is in ~/.redpen/code/<session>/:
 <key> is the first 16 hex digits of the SHA-256 of the file's path, as in Claude Code's file history.
 pre keeps the file's text in pending/ the first time the session goes to edit the file, and post moves
 it into the record once the edit has succeeded, so an edit that is denied or fails records nothing.
+
+Of a shell command that can delete or move files (rm, mv, unlink, trash, find -delete), pre keeps what
+git says is deleted and made in the work trees the session works in, of the places the command names
+(all of the trees when it names none), and post records what the command changed of it: a tracked file it deleted, with its last committed text as its baseline, and a
+file it made, as new. Anything else a shell command does is not recorded.
 A failure never blocks an edit: it goes to stderr and the exit status stays 0.
 """
-import datetime, hashlib, json, os, pathlib, re, sys, tempfile
+import datetime, hashlib, json, os, pathlib, re, shlex, subprocess, sys, tempfile
 
 home = pathlib.Path.home()
 store = home / '.redpen/code'
+# A shell command that can delete or move files: an rm, mv, unlink or trash among its words, or find's
+# -delete.
+moving = re.compile(r'(^|[\s;&|(`])(rm|mv|unlink|trash)(?=\s)|\s-delete(?=\s|;|$)')
 
 
 def key(path):
@@ -101,6 +109,119 @@ def commit(session, path):
     (pending / k).unlink(missing_ok=True)
 
 
+def stage_shell(session, data, name):
+    """Before a shell command that can delete or move files: keeps what git says is deleted and made
+    in the work trees the session works in."""
+    command = (data.get('tool_input') or {}).get('command') or ''
+    if not moving.search(command):
+        return
+    cwd = data.get('cwd') or '/'
+    named = named_paths(command, cwd)
+    kept = {}
+    for top in work_trees(session, cwd):
+        # In a large tree git's status takes seconds: it is asked of the paths the command names in
+        # the tree alone, and of a tree it names none in, not at all, unless it names no path.
+        paths = [path for path in named if path == top or path.startswith(f'{top}/')]
+        if paths or not named:
+            kept[top] = {'paths': paths, 'changed': changed(top, paths)}
+    if kept:
+        write_atomic(store / session / 'pending' / name, json.dumps(kept).encode())
+
+
+def commit_shell(session, name):
+    """After the command: records a tracked file it deleted, with its last committed text as its
+    baseline, and a file it made, as new; one the record has stays as it is. Says whether it
+    recorded any."""
+    staged = store / session / 'pending' / name
+    before = read_json(staged)
+    staged.unlink(missing_ok=True)
+    added = False
+    for top, kept in (before or {}).items():
+        was = kept['changed']
+        for path, kind in changed(top, kept['paths']).items():
+            if was.get(path) == kind or (store / session / 'files' / f'{key(path)}.json').exists():
+                continue
+            if kind == 'gone':
+                old = git(top, 'show', f'HEAD:{os.path.relpath(path, top)}')
+                if old is None:
+                    continue
+                record(session, path, old)
+            else:
+                record(session, path, None)
+            added = True
+    return added
+
+
+def work_trees(session, cwd):
+    """The tops of the git work trees the session works in: the command's folder's, and its recorded
+    files'."""
+    folders = {cwd}
+    for entry in (store / session / 'files').glob('*.json'):
+        path = (read_json(entry) or {}).get('path')
+        if isinstance(path, str):
+            folders.add(os.path.dirname(path))
+    tops = set()
+    for folder in folders:
+        top = git(folder, 'rev-parse', '--show-toplevel') if os.path.isdir(folder) else None
+        if top:
+            tops.add(os.fsdecode(top).rstrip('\n'))
+    return sorted(tops)
+
+
+def named_paths(command, cwd):
+    """The places a shell command names, read from the command's folder and from each folder a cd in
+    it goes to: of a word that is a file, its folder, where a file moved next to it lands too; of one
+    that is a folder, the folder; and of one with a / in it, in a folder that is there, the path, a *
+    in it matching as in a git pathspec."""
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        words = command.split()
+    folders = [cwd] + [os.path.normpath(os.path.join(cwd, os.path.expanduser(word)))
+                       for before, word in zip([''] + words, words) if before == 'cd']
+    paths = set()
+    for before, word in zip([''] + words, words):
+        # Where a command runs (cd's, git -C's) is no place it changes.
+        if word.startswith('-') or before in ('cd', '-C'):
+            continue
+        for folder in folders:
+            path = os.path.normpath(os.path.join(folder, os.path.expanduser(word)))
+            if os.path.isdir(path) and not os.path.islink(path):
+                paths.add(path)
+            elif os.path.lexists(path):
+                paths.add(os.path.dirname(path))
+            elif '/' in word and os.path.isdir(os.path.dirname(path)):
+                paths.add(path)
+    return sorted(paths)
+
+
+def changed(top, paths=()):
+    """The files git says are deleted ('gone') and made ('made') in the work tree at top, by their
+    paths; of the paths named alone, if any; ignored ones left out."""
+    out = git(top, 'status', '--porcelain', '-z', '--no-renames', '--untracked-files=all', '--', *paths)
+    found = {}
+    for item in (out or b'').split(b'\0'):
+        if len(item) < 4:
+            continue
+        x, y, path = chr(item[0]), chr(item[1]), os.path.join(top, os.fsdecode(item[3:]))
+        if 'D' in (x, y) and x != 'A':
+            found[path] = 'gone'
+        elif x + y == '??' or x == 'A' and y != 'D':
+            found[path] = 'made'
+    return found
+
+
+def git(folder, *args):
+    """What a git command prints, run in the folder without writing to its repository; None when it
+    fails."""
+    try:
+        ran = subprocess.run(['git', '-C', str(folder), *args], capture_output=True,
+                             env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
+    except OSError:
+        return None
+    return None if ran.returncode else ran.stdout
+
+
 def touch(session, transcript):
     """Rewrites session.json with the session's current title and the time now."""
     info = store / session / 'session.json'
@@ -160,6 +281,14 @@ def main():
     if not re.fullmatch(r'[\w-]+', session):
         return
     tool_input = data.get('tool_input') or {}
+    if data.get('tool_name') == 'Bash':
+        # What pre kept, by the call it was kept for.
+        name = f"shell-{key(data.get('tool_use_id') or tool_input.get('command') or '')}.json"
+        if sys.argv[1] == 'pre':
+            stage_shell(session, data, name)
+        elif commit_shell(session, name):
+            touch(session, data.get('transcript_path', ''))
+        return
     path = tool_input.get('file_path') or tool_input.get('notebook_path')
     if not path:
         return

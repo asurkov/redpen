@@ -23,8 +23,9 @@ this session, `http://127.0.0.1:7878/code/s/<session>/`. Open that URL in the Br
 (`preview_start` with `url`, or `navigate`) and tell the user it is open. Do not click Accept, Reject or
 Unaccept there yourself, nor press `a`: those are the user's.
 
-The page shows what the session's Edit and Write calls changed, not what a shell command changed;
-a [git review](#a-git-review) shows a work tree's every change.
+The page shows what the session's Edit and Write calls changed, and the files its shell commands
+deleted or moved in a git work tree (shown "gone", and the moved-to file "new"), not the rest of what a
+shell command changed; a [git review](#a-git-review) shows a work tree's every change.
 
 What to tell the user when it matters:
 - **Pending** is what is not accepted yet (accepted text → the file). **Accept** records a change as
@@ -242,13 +243,17 @@ server".
 
 ## The record
 
-`code/recorder.py` runs as a PreToolUse and PostToolUse hook on Edit|Write|MultiEdit|NotebookEdit (set in
+`code/recorder.py` runs as a PreToolUse and PostToolUse hook on Edit|Write|MultiEdit|NotebookEdit|Bash (set in
 `~/.claude/settings.json`) and records every session's edits as they happen in
 `~/.redpen/code/<session>/`: `session.json` (title, time of the last edit), `files/<key>.json` (the
 path, and whether the session created the file) and `base/<key>` (the file's baseline: its text before
 the session's first edit to it, or as last kept or accepted; a file the session created has none until
-then). The title is the one the desktop app shows, else the session's first prompt. Edits made through
-Bash are not recorded. The review page keeps its own state beside them, in the record's `review/`
+then). The title is the one the desktop app shows, else the session's first prompt. Of a shell
+command, only what an `rm`, `mv`, `unlink`, `trash` or `find -delete` in it did in a git work tree the
+session works in (the command's folder's, and its recorded files') is recorded: a tracked file it
+deleted, with its last committed text as its baseline, and a file it made, as new; git's status before
+and after the command tells them, of the places the command names (the whole tree when it names
+none). The review page keeps its own state beside them, in the record's `review/`
 folder; of the comments: `comments.json`, those waiting to be sent, `sent.jsonl`, the batches sent,
 `handed.jsonl`, which of the batches Claude was handed and how (`base/channel.py` keeps it), and
 `answers.jsonl`, Claude's answers and the threads the user resolved.
