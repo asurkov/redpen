@@ -102,7 +102,14 @@ What to tell the user when it matters:
   seconds.
 - Files under `~/.claude` and temporary folders are listed apart, under "other", but for those in a
   git repository of their own under `~/.claude`, such as a skill's: they are the work, in its tree.
-- The page follows the files: an edit by Claude or the user shows up within two seconds.
+- The page follows the files: an edit by Claude or the user shows up within two seconds. An action
+  on a text that changed since the page showed it is refused, and the page shows it anew.
+- A session's diff is against the file before the session's first edit to it, so a change made
+  since by someone or something else (another session, the user, a formatter, a shell command the
+  recorder does not follow) shows as the session's. Such a file says **edited elsewhere**, in the
+  list and the file bar, from the moment it differs from how the session's last edit (or the page's
+  Reject) left it, for good once the session edits it again; Reject's tooltip warns that it undoes
+  those changes too.
 
 **Waiting for comments.** After opening the page, keep one background Bash command
 (`run_in_background`) waiting for the comments the user sends from it:

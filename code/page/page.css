@@ -264,8 +264,9 @@ body.listHidden #splitter {
   font-family: ui-monospace, Menlo, monospace;
 }
 
-/* A file whose accepted lines a rebase did not carry over. */
-.file .state.again {
+/* A file whose accepted lines a rebase did not carry over, or one edited elsewhere: look again. */
+.file .state.again,
+#fileCounts .state.again {
   color: var(--accent);
 }
 

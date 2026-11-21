@@ -254,6 +254,8 @@ def image_type(data):
 
 counts = {}
 likenesses = {}
+# The hash of a file as it is, by its place and signature: remembered until the file changes.
+disk_hashes = {}
 # How alike a file gone from its place and a new file must be to be one file moved, as git's rename
 # threshold has it.
 moved_likeness = 0.5
@@ -428,6 +430,25 @@ class Review:
             kept = {**file, 'executable': {**(file.get('executable') or {}), target: is_on}}
             write_atomic(self.record / 'files' / f'{key}.json', json.dumps(kept).encode())
 
+    def is_edited_elsewhere(self, key, file, disk, disk_signature):
+        """Whether a session's file was changed by someone or something else since the session's last
+        edit to it: now, or before an edit of the session's since (marked so by the recorder). A git
+        review's changes are anyone's."""
+        if self.git:
+            return False
+        if (self.record / 'outside' / key).exists():
+            return True
+        try:
+            after = (self.record / 'after' / key).read_text()
+        except OSError:
+            return False
+        slot = (str(disk), disk_signature, bool(file.get('link')))
+        if slot not in disk_hashes:
+            if len(disk_hashes) > 4000:
+                disk_hashes.clear()
+            disk_hashes[slot] = sha(self.read(file, 'disk', disk))
+        return disk_hashes[slot] != after
+
     @staticmethod
     def read(file, name, place):
         """One of the file's texts; of a link, at its own place, the link itself, not what it points to."""
@@ -506,6 +527,7 @@ class Review:
                 files[-1]['pending'] = files[-1]['pending'] or (None if is_kept else unchanged)
                 files[-1]['accepted'] = files[-1]['accepted'] or (unchanged if is_kept else None)
                 files[-1]['all'] = files[-1]['all'] or unchanged
+            files[-1]['isEditedElsewhere'] = self.is_edited_elsewhere(key, file, places['disk'], signatures['disk'])
             # What was accepted in it was lost to a rebase, and something of it is to look at.
             is_uncarried = file.get('uncarried') or moved_from and moved_from[1].get('uncarried')
             files[-1]['isUncarried'] = bool(is_uncarried) and files[-1]['pending'] is not None
@@ -709,19 +731,11 @@ class Review:
 
     def write(self, key, file, target, data):
         place = self.places(key, file)[target]
-        if target == 'disk' and file.get('link'):
-            return write_link_place(place, data)
         if target == 'disk':
-            if data is None:
-                # As the Claude Edits pane undoes a file the session created.
-                ran = subprocess.run(['/usr/bin/trash', str(place)], capture_output=True, text=True)
-                if ran.returncode:
-                    raise Refusal(500, f'Could not move the file to the Trash: {ran.stderr.strip()}')
-                return
-            place.parent.mkdir(parents=True, exist_ok=True)
-            # In place: the file keeps its mode and its links.
-            with open(place, 'wb') as f:
-                f.write(data)
+            self.write_disk(file, place, data)
+            # What the review writes is not someone else's change: the session's hash follows it.
+            if not self.git and (self.record / 'after' / key).exists():
+                write_atomic(self.record / 'after' / key, sha(self.read(file, 'disk', place)).encode())
         elif data is None:
             # As the Claude Edits pane keeps a deleted file: no baseline, and new.
             place.unlink(missing_ok=True)
@@ -729,6 +743,22 @@ class Review:
             write_atomic(self.record / 'files' / f'{key}.json', json.dumps(kept).encode())
         else:
             write_atomic(place, data)
+
+    @staticmethod
+    def write_disk(file, place, data):
+        """Puts the text in the file itself, or with none, takes the file away."""
+        if file.get('link'):
+            return write_link_place(place, data)
+        if data is None:
+            # As the Claude Edits pane undoes a file the session created.
+            ran = subprocess.run(['/usr/bin/trash', str(place)], capture_output=True, text=True)
+            if ran.returncode:
+                raise Refusal(500, f'Could not move the file to the Trash: {ran.stderr.strip()}')
+            return
+        place.parent.mkdir(parents=True, exist_ok=True)
+        # In place: the file keeps its mode and its links.
+        with open(place, 'wb') as f:
+            f.write(data)
 
     def comments(self):
         comments = read_json(self.folder / 'comments.json', [])

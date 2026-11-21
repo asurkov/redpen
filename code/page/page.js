@@ -509,7 +509,7 @@ async function show(key, place) {
   const endingsChange = endings.every(Boolean) && endings[0] !== endings[1] && !isEndingsOnly
     ? [Object.assign(span('state mode', `${endings[0]} → ${endings[1]}`), { title: 'The line endings changed too: the diff compares lines, not how they end' })]
     : [];
-  byId('fileCounts').replaceChildren(...endingsChange, ...modeChange(file, state.view), ...counts(file[state.view]));
+  byId('fileCounts').replaceChildren(...endingsChange, ...modeChange(file, state.view), ...editedElsewhere(file), ...counts(file[state.view]));
   byId('fileActions').replaceChildren();
   if (isShown && state.view === 'all') {
     const diff = button(byId('fileActions'), 'Diff', toggleAllDiff, `quiet${state.isAllDiffShown ? ' chosen' : ''}`);
@@ -524,6 +524,9 @@ async function show(key, place) {
       made.title = { accept: 'Keep the move', reject: `Put the file back at ${file.movedFrom}`, unaccept: 'Make the move pending again' }[action];
     } else if (file.isLink && action === 'reject') {
       made.title = 'Put the link back as it was, or take a new one away';
+    }
+    if (file.isEditedElsewhere && action === 'reject') {
+      made.title = `${made.title ? `${made.title}. ` : ''}The file was edited elsewhere too: this undoes those edits as well`;
     }
   }
   byId('work').classList.toggle('bare', !isShown);
@@ -763,6 +766,17 @@ function endingsOf(text) {
   return kinds.length > 1 ? 'mixed' : kinds[0] || '';
 }
 
+// A session's file changed since its last edit by someone or something else: its diff shows those
+// changes as the session's.
+function editedElsewhere(file) {
+  if (!file.isEditedElsewhere) {
+    return [];
+  }
+  const made = span('state again', 'edited elsewhere');
+  made.title = 'Changed since this session\'s last edit to it by someone or something else (another session, you, a formatter, a shell command): its diff shows those changes as the session\'s, and Reject undoes them too';
+  return [made];
+}
+
 // The file made executable in the view, or no longer: +x or −x; else nothing.
 function modeChange(file, view) {
   const [before, after] = [file.mode?.[views[view].left], file.mode?.[views[view].right]];
@@ -908,7 +922,7 @@ function drawList() {
     if (file.isLink) {
       made.appendChild(span('state', 'link')).title = 'A symbolic link: its change is where it points, accepted or rejected whole';
     }
-    made.append(...modeChange(file, isFaded ? 'all' : state.view));
+    made.append(...modeChange(file, isFaded ? 'all' : state.view), ...editedElsewhere(file));
     if (file.isGone || file.isNew) {
       made.append(span('state', file.isGone ? 'gone' : 'new'));
     }

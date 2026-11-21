@@ -12,6 +12,10 @@ the hook's JSON on stdin. Each session's record is in ~/.redpen/code/<session>/:
                     whether it was executable before the session and as accepted
   base/<key>        the file's baseline: its text before the session's first edit to it, or as the
                     Claude Edits sidebar last kept it; absent for a new file not kept since
+  after/<key>       the SHA-256 of the file as the session's last edit (or the review's Reject) left
+                    it: a file that differs was changed since by someone or something else
+  outside/<key>     there when the file was changed so before one of the session's edits: its diff
+                    takes in changes not the session's
 
 <key> is the first 16 hex digits of the SHA-256 of the file's path, as in Claude Code's file history.
 pre keeps the file's text in pending/ the first time the session goes to edit the file, and post moves
@@ -77,6 +81,43 @@ def record(session, path, old, is_link=False, executable=None):
     if old is not None and not is_link and executable is not None:
         kept['executable'] = {'orig': executable, 'base': executable}
     write_atomic(entry, json.dumps(kept).encode())
+
+
+def sha(data):
+    return '-' if data is None else hashlib.sha256(data).hexdigest()
+
+
+def disk_text(path, is_link=False):
+    """The file at path as the review reads it: a link's own text for a link the record keeps as one,
+    else the bytes; None with nothing there."""
+    try:
+        if is_link and os.path.islink(path):
+            return link_mark + os.fsencode(os.readlink(path))
+        return pathlib.Path(path).read_bytes()
+    except OSError:
+        return None
+
+
+def keep_after(session, path):
+    """Keeps a hash of the file as the session's own edit left it: a file that differs from it was
+    changed since by someone or something else."""
+    entry = read_json(store / session / 'files' / f'{key(path)}.json')
+    if entry is not None:
+        write_atomic(store / session / 'after' / key(path), sha(disk_text(path, entry.get('link'))).encode())
+
+
+def note_outside(session, path):
+    """Before the session edits a file it edited before: marks it, for good, as changed outside the
+    session if it differs from how the session's last edit left it, as its diff takes those changes
+    in from now on."""
+    k = key(path)
+    entry = read_json(store / session / 'files' / f'{k}.json')
+    try:
+        after = (store / session / 'after' / k).read_text()
+    except OSError:
+        return
+    if entry is not None and sha(disk_text(path, entry.get('link'))) != after:
+        write_atomic(store / session / 'outside' / k, b'')
 
 
 def is_executable(path):
@@ -159,15 +200,23 @@ def commit_shell(session, name):
     before = read_json(staged) or {}
     staged.unlink(missing_ok=True)
     added = False
+    # What the command changed is the session's own doing, recorded or not before.
+    touched = set()
     # A file a chmod made executable, or no longer: its text as it is, and its bit as it was.
     for path, was in (before.get('modes') or {}).items():
-        if was is not None and is_executable(path) not in (None, was) and not (store / session / 'files' / f'{key(path)}.json').exists():
+        if was is None or is_executable(path) in (None, was):
+            continue
+        touched.add(path)
+        if not (store / session / 'files' / f'{key(path)}.json').exists():
             record(session, path, pathlib.Path(path).read_bytes(), executable=was)
             added = True
     for top, kept in (before.get('trees') or {}).items():
         was = kept['changed']
         for path, kind in changed(top, kept['paths']).items():
-            if was.get(path) == kind or (store / session / 'files' / f'{key(path)}.json').exists():
+            if was.get(path) == kind:
+                continue
+            touched.add(path)
+            if (store / session / 'files' / f'{key(path)}.json').exists():
                 continue
             if kind == 'gone':
                 name = os.path.relpath(path, top)
@@ -185,6 +234,8 @@ def commit_shell(session, name):
             else:
                 record(session, path, None, os.path.islink(path))
             added = True
+    for path in touched:
+        keep_after(session, path)
     return added
 
 
@@ -344,10 +395,12 @@ def main():
         return
     path = os.path.normpath(os.path.join(data.get('cwd', '/'), path))
     if sys.argv[1] == 'pre':
+        note_outside(session, path)
         stage(session, path)
         return
     commit(session, path)
     if (store / session / 'files' / f'{key(path)}.json').exists():
+        keep_after(session, path)
         touch(session, data.get('transcript_path', ''))
 
 
