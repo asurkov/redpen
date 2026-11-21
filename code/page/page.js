@@ -514,6 +514,8 @@ async function show(key, place) {
     const made = button(byId('fileActions'), label, () => act(action, null), kind);
     if (file.movedFrom) {
       made.title = { accept: 'Keep the move', reject: `Put the file back at ${file.movedFrom}`, unaccept: 'Make the move pending again' }[action];
+    } else if (file.isLink && action === 'reject') {
+      made.title = 'Put the link back as it was, or take a new one away';
     }
   }
   byId('work').classList.toggle('bare', !isShown);
@@ -532,8 +534,8 @@ async function show(key, place) {
       path: file.path,
       left: left.text,
       right: right.text,
-      // A moved file is accepted or rejected whole.
-      changeActions: file.movedFrom ? [] : view.changeActions,
+      // A moved file, and a link, is accepted or rejected whole.
+      changeActions: file.movedFrom || file.isLink ? [] : view.changeActions,
       canSplice: DiffView.splits(left.text) && DiffView.splits(right.text),
       sides: { left: view.left, right: view.right },
       threads: state.threads.filter(thread => thread.key === key),
@@ -875,6 +877,9 @@ function drawList() {
       if (!isRenamed) {
         made.append(span('state', 'moved'));
       }
+    }
+    if (file.isLink) {
+      made.appendChild(span('state', 'link')).title = 'A symbolic link: its change is where it points, accepted or rejected whole';
     }
     if (file.isGone || file.isNew) {
       made.append(span('state', file.isGone ? 'gone' : 'new'));

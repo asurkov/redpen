@@ -17,14 +17,17 @@ it into the record once the edit has succeeded, so an edit that is denied or fai
 
 Of a shell command that can delete or move files (rm, mv, unlink, trash, find -delete), pre keeps what
 git says is deleted and made in the work trees the session works in, of the places the command names
-(all of the trees when it names none), and post records what the command changed of it: a tracked file it deleted, with its last committed text as its baseline, and a
-file it made, as new. Anything else a shell command does is not recorded.
+(all of the trees when it names none), and post records what the command changed of it: a tracked
+file it deleted, with its last committed text as its baseline, and a file it made, as new; a link as a
+link. Anything else a shell command does is not recorded.
 A failure never blocks an edit: it goes to stderr and the exit status stays 0.
 """
 import datetime, hashlib, json, os, pathlib, re, shlex, subprocess, sys, tempfile
 
 home = pathlib.Path.home()
 store = home / '.redpen/code'
+# How a link is kept as a text, before where it points, as review.py keeps it.
+link_mark = b'\0symlink\0'
 # A shell command that can delete or move files: an rm, mv, unlink or trash among its words, or find's
 # -delete.
 moving = re.compile(r'(^|[\s;&|(`])(rm|mv|unlink|trash)(?=\s)|\s-delete(?=\s|;|$)')
@@ -54,16 +57,17 @@ def read_json(path, default=None):
         return default
 
 
-def record(session, path, old):
+def record(session, path, old, is_link=False):
     """Adds the file to the session's record with its text before the session (None for a file the
-    session created), unless the record has it already."""
+    session created), unless the record has it already; is_link: a change to a link itself, which the
+    review reads and writes as a link, not as the file it points to."""
     folder = store / session
     entry = folder / 'files' / f'{key(path)}.json'
     if entry.exists():
         return
     if old is not None:
         write_atomic(folder / 'base' / key(path), old)
-    write_atomic(entry, json.dumps({'path': path, 'new': old is None}).encode())
+    write_atomic(entry, json.dumps({'path': path, 'new': old is None, **({'link': True} if is_link else {})}).encode())
 
 
 def recorded(session):
@@ -142,12 +146,15 @@ def commit_shell(session, name):
             if was.get(path) == kind or (store / session / 'files' / f'{key(path)}.json').exists():
                 continue
             if kind == 'gone':
-                old = git(top, 'show', f'HEAD:{os.path.relpath(path, top)}')
+                name = os.path.relpath(path, top)
+                old = git(top, 'show', f'HEAD:{name}')
                 if old is None:
                     continue
-                record(session, path, old)
+                # A link is kept as a link's text: the review puts it back as a link.
+                is_link = (git(top, 'ls-tree', 'HEAD', '--', name) or b'').startswith(b'120000 ')
+                record(session, path, link_mark + old if is_link else old, is_link)
             else:
-                record(session, path, None)
+                record(session, path, None, os.path.islink(path))
             added = True
     return added
 

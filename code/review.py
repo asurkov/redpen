@@ -62,6 +62,11 @@ here = pathlib.Path(__file__).resolve().parent
 other_roots = (f'{home}/.claude/', '/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/')
 # A text past this is not sent to the page.
 shown_bytes = 16 << 20
+# How a symbolic link is kept as a text, before where it points: no text the page reads starts with
+# it, so one that does is a link to make, not bytes to write. recorder.py keeps links the same way.
+link_mark = b'\0symlink\0'
+# The mode git keeps a link in.
+link_mode = b'120000'
 # A git review of more changed files than this is refused: the base is not the one meant.
 scanned_files = 5000
 # The most files of one folder the page's full tree lists.
@@ -138,6 +143,50 @@ def read_bytes(place):
         return None
 
 
+def read_link_place(place):
+    """What is at a link's place: the link itself, as a link's text; else the file there, or None."""
+    try:
+        return link_mark + os.fsencode(os.readlink(place)) if os.path.islink(place) else read_bytes(pathlib.Path(place))
+    except OSError:
+        return None
+
+
+def write_link_place(place, data):
+    """Puts at a link's place the link or the file the text is, in place of what is there; with no
+    text, takes away what is there: a link, as a link is no more than its text, a file to the Trash."""
+    is_link = data is not None and data.startswith(link_mark)
+    if os.path.islink(place):
+        os.unlink(place)
+    elif os.path.lexists(place) and (data is None or is_link):
+        ran = subprocess.run(['/usr/bin/trash', str(place)], capture_output=True, text=True)
+        if ran.returncode:
+            raise Refusal(500, f'Could not move the file to the Trash: {ran.stderr.strip()}')
+    if data is None:
+        return
+    pathlib.Path(place).parent.mkdir(parents=True, exist_ok=True)
+    if is_link:
+        os.symlink(os.fsdecode(data[len(link_mark):]), place)
+    else:
+        with open(place, 'wb') as f:
+            f.write(data)
+
+
+def link_signature(place):
+    """Changes whenever what is at a link's place does; '-' while there is nothing."""
+    try:
+        return f'link:{os.readlink(place)}' if os.path.islink(place) else signature(pathlib.Path(place))
+    except OSError:
+        return '-'
+
+
+def link_counts(a, b):
+    """How a link's text, or the file in its place, differs from another: whole, a line for a link."""
+    if a == b:
+        return None
+    lines = lambda data: 0 if not data else 1 if data.startswith(link_mark) else data.count(b'\n') + (not data.endswith(b'\n'))
+    return {'added': lines(b), 'removed': lines(a)}
+
+
 def read_json(place, default=None):
     try:
         return json.loads(place.read_text())
@@ -158,6 +207,8 @@ def shown(data):
     """The text the page shows for a file's bytes; None when it is not text the page can show."""
     if data is None:
         return ''
+    if data.startswith(link_mark):
+        return f'symbolic link → {os.fsdecode(data[len(link_mark):])}'
     if len(data) > shown_bytes:
         return None
     try:
@@ -336,16 +387,25 @@ class Review:
         rows = []
         for key, file in self.entries():
             places = self.places(key, file)
-            rows.append((key, file, places, {name: signature(place) for name, place in places.items()}))
+            signatures = {name: signature(place) for name, place in places.items()}
+            if file.get('link'):
+                signatures['disk'] = link_signature(places['disk'])
+            rows.append((key, file, places, signatures))
         return rows
+
+    @staticmethod
+    def read(file, name, place):
+        """One of the file's texts; of a link, at its own place, the link itself, not what it points to."""
+        return read_link_place(place) if name == 'disk' and file.get('link') else read_bytes(place)
 
     def moves(self, rows):
         """The files moved, as git finds renames: a file gone from its place paired with a new file
         whose text is mostly its old one, the likest pairs first; {new file's key: old file's key}."""
-        gone = [(key, places['orig'], signatures['orig']) for key, _, places, signatures in rows
-                if signatures['orig'] != '-' and signatures['disk'] == '-']
-        made = [(key, places['disk'], signatures['disk']) for key, _, places, signatures in rows
-                if signatures['orig'] == '-' and signatures['disk'] != '-']
+        # A link moved is a link gone and one made, as git sees it.
+        gone = [(key, places['orig'], signatures['orig']) for key, file, places, signatures in rows
+                if signatures['orig'] != '-' and signatures['disk'] == '-' and not file.get('link')]
+        made = [(key, places['disk'], signatures['disk']) for key, file, places, signatures in rows
+                if signatures['orig'] == '-' and signatures['disk'] != '-' and not file.get('link')]
         scored = sorted(((likeness(old, old_signature, new, new_signature), new_key, old_key)
                          for old_key, old, old_signature in gone for new_key, new, new_signature in made),
                         reverse=True)
@@ -391,6 +451,11 @@ class Review:
                 'all': compared(places['orig'], signatures['orig'], places['disk'], signatures['disk']),
                 'isOther': not self.git and is_other(file['path']),
             })
+            if file.get('link'):
+                # A link, or a file a link took the place of or gave its place to: whole.
+                texts = {name: self.read(file, name, place) for name, place in places.items()}
+                files[-1].update(isLink=True, pending=link_counts(texts['base'], texts['disk']),
+                                 accepted=link_counts(texts['orig'], texts['base']), all=link_counts(texts['orig'], texts['disk']))
             if moved_from:
                 # The move is a change of its own, its text the same or not: pending until accepted,
                 # which keeps a baseline at the new place.
@@ -430,7 +495,7 @@ class Review:
             places = self.moved_places(places, self.places(*moved))
         texts = {}
         for name, place in places.items():
-            data = read_bytes(place)
+            data = self.read(file, name, place)
             texts[name] = {'sha': sha(data), 'exists': data is not None, 'text': None if is_bare else shown(data),
                            'size': None if data is None else len(data)}
             if is_bare:
@@ -439,7 +504,8 @@ class Review:
             kind = image_type(data) if data is not None and texts[name]['text'] is None and len(data) <= shown_bytes else None
             if kind:
                 texts[name]['image'] = f'data:{kind};base64,{base64.b64encode(data).decode()}'
-        return {'key': key, 'path': file['path'], 'movedFrom': moved[1]['path'] if moved else None, 'texts': texts}
+        return {'key': key, 'path': file['path'], 'movedFrom': moved[1]['path'] if moved else None,
+                'isLink': bool(file.get('link')), 'texts': texts}
 
     def top(self):
         """The folder the page's full tree starts from, with its closing slash: a git review's work
@@ -465,12 +531,14 @@ class Review:
         moved = self.move_of(key)
         if moved:
             return self.apply_move(key, file, *moved, action, change, expected)
+        if file.get('link') and change is not None:
+            raise Refusal(400, 'A link is accepted or rejected whole.')
         places = self.places(key, file)
-        left, right = read_bytes(places[left_name]), read_bytes(places[right_name])
+        left, right = self.read(file, left_name, places[left_name]), self.read(file, right_name, places[right_name])
         if not isinstance(expected, dict) or (sha(left), sha(right)) != (expected.get('left'), expected.get('right')):
             raise Refusal(409, 'The file changed since it was shown.')
         entry = self.applied(key, file, action, change, left, right)
-        if file.get('uncarried') and read_bytes(places['base']) == read_bytes(places['disk']):
+        if file.get('uncarried') and read_bytes(places['base']) == self.read(file, 'disk', places['disk']):
             # Looked at again, to the end: the mark a rebase left goes.
             kept = {name: value for name, value in self.file(key).items() if name != 'uncarried'}
             write_atomic(self.record / 'files' / f'{key}.json', json.dumps(kept).encode())
@@ -535,7 +603,7 @@ class Review:
         for member in members if entry['isUndone'] else reversed(members):
             file = self.file(member['key'])
             place = self.places(member['key'], file)[member['target']]
-            if sha(read_bytes(place)) != member[here_name]:
+            if sha(self.read(file, member['target'], place)) != member[here_name]:
                 raise Refusal(409, 'The file changed since.')
             there = None if member[there_name] == '-' else read_bytes(self.folder / 'blobs' / member[there_name])
             if member[there_name] != '-' and there is None:
@@ -563,11 +631,12 @@ class Review:
 
         def can_flip(entry):
             try:
-                place = self.places(entry['key'], self.file(entry['key']))[entry['target']]
+                file = self.file(entry['key'])
+                place = self.places(entry['key'], file)[entry['target']]
             except Refusal:
                 return False
             if place not in hashes:
-                hashes[place] = sha(read_bytes(place))
+                hashes[place] = sha(self.read(file, entry['target'], place))
             return hashes[place] == entry['before' if entry['isUndone'] else 'after']
 
         entries = []
@@ -587,6 +656,8 @@ class Review:
 
     def write(self, key, file, target, data):
         place = self.places(key, file)[target]
+        if target == 'disk' and file.get('link'):
+            return write_link_place(place, data)
         if target == 'disk':
             if data is None:
                 # As the Claude Edits pane undoes a file the session created.
@@ -601,7 +672,8 @@ class Review:
         elif data is None:
             # As the Claude Edits pane keeps a deleted file: no baseline, and new.
             place.unlink(missing_ok=True)
-            write_atomic(self.record / 'files' / f'{key}.json', json.dumps({'path': file['path'], 'new': True}).encode())
+            kept = {'path': file['path'], 'new': True, **({'link': True} if file.get('link') else {})}
+            write_atomic(self.record / 'files' / f'{key}.json', json.dumps(kept).encode())
         else:
             write_atomic(place, data)
 
@@ -1128,12 +1200,13 @@ def carried(record, base):
             places = {'orig': record / 'review/orig' / k, 'none': record / 'review/orig' / f'{k}.none',
                       'base': record / 'base' / k}
             orig, accepted = read_bytes(places['orig']), read_bytes(places['base'])
-            new = git(top, 'cat-file', 'blob', f'{base}:{name}')
+            new = committed_text(top, base, name) if file.get('link') else git(top, 'cat-file', 'blob', f'{base}:{name}')
             # The record's own orig decides: a file carried before this was interrupted is not again.
             if new == orig:
                 continue
             merged, is_carried = rebased_text(orig, accepted, new)
-            if merged == new and read_bytes(pathlib.Path(file['path'])) == new:
+            on_disk = read_link_place(file['path']) if file.get('link') else read_bytes(pathlib.Path(file['path']))
+            if merged == new and on_disk == new:
                 for place in (entry, *places.values()):
                     place.unlink(missing_ok=True)
                 dropped += 1
@@ -1147,7 +1220,7 @@ def carried(record, base):
                 write_atomic(places['none'], b'')
             else:
                 places['none'].unlink(missing_ok=True)
-            mark = {} if is_carried else {'uncarried': base}
+            mark = ({} if is_carried else {'uncarried': base}) | ({'link': True} if file.get('link') else {})
             write_atomic(entry, json.dumps({'path': file['path'], 'new': new is None, **mark}).encode())
             uncarried += not is_carried
         moment = now()
@@ -1185,11 +1258,15 @@ def scanned(record, info):
     (ignored ones apart), with that commit's text as its orig and its baseline. A file the record has
     stays as it is, so what was accepted stays accepted. Returns how many it added."""
     top = pathlib.Path(info['repo'])
-    changed = git(top, 'diff', '--name-only', '-z', '--no-renames', '--ignore-submodules', info['base'], '--')
+    # Of each file changed, its modes at the base and now, which say a link (120000).
+    changed = git(top, 'diff', '--raw', '-z', '--no-renames', '--ignore-submodules', info['base'], '--')
     untracked = git(top, 'ls-files', '--others', '--exclude-standard', '-z')
     if changed is None or untracked is None:
         raise Refusal(404, f'git could not compare {top} with {info["base"][:10]}.')
-    names = sorted({os.fsdecode(name) for name in (changed + untracked).split(b'\0') if name})
+    parts = changed.split(b'\0')
+    modes = {os.fsdecode(name): header[1:].split(b' ')[:2] for header, name in zip(parts[0::2], parts[1::2])
+             if header.startswith(b':')}
+    names = sorted(set(modes) | {os.fsdecode(name) for name in untracked.split(b'\0') if name})
     if len(names) > scanned_files:
         raise Refusal(413, f'{len(names)} files differ from {info["spec"]}: not a change to review file by file.')
     added = 0
@@ -1197,19 +1274,29 @@ def scanned(record, info):
         place = top / name
         k = key(str(place))
         entry = record / 'files' / f'{k}.json'
-        if entry.exists() or place.is_symlink() or place.is_dir():
+        is_link = link_mode in modes.get(name, ()) or place.is_symlink()
+        if entry.exists() or place.is_dir() and not place.is_symlink():
             continue
         old = git(top, 'cat-file', 'blob', f'{info["base"]}:{name}')
-        if old is None and not place.is_file():
+        if old is not None and modes.get(name, (b'',))[0] == link_mode:
+            old = link_mark + old
+        if old is None and not os.path.lexists(place):
             continue
         if old is None:
             write_atomic(record / 'review/orig' / f'{k}.none', b'')
         else:
             write_atomic(record / 'review/orig' / k, old)
             write_atomic(record / 'base' / k, old)
-        write_atomic(entry, json.dumps({'path': str(place), 'new': old is None}).encode())
+        write_atomic(entry, json.dumps({'path': str(place), 'new': old is None, **({'link': True} if is_link else {})}).encode())
         added += 1
     return added
+
+
+def committed_text(top, commit, name):
+    """A file's text at the commit, a link's as a link's text; None where there is none."""
+    listed = git(top, 'ls-tree', '-z', commit, '--', name)
+    data = git(top, 'cat-file', 'blob', f'{commit}:{name}') if listed else None
+    return None if data is None else link_mark + data if listed.startswith(link_mode + b' ') else data
 
 
 def rescan(review, lock):

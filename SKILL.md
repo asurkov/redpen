@@ -38,6 +38,10 @@ What to tell the user when it matters:
   place, `old → new` when renamed in its folder, "moved" otherwise, its diff against its old text. It
   is accepted or rejected whole: **Accept** keeps the move, **Reject** puts the file back at its old
   place, the new one to the Trash; History has one line for it, and one Undo.
+- A symbolic link made, retargeted or deleted (in a git review, or by a session's shell command), or
+  a file a link took the place of or gave its place to, is a "link" row: its text is
+  `symbolic link → target`, accepted or rejected whole, and **Reject** puts the link back, or takes a
+  new one away, not a file with its target's path in it. A file edited through a link is that file.
 - A file that is not text (not UTF-8, or past 16 MB) is "binary" and accepted or rejected whole. An
   image (PNG, JPEG, GIF, WebP, AVIF, BMP, ICO) shows its two versions side by side, each with its
   size in pixels and bytes; SVG is text, and diffed as text.
