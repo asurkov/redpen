@@ -65,8 +65,9 @@ shown_bytes = 16 << 20
 # How a symbolic link is kept as a text, before where it points: no text the page reads starts with
 # it, so one that does is a link to make, not bytes to write. recorder.py keeps links the same way.
 link_mark = b'\0symlink\0'
-# The mode git keeps a link in.
+# The modes git keeps a link and an executable file in.
 link_mode = b'120000'
+executable_mode = b'100755'
 # A git review of more changed files than this is refused: the base is not the one meant.
 scanned_files = 5000
 # The most files of one folder the page's full tree lists.
@@ -141,6 +142,21 @@ def read_bytes(place):
         return place.read_bytes()
     except OSError:
         return None
+
+
+def is_executable(place):
+    """Whether the file at place is executable, by its owner's bit, the one git keeps; None with no
+    file there."""
+    try:
+        return bool(os.stat(place).st_mode & 0o100)
+    except OSError:
+        return None
+
+
+def set_executable(place, is_on):
+    """Makes the file at place executable, for whoever can read it, or not executable for anyone."""
+    mode = os.stat(place).st_mode
+    os.chmod(place, mode | (mode & 0o444) >> 2 if is_on else mode & ~0o111)
 
 
 def read_link_place(place):
@@ -394,6 +410,25 @@ class Review:
         return rows
 
     @staticmethod
+    def modes(orig_file, base_file, disk):
+        """Whether the file is executable as it was, as accepted and as it is: the first two as its
+        record keeps them, the last from the file at disk; None where that is not known, or for a
+        link."""
+        if orig_file.get('link'):
+            return {'orig': None, 'base': None, 'disk': None}
+        kept = lambda file, name: (file.get('executable') or {}).get(name)
+        return {'orig': kept(orig_file, 'orig'), 'base': kept(base_file, 'base'), 'disk': is_executable(disk)}
+
+    def set_mode(self, key, target, is_on):
+        """Makes the file executable, or not, as accepted (target 'base') or as it is ('disk')."""
+        file = self.file(key)
+        if target == 'disk':
+            set_executable(file['path'], is_on)
+        else:
+            kept = {**file, 'executable': {**(file.get('executable') or {}), target: is_on}}
+            write_atomic(self.record / 'files' / f'{key}.json', json.dumps(kept).encode())
+
+    @staticmethod
     def read(file, name, place):
         """One of the file's texts; of a link, at its own place, the link itself, not what it points to."""
         return read_link_place(place) if name == 'disk' and file.get('link') else read_bytes(place)
@@ -451,6 +486,13 @@ class Review:
                 'all': compared(places['orig'], signatures['orig'], places['disk'], signatures['disk']),
                 'isOther': not self.git and is_other(file['path']),
             })
+            # Made executable, or no longer: a change of its own, its text the same or not.
+            is_new_base = moved_from and places['base'] != moved_from[2]['base']
+            mode = self.modes(moved_from[1] if moved_from else file, file if not moved_from or is_new_base else moved_from[1], places['disk'])
+            files[-1]['mode'] = mode
+            for view, (a, b) in {'pending': ('base', 'disk'), 'accepted': ('orig', 'base'), 'all': ('orig', 'disk')}.items():
+                if None not in (mode[a], mode[b]) and mode[a] != mode[b]:
+                    files[-1][view] = files[-1][view] or {'added': 0, 'removed': 0}
             if file.get('link'):
                 # A link, or a file a link took the place of or gave its place to: whole.
                 texts = {name: self.read(file, name, place) for name, place in places.items()}
@@ -587,6 +629,14 @@ class Review:
             **({'group': group} if group else {}),
         }
         self.write(key, file, target, result)
+        # The whole file's action takes its executable bit along, as the text: [before, after].
+        if change is None and not file.get('link'):
+            current = self.file(key)
+            mode = self.modes(current, current, current['path'])
+            source = {'accept': 'disk', 'reject': 'base', 'unaccept': 'orig'}[action]
+            if None not in (mode[target], mode[source]) and mode[target] != mode[source]:
+                self.set_mode(key, target, mode[source])
+                entry['executable'] = [mode[target], mode[source]]
         write_atomic(self.folder / 'journal.json', json.dumps(self.journal() + [entry], indent=1).encode())
         return entry
 
@@ -611,6 +661,9 @@ class Review:
             flips.append((member, file, there))
         for member, file, there in flips:
             self.write(member['key'], file, member['target'], there)
+            # The executable bit it moved goes back too, where there is a file to have it.
+            if member.get('executable') and (member['target'] != 'disk' or there is not None):
+                self.set_mode(member['key'], member['target'], member['executable'][0 if not member['isUndone'] else 1])
             member['isUndone'] = not member['isUndone']
         write_atomic(self.folder / 'journal.json', json.dumps(journal, indent=1).encode())
         return moved_entry(entry, members)
@@ -672,7 +725,7 @@ class Review:
         elif data is None:
             # As the Claude Edits pane keeps a deleted file: no baseline, and new.
             place.unlink(missing_ok=True)
-            kept = {'path': file['path'], 'new': True, **({'link': True} if file.get('link') else {})}
+            kept = {'path': file['path'], 'new': True, **{name: file[name] for name in ('link', 'executable') if name in file}}
             write_atomic(self.record / 'files' / f'{key}.json', json.dumps(kept).encode())
         else:
             write_atomic(place, data)
@@ -1221,6 +1274,11 @@ def carried(record, base):
             else:
                 places['none'].unlink(missing_ok=True)
             mark = ({} if is_carried else {'uncarried': base}) | ({'link': True} if file.get('link') else {})
+            if new is not None and not file.get('link'):
+                # Executable as the new commit has it, and as accepted where that was another bit.
+                was = file.get('executable') or {}
+                is_on = (git(top, 'ls-tree', base, '--', name) or b'').startswith(executable_mode + b' ')
+                mark['executable'] = {'orig': is_on, 'base': is_on if was.get('base') == was.get('orig') else was['base']}
             write_atomic(entry, json.dumps({'path': file['path'], 'new': new is None, **mark}).encode())
             uncarried += not is_carried
         moment = now()
@@ -1278,7 +1336,8 @@ def scanned(record, info):
         if entry.exists() or place.is_dir() and not place.is_symlink():
             continue
         old = git(top, 'cat-file', 'blob', f'{info["base"]}:{name}')
-        if old is not None and modes.get(name, (b'',))[0] == link_mode:
+        old_mode = modes.get(name, (b'',))[0]
+        if old is not None and old_mode == link_mode:
             old = link_mark + old
         if old is None and not os.path.lexists(place):
             continue
@@ -1287,7 +1346,11 @@ def scanned(record, info):
         else:
             write_atomic(record / 'review/orig' / k, old)
             write_atomic(record / 'base' / k, old)
-        write_atomic(entry, json.dumps({'path': str(place), 'new': old is None, **({'link': True} if is_link else {})}).encode())
+        kept = {'path': str(place), 'new': old is None, **({'link': True} if is_link else {})}
+        if old is not None and not is_link:
+            # As it was at the base commit, whether git kept it executable.
+            kept['executable'] = {'orig': old_mode == executable_mode, 'base': old_mode == executable_mode}
+        write_atomic(entry, json.dumps(kept).encode())
         added += 1
     return added
 

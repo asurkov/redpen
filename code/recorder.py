@@ -7,7 +7,9 @@ pre and post run as PreToolUse and PostToolUse hooks on Edit|Write|MultiEdit|Not
 the hook's JSON on stdin. Each session's record is in ~/.redpen/code/<session>/:
 
   session.json      {session, title, updated}, rewritten after every edit
-  files/<key>.json  {path, new}: a file the session edited; new when the session created it
+  files/<key>.json  {path, new, link?, executable?}: a file the session edited; new when the session
+                    created it; link for a change to a link itself; executable: {orig, base},
+                    whether it was executable before the session and as accepted
   base/<key>        the file's baseline: its text before the session's first edit to it, or as the
                     Claude Edits sidebar last kept it; absent for a new file not kept since
 
@@ -19,7 +21,8 @@ Of a shell command that can delete or move files (rm, mv, unlink, trash, find -d
 git says is deleted and made in the work trees the session works in, of the places the command names
 (all of the trees when it names none), and post records what the command changed of it: a tracked
 file it deleted, with its last committed text as its baseline, and a file it made, as new; a link as a
-link. Anything else a shell command does is not recorded.
+link. Of a chmod, a file it names that it made executable, or no longer, is recorded with its text as
+it is and its executable bit as it was. Anything else a shell command does is not recorded.
 A failure never blocks an edit: it goes to stderr and the exit status stays 0.
 """
 import datetime, hashlib, json, os, pathlib, re, shlex, subprocess, sys, tempfile
@@ -31,6 +34,8 @@ link_mark = b'\0symlink\0'
 # A shell command that can delete or move files: an rm, mv, unlink or trash among its words, or find's
 # -delete.
 moving = re.compile(r'(^|[\s;&|(`])(rm|mv|unlink|trash)(?=\s)|\s-delete(?=\s|;|$)')
+# One that can make a file executable, or no longer.
+chmodding = re.compile(r'(^|[\s;&|(`])chmod(?=\s)')
 
 
 def key(path):
@@ -57,17 +62,29 @@ def read_json(path, default=None):
         return default
 
 
-def record(session, path, old, is_link=False):
+def record(session, path, old, is_link=False, executable=None):
     """Adds the file to the session's record with its text before the session (None for a file the
     session created), unless the record has it already; is_link: a change to a link itself, which the
-    review reads and writes as a link, not as the file it points to."""
+    review reads and writes as a link, not as the file it points to; executable: whether the file was
+    executable before the session, None where that is not known."""
     folder = store / session
     entry = folder / 'files' / f'{key(path)}.json'
     if entry.exists():
         return
     if old is not None:
         write_atomic(folder / 'base' / key(path), old)
-    write_atomic(entry, json.dumps({'path': path, 'new': old is None, **({'link': True} if is_link else {})}).encode())
+    kept = {'path': path, 'new': old is None, **({'link': True} if is_link else {})}
+    if old is not None and not is_link and executable is not None:
+        kept['executable'] = {'orig': executable, 'base': executable}
+    write_atomic(entry, json.dumps(kept).encode())
+
+
+def is_executable(path):
+    """Whether the file at path is executable, by its owner's bit, the one git keeps; None with none."""
+    try:
+        return bool(os.stat(path).st_mode & 0o100)
+    except OSError:
+        return None
 
 
 def recorded(session):
@@ -97,7 +114,8 @@ def stage(session, path):
         (folder / 'pending' / k).unlink(missing_ok=True)
     else:
         write_atomic(folder / 'pending' / k, source.read_bytes())
-    write_atomic(folder / 'pending' / f'{k}.json', json.dumps({'path': path, 'new': new}).encode())
+    staged = {'path': path, 'new': new, 'executable': is_executable(path)}
+    write_atomic(folder / 'pending' / f'{k}.json', json.dumps(staged).encode())
 
 
 def commit(session, path):
@@ -107,8 +125,8 @@ def commit(session, path):
     staged = pending / f'{k}.json'
     if not staged.exists():
         return
-    new = json.loads(staged.read_text())['new']
-    record(session, path, None if new else (pending / k).read_bytes())
+    kept = json.loads(staged.read_text())
+    record(session, path, None if kept['new'] else (pending / k).read_bytes(), executable=kept.get('executable'))
     staged.unlink()
     (pending / k).unlink(missing_ok=True)
 
@@ -117,19 +135,20 @@ def stage_shell(session, data, name):
     """Before a shell command that can delete or move files: keeps what git says is deleted and made
     in the work trees the session works in."""
     command = (data.get('tool_input') or {}).get('command') or ''
-    if not moving.search(command):
-        return
     cwd = data.get('cwd') or '/'
-    named = named_paths(command, cwd)
-    kept = {}
-    for top in work_trees(session, cwd):
-        # In a large tree git's status takes seconds: it is asked of the paths the command names in
-        # the tree alone, and of a tree it names none in, not at all, unless it names no path.
-        paths = [path for path in named if path == top or path.startswith(f'{top}/')]
-        if paths or not named:
-            kept[top] = {'paths': paths, 'changed': changed(top, paths)}
-    if kept:
-        write_atomic(store / session / 'pending' / name, json.dumps(kept).encode())
+    trees = {}
+    if moving.search(command):
+        named = named_paths(command, cwd)
+        for top in work_trees(session, cwd):
+            # In a large tree git's status takes seconds: it is asked of the paths the command names
+            # in the tree alone, and of a tree it names none in, not at all, unless it names no path.
+            paths = [path for path in named if path == top or path.startswith(f'{top}/')]
+            if paths or not named:
+                trees[top] = {'paths': paths, 'changed': changed(top, paths)}
+    # Of a chmod, whether each file it names is executable before it: in a git work tree or not.
+    modes = {path: is_executable(path) for path in named_files(command, cwd)} if chmodding.search(command) else {}
+    if trees or modes:
+        write_atomic(store / session / 'pending' / name, json.dumps({'trees': trees, 'modes': modes}).encode())
 
 
 def commit_shell(session, name):
@@ -137,10 +156,15 @@ def commit_shell(session, name):
     baseline, and a file it made, as new; one the record has stays as it is. Says whether it
     recorded any."""
     staged = store / session / 'pending' / name
-    before = read_json(staged)
+    before = read_json(staged) or {}
     staged.unlink(missing_ok=True)
     added = False
-    for top, kept in (before or {}).items():
+    # A file a chmod made executable, or no longer: its text as it is, and its bit as it was.
+    for path, was in (before.get('modes') or {}).items():
+        if was is not None and is_executable(path) not in (None, was) and not (store / session / 'files' / f'{key(path)}.json').exists():
+            record(session, path, pathlib.Path(path).read_bytes(), executable=was)
+            added = True
+    for top, kept in (before.get('trees') or {}).items():
         was = kept['changed']
         for path, kind in changed(top, kept['paths']).items():
             if was.get(path) == kind or (store / session / 'files' / f'{key(path)}.json').exists():
@@ -150,9 +174,11 @@ def commit_shell(session, name):
                 old = git(top, 'show', f'HEAD:{name}')
                 if old is None:
                     continue
-                # A link is kept as a link's text: the review puts it back as a link.
-                is_link = (git(top, 'ls-tree', 'HEAD', '--', name) or b'').startswith(b'120000 ')
-                record(session, path, link_mark + old if is_link else old, is_link)
+                # A link is kept as a link's text: the review puts it back as a link; a file as
+                # executable as git kept it.
+                listed = git(top, 'ls-tree', 'HEAD', '--', name) or b''
+                is_link = listed.startswith(b'120000 ')
+                record(session, path, link_mark + old if is_link else old, is_link, listed.startswith(b'100755 '))
             else:
                 record(session, path, None, os.path.islink(path))
             added = True
@@ -200,6 +226,20 @@ def named_paths(command, cwd):
             elif '/' in word and os.path.isdir(os.path.dirname(path)):
                 paths.add(path)
     return sorted(paths)
+
+
+def named_files(command, cwd):
+    """The files, not links nor folders, a shell command names, read from the command's folder and
+    from each folder a cd in it goes to."""
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        words = command.split()
+    folders = [cwd] + [os.path.normpath(os.path.join(cwd, os.path.expanduser(word)))
+                       for before, word in zip([''] + words, words) if before == 'cd']
+    paths = {os.path.normpath(os.path.join(folder, os.path.expanduser(word)))
+             for word in words if not word.startswith(('-', '+')) for folder in folders}
+    return sorted(path for path in paths if os.path.isfile(path) and not os.path.islink(path))
 
 
 def changed(top, paths=()):

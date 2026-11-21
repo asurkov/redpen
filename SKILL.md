@@ -42,6 +42,11 @@ What to tell the user when it matters:
   a file a link took the place of or gave its place to, is a "link" row: its text is
   `symbolic link → target`, accepted or rejected whole, and **Reject** puts the link back, or takes a
   new one away, not a file with its target's path in it. A file edited through a link is that file.
+- A file made executable, or no longer (the bit git keeps), says `+x` or `−x`, in the list and the
+  file bar; one that changed no more than that is listed `+0 −0`. The whole file's Accept, Reject and
+  Unaccept take the bit along, and Undo puts it back; a deleted script put back is executable again.
+  A git review reads the bit from git, a session from the file at its first edit and from a `chmod`
+  that names the file.
 - A file that is not text (not UTF-8, or past 16 MB) is "binary" and accepted or rejected whole. An
   image (PNG, JPEG, GIF, WebP, AVIF, BMP, ICO) shows its two versions side by side, each with its
   size in pixels and bytes; SVG is text, and diffed as text.
@@ -262,7 +267,8 @@ server".
 `code/recorder.py` runs as a PreToolUse and PostToolUse hook on Edit|Write|MultiEdit|NotebookEdit|Bash (set in
 `~/.claude/settings.json`) and records every session's edits as they happen in
 `~/.redpen/code/<session>/`: `session.json` (title, time of the last edit), `files/<key>.json` (the
-path, and whether the session created the file) and `base/<key>` (the file's baseline: its text before
+path, whether the session created the file, whether it is a link, and whether it was executable
+before the session and as accepted) and `base/<key>` (the file's baseline: its text before
 the session's first edit to it, or as last kept or accepted; a file the session created has none until
 then). The title is the one the desktop app shows, else the session's first prompt. Of a shell
 command, only what an `rm`, `mv`, `unlink`, `trash` or `find -delete` in it did in a git work tree the

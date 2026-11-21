@@ -501,7 +501,7 @@ async function show(key, place) {
   const shownPath = file.movedFrom ? moveShown(shortened({ ...file, path: file.movedFrom }, root), shortened(file, root)) : shortened(file, root);
   byId('filePath').textContent = `‎${shownPath}`;
   byId('filePath').title = file.movedFrom ? `Moved from ${file.movedFrom}\nto ${file.path}` : file.path;
-  byId('fileCounts').replaceChildren(...counts(file[state.view]));
+  byId('fileCounts').replaceChildren(...modeChange(file, state.view), ...counts(file[state.view]));
   byId('fileActions').replaceChildren();
   if (isShown && state.view === 'all') {
     const diff = button(byId('fileActions'), 'Diff', toggleAllDiff, `quiet${state.isAllDiffShown ? ' chosen' : ''}`);
@@ -747,6 +747,17 @@ async function refreshAll() {
   }
 }
 
+// The file made executable in the view, or no longer: +x or −x; else nothing.
+function modeChange(file, view) {
+  const [before, after] = [file.mode?.[views[view].left], file.mode?.[views[view].right]];
+  if (before == null || after == null || before === after) {
+    return [];
+  }
+  const made = span('state mode', after ? '+x' : '−x');
+  made.title = after ? 'Made executable; Accept or Reject the file takes it along' : 'No longer executable; Accept or Reject the file takes it along';
+  return [made];
+}
+
 // What each of a file's three texts is called beside its picture.
 const sideNames = { orig: 'Before', base: 'Accepted', disk: 'Now' };
 
@@ -881,6 +892,7 @@ function drawList() {
     if (file.isLink) {
       made.appendChild(span('state', 'link')).title = 'A symbolic link: its change is where it points, accepted or rejected whole';
     }
+    made.append(...modeChange(file, isFaded ? 'all' : state.view));
     if (file.isGone || file.isNew) {
       made.append(span('state', file.isGone ? 'gone' : 'new'));
     }

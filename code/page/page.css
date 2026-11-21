@@ -256,6 +256,14 @@ body.listHidden #splitter {
   font-size: 11px;
 }
 
+/* A file made executable, or no longer: a change of its own, so in a change's colour. */
+.state.mode {
+  flex: none;
+  color: var(--changed);
+  font-size: 11px;
+  font-family: ui-monospace, Menlo, monospace;
+}
+
 /* A file whose accepted lines a rebase did not carry over. */
 .file .state.again {
   color: var(--accent);
