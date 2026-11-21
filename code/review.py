@@ -50,7 +50,7 @@ the record is carried over to the new base commit then too (carried()), under th
 against HEAD keeps its base through commits made on top, and is carried over to HEAD once an amend or
 a rebase rewrote the branch (is_rewritten()).
 """
-import argparse, base64, datetime, difflib, filecmp, functools, hashlib, importlib.util, json, os, pathlib, re, subprocess, sys
+import argparse, base64, datetime, difflib, functools, hashlib, importlib.util, json, os, pathlib, re, subprocess, sys
 import tempfile, threading, time, urllib.parse
 
 home = pathlib.Path.home()
@@ -130,12 +130,14 @@ def sha(data):
 
 
 def signature(place):
-    """Changes whenever the file at place does; '-' while there is none."""
+    """Changes whenever the file at place does; '-' while there is none: its modification time, its
+    change time, which every write moves and no tool can set back as one can the other, and its size,
+    last."""
     try:
         stat = place.stat()
     except OSError:
         return '-'
-    return f'{stat.st_mtime_ns}:{stat.st_size}' if place.is_file() else '-'
+    return f'{stat.st_mtime_ns}:{stat.st_ctime_ns}:{stat.st_size}' if place.is_file() else '-'
 
 
 def read_bytes(place):
@@ -345,11 +347,13 @@ def compared(a, a_signature, b, b_signature):
 
 
 def count(a, b):
-    if a is None and b is None or a and b and filecmp.cmp(a, b, shallow=False):
+    # The bytes themselves: filecmp would answer from its own memory of a file's size and mtime, which
+    # a tool can put back over a change.
+    texts = [None if place is None else read_bytes(place) for place in (a, b)]
+    if texts[0] == texts[1]:
         return None
     # An ordinary text is counted here, as git would; a git process for each file would take seconds
     # over a review of thousands.
-    texts = [None if place is None else read_bytes(place) for place in (a, b)]
     if all(text is None or len(text) <= counted_bytes for text in texts):
         return counted(*texts)
     ran = subprocess.run(['git', 'diff', '--no-index', '--numstat', '--no-ext-diff', '--',
