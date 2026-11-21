@@ -479,8 +479,9 @@ async function show(key, place) {
   const right = state.opened.texts[view.right];
   const isText = left.text !== null && right.text !== null;
   state.isText = isText;
-  byId('filePath').textContent = `‎${shortened(file, root)}`;
-  byId('filePath').title = file.path;
+  const shownPath = file.movedFrom ? moveShown(shortened({ ...file, path: file.movedFrom }, root), shortened(file, root)) : shortened(file, root);
+  byId('filePath').textContent = `‎${shownPath}`;
+  byId('filePath').title = file.movedFrom ? `Moved from ${file.movedFrom}\nto ${file.path}` : file.path;
   byId('fileCounts').replaceChildren(...counts(file[state.view]));
   byId('fileActions').replaceChildren();
   if (isText && state.view === 'all') {
@@ -491,7 +492,10 @@ async function show(key, place) {
     button(byId('fileActions'), 'Comment', () => diffView.openBox(diffView.fileTarget()), 'quiet').title = 'Comment for Claude on the whole file';
   }
   for (const [action, label, kind] of view.fileActions) {
-    button(byId('fileActions'), label, () => act(action, null), kind);
+    const made = button(byId('fileActions'), label, () => act(action, null), kind);
+    if (file.movedFrom) {
+      made.title = { accept: 'Keep the move', reject: `Put the file back at ${file.movedFrom}`, unaccept: 'Make the move pending again' }[action];
+    }
   }
   byId('work').classList.toggle('bare', !isText);
   byId('note').textContent = isText ? '' : 'Not a text the page can show: too large, or not UTF-8. The file as a whole can still be accepted or rejected.';
@@ -500,7 +504,8 @@ async function show(key, place) {
       path: file.path,
       left: left.text,
       right: right.text,
-      changeActions: view.changeActions,
+      // A moved file is accepted or rejected whole.
+      changeActions: file.movedFrom ? [] : view.changeActions,
       canSplice: DiffView.splits(left.text) && DiffView.splits(right.text),
       sides: { left: view.left, right: view.right },
       threads: state.threads.filter(thread => thread.key === key),
@@ -701,6 +706,18 @@ async function refreshAll() {
   }
 }
 
+// A move as git shows a rename: the folders both paths share, then {old → new} of the rest, so the
+// end of it, what a narrow bar keeps, says both.
+function moveShown(from, to) {
+  let shared = 0;
+  for (let at = 0; at < Math.min(from.length, to.length) && from[at] === to[at]; at++) {
+    if (from[at] === '/') {
+      shared = at + 1;
+    }
+  }
+  return `${to.slice(0, shared)}{${from.slice(shared)} → ${to.slice(shared)}}`;
+}
+
 function counts(count) {
   if (!count) {
     return [];
@@ -748,7 +765,7 @@ const drawn = { list: '', waiting: '', chosen: null };
 function drawList() {
   const drawing = JSON.stringify([state.view, state.key, state.plain,
     state.areUnchangedShown, state.areReviewedShown, state.top, state.foldersRead, ...state.widenedFolders, '', ...state.narrowedFolders, '', ...state.closedFolders,
-    shownInList().map(file => [file.key, file[state.view], file.all, file.isNew, file.isGone, file.isUncarried, !file.pending, !file.accepted])]);
+    shownInList().map(file => [file.key, file.movedFrom, file[state.view], file.all, file.isNew, file.isGone, file.isUncarried, !file.pending, !file.accepted])]);
   if (drawing === drawn.list) {
     return;
   }
@@ -779,7 +796,16 @@ function drawList() {
     // ✓ with nothing of the file pending, ◐ with a part of it accepted.
     const mark = made.appendChild(span(`mark${file.pending ? '' : ' done'}`, !file.pending ? '✓' : file.accepted ? '◐' : ''));
     mark.title = !file.pending ? 'Nothing pending' : file.accepted ? 'Accepted in part' : '';
-    made.append(span('name', nameOf(file.path)), span('spring', ''));
+    // A file moved within its folder: its old name, then its new one; moved to another folder: its
+    // name, and where it was in the tooltip.
+    const isRenamed = file.movedFrom && file.movedFrom.slice(0, file.movedFrom.lastIndexOf('/')) === file.path.slice(0, file.path.lastIndexOf('/'));
+    made.append(span('name', isRenamed ? `${nameOf(file.movedFrom)} → ${nameOf(file.path)}` : nameOf(file.path)), span('spring', ''));
+    if (file.movedFrom) {
+      made.title = `${made.title}\nMoved from ${file.movedFrom}`;
+      if (!isRenamed) {
+        made.append(span('state', 'moved'));
+      }
+    }
     if (file.isGone || file.isNew) {
       made.append(span('state', file.isGone ? 'gone' : 'new'));
     }
@@ -920,7 +946,7 @@ async function drawJournal() {
     }
     row.className = entry.isUndone ? 'undone' : '';
     const what = row.appendChild(span('what', `${doneWords[entry.action]} ${whatOf(entry.change)}`));
-    what.append(span('where', nameOf(entry.path)), span('when', new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
+    what.append(span('where', entry.movedFrom ? `${nameOf(entry.movedFrom)} → ${nameOf(entry.path)}` : nameOf(entry.path)), span('when', new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
     const flipButton = button(row, entry.isUndone ? 'Redo' : 'Undo', () => flip(entry.id));
     flipButton.disabled = !entry.canFlip;
     flipButton.title = entry.canFlip ? '' : 'The file changed since';

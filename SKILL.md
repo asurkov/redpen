@@ -24,8 +24,8 @@ this session, `http://127.0.0.1:7878/code/s/<session>/`. Open that URL in the Br
 Unaccept there yourself, nor press `a`: those are the user's.
 
 The page shows what the session's Edit and Write calls changed, and the files its shell commands
-deleted or moved in a git work tree (shown "gone", and the moved-to file "new"), not the rest of what a
-shell command changed; a [git review](#a-git-review) shows a work tree's every change.
+deleted or moved in a git work tree, not the rest of what a shell command changed; a
+[git review](#a-git-review) shows a work tree's every change.
 
 What to tell the user when it matters:
 - **Pending** is what is not accepted yet (accepted text → the file). **Accept** records a change as
@@ -33,6 +33,11 @@ What to tell the user when it matters:
   away; rejecting a file the session created moves it to the Trash.
 - **Accepted** is what was accepted (the text before the session → accepted text). **Unaccept** makes
   a change pending again; the file is not touched.
+- A file deleted is "gone", one made "new". A file moved or renamed (gone from one place, and a new
+  file at least half of whose lines are its old ones, as git finds renames) is one row at its new
+  place, `old → new` when renamed in its folder, "moved" otherwise, its diff against its old text. It
+  is accepted or rejected whole: **Accept** keeps the move, **Reject** puts the file back at its old
+  place, the new one to the Trash; History has one line for it, and one Undo.
 - **All** is everything the session changed, pending or accepted, with no buttons: the file as it is,
   its changes marked in the margin (green added, blue changed, a red notch where lines were removed)
   and on the scrollbar. **Diff** in the file bar, or `d`, shows the removed lines and colours again.

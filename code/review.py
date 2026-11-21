@@ -50,7 +50,7 @@ the record is carried over to the new base commit then too (carried()), under th
 against HEAD keeps its base through commits made on top, and is carried over to HEAD once an amend or
 a rebase rewrote the branch (is_rewritten()).
 """
-import argparse, datetime, filecmp, functools, hashlib, importlib.util, json, os, pathlib, re, subprocess, sys
+import argparse, datetime, difflib, filecmp, functools, hashlib, importlib.util, json, os, pathlib, re, subprocess, sys
 import tempfile, threading, time, urllib.parse
 
 home = pathlib.Path.home()
@@ -167,6 +167,34 @@ def shown(data):
 
 
 counts = {}
+likenesses = {}
+# How alike a file gone from its place and a new file must be to be one file moved, as git's rename
+# threshold has it.
+moved_likeness = 0.5
+
+
+def likeness(a, a_signature, b, b_signature):
+    """How alike the texts at a and b are, from 0 to 1. Remembered until either file changes."""
+    slot = (str(a), a_signature, str(b), b_signature)
+    if slot not in likenesses:
+        if len(likenesses) > 4000:
+            likenesses.clear()
+        likenesses[slot] = alike(read_bytes(a), read_bytes(b))
+    return likenesses[slot]
+
+
+def alike(a, b):
+    """The share of two texts' lines they have in common; 0 for an empty text, or two of sizes too far
+    apart, or too long to compare but the same."""
+    if not a or not b or not a.strip() or not b.strip() or min(len(a), len(b)) < moved_likeness * max(len(a), len(b)):
+        return 0
+    if a == b:
+        return 1
+    lefts, rights = a.splitlines(), b.splitlines()
+    if max(len(lefts), len(rights)) > 20000:
+        return 0
+    matcher = difflib.SequenceMatcher(None, lefts, rights, autojunk=False)
+    return matcher.ratio() if matcher.quick_ratio() >= moved_likeness else 0
 
 
 def compared(a, a_signature, b, b_signature):
@@ -192,6 +220,14 @@ def count(a, b):
     if found.group(1) == '-':
         return {'isBinary': True}
     return {'added': int(found.group(1)), 'removed': int(found.group(2))}
+
+
+def moved_entry(entry, members):
+    """A journal entry as the page shows it: of an action on a moved file, at its new place, saying
+    the old one."""
+    if len(members) < 2:
+        return entry
+    return {**entry, 'path': members[-1]['path'], 'movedFrom': members[0]['path']}
 
 
 def spliced(left, right, change, is_left_taken):
@@ -276,14 +312,58 @@ class Review:
         else:
             write_atomic(none, b'')
 
-    def listing(self):
-        files = []
+    def rows(self):
+        """Each file of the record: (key, file, the places of its three texts, their signatures)."""
+        rows = []
         for key, file in self.entries():
             places = self.places(key, file)
-            signatures = {name: signature(place) for name, place in places.items()}
+            rows.append((key, file, places, {name: signature(place) for name, place in places.items()}))
+        return rows
+
+    def moves(self, rows):
+        """The files moved, as git finds renames: a file gone from its place paired with a new file
+        whose text is mostly its old one, the likest pairs first; {new file's key: old file's key}."""
+        gone = [(key, places['orig'], signatures['orig']) for key, _, places, signatures in rows
+                if signatures['orig'] != '-' and signatures['disk'] == '-']
+        made = [(key, places['disk'], signatures['disk']) for key, _, places, signatures in rows
+                if signatures['orig'] == '-' and signatures['disk'] != '-']
+        scored = sorted(((likeness(old, old_signature, new, new_signature), new_key, old_key)
+                         for old_key, old, old_signature in gone for new_key, new, new_signature in made),
+                        reverse=True)
+        moves = {}
+        for score, new_key, old_key in scored:
+            if score >= moved_likeness and new_key not in moves and old_key not in moves.values():
+                moves[new_key] = old_key
+        return moves
+
+    def move_of(self, key):
+        """The file the file at key was moved from, (key, file); None when it was not moved."""
+        old = self.moves(self.rows()).get(key)
+        return (old, self.file(old)) if old else None
+
+    @staticmethod
+    def moved_places(new, old):
+        """A moved file's three texts: its old text, at its old place; what was accepted of it, at its
+        new place once the move was, else at its old place; and the file at its new place."""
+        return {'orig': old['orig'], 'base': new['base'] if new['base'].exists() else old['base'], 'disk': new['disk']}
+
+    def listing(self):
+        files = []
+        rows = self.rows()
+        moves = self.moves(rows)
+        by_key = {row[0]: row for row in rows}
+        for key, file, places, signatures in rows:
+            # A file moved away is listed at its new place.
+            if key in moves.values():
+                continue
+            moved_from = by_key[moves[key]] if key in moves else None
+            if moved_from:
+                places = self.moved_places(places, moved_from[2])
+                signatures = {name: signature(place) for name, place in places.items()}
             files.append({
                 'key': key,
                 'path': file['path'],
+                'movedFrom': moved_from[1]['path'] if moved_from else None,
                 'isNew': signatures['orig'] == '-',
                 'isGone': signatures['disk'] == '-',
                 'signature': ' '.join(signatures.values()),
@@ -292,8 +372,17 @@ class Review:
                 'all': compared(places['orig'], signatures['orig'], places['disk'], signatures['disk']),
                 'isOther': not self.git and is_other(file['path']),
             })
+            if moved_from:
+                # The move is a change of its own, its text the same or not: pending until accepted,
+                # which keeps a baseline at the new place.
+                is_kept = places['base'] != moved_from[2]['base']
+                unchanged = {'added': 0, 'removed': 0}
+                files[-1]['pending'] = files[-1]['pending'] or (None if is_kept else unchanged)
+                files[-1]['accepted'] = files[-1]['accepted'] or (unchanged if is_kept else None)
+                files[-1]['all'] = files[-1]['all'] or unchanged
             # What was accepted in it was lost to a rebase, and something of it is to look at.
-            files[-1]['isUncarried'] = bool(file.get('uncarried')) and files[-1]['pending'] is not None
+            is_uncarried = file.get('uncarried') or moved_from and moved_from[1].get('uncarried')
+            files[-1]['isUncarried'] = bool(is_uncarried) and files[-1]['pending'] is not None
         info = self.git or read_json(self.record / 'session.json', {})
         channel = shared('channel')
         return {'session': self.session, 'title': info.get('title') or 'Claude session', 'files': files,
@@ -314,11 +403,15 @@ class Review:
 
     def opened(self, key):
         file = self.file(key)
+        places = self.places(key, file)
+        moved = self.move_of(key)
+        if moved:
+            places = self.moved_places(places, self.places(*moved))
         texts = {}
-        for name, place in self.places(key, file).items():
+        for name, place in places.items():
             data = read_bytes(place)
             texts[name] = {'sha': sha(data), 'exists': data is not None, 'text': shown(data)}
-        return {'key': key, 'path': file['path'], 'texts': texts}
+        return {'key': key, 'path': file['path'], 'movedFrom': moved[1]['path'] if moved else None, 'texts': texts}
 
     def top(self):
         """The folder the page's full tree starts from, with its closing slash: a git review's work
@@ -340,15 +433,49 @@ class Review:
         file = self.file(key)
         if action not in actions:
             raise Refusal(400, 'No such action.')
-        left_name, right_name, target, is_left_taken = actions[action]
+        left_name, right_name = actions[action][:2]
+        moved = self.move_of(key)
+        if moved:
+            return self.apply_move(key, file, *moved, action, change, expected)
         places = self.places(key, file)
         left, right = read_bytes(places[left_name]), read_bytes(places[right_name])
         if not isinstance(expected, dict) or (sha(left), sha(right)) != (expected.get('left'), expected.get('right')):
             raise Refusal(409, 'The file changed since it was shown.')
-        if change is None:
-            result = left if is_left_taken else right
-        else:
-            result = spliced(left, right, change, is_left_taken)
+        entry = self.applied(key, file, action, change, left, right)
+        if file.get('uncarried') and read_bytes(places['base']) == read_bytes(places['disk']):
+            # Looked at again, to the end: the mark a rebase left goes.
+            kept = {name: value for name, value in self.file(key).items() if name != 'uncarried'}
+            write_atomic(self.record / 'files' / f'{key}.json', json.dumps(kept).encode())
+        return entry
+
+    def apply_move(self, key, file, old_key, old_file, action, change, expected):
+        """Carries out an action on a moved file, whole: on its old place and its new one, as one
+        entry of the journal (a group). Accept keeps the move, Reject puts the file back where it was,
+        with what was accepted of it, and Unaccept makes the move pending again."""
+        if change is not None:
+            raise Refusal(400, 'A moved file is accepted or rejected whole.')
+        left_name, right_name = actions[action][:2]
+        places = self.moved_places(self.places(key, file), self.places(old_key, old_file))
+        left, right = read_bytes(places[left_name]), read_bytes(places[right_name])
+        if not isinstance(expected, dict) or (sha(left), sha(right)) != (expected.get('left'), expected.get('right')):
+            raise Refusal(409, 'The file changed since it was shown.')
+        entries = []
+        group = f'move-{time.time_ns():x}'
+        # The old place first: a file put back is there before the new one goes.
+        for member_key, member in ((old_key, old_file), (key, file)):
+            member_places = self.places(member_key, member)
+            member_left, member_right = read_bytes(member_places[left_name]), read_bytes(member_places[right_name])
+            if member_left != member_right:
+                entries.append(self.applied(member_key, member, action, None, member_left, member_right, group))
+        if not entries:
+            raise Refusal(409, 'Nothing to do: the file changed since it was shown.')
+        return {**entries[0], 'path': file['path'], 'movedFrom': old_file['path']}
+
+    def applied(self, key, file, action, change, left, right, group=None):
+        """Writes what the action makes of the two texts, and adds it to the journal; group ties the
+        entries of one action on a moved file."""
+        right_name, target, is_left_taken = actions[action][1:]
+        result = (left if is_left_taken else right) if change is None else spliced(left, right, change, is_left_taken)
         before = right if target == right_name else left
         entry = {
             'id': f'{time.time_ns():x}',
@@ -361,51 +488,65 @@ class Review:
             'before': self.kept(before),
             'after': self.kept(result),
             'isUndone': False,
+            **({'group': group} if group else {}),
         }
         self.write(key, file, target, result)
         write_atomic(self.folder / 'journal.json', json.dumps(self.journal() + [entry], indent=1).encode())
-        if file.get('uncarried') and read_bytes(places['base']) == read_bytes(places['disk']):
-            # Looked at again, to the end: the mark a rebase left goes.
-            kept = {name: value for name, value in self.file(key).items() if name != 'uncarried'}
-            write_atomic(self.record / 'files' / f'{key}.json', json.dumps(kept).encode())
         return entry
 
     def flip(self, entry_id):
-        """Undoes a journal entry, or redoes an undone one, if the text it wrote is still in place."""
+        """Undoes a journal entry, or redoes an undone one, if the text it wrote is still in place; an
+        entry of a moved file's action with the rest of its group, the last first when undone."""
         journal = self.journal()
         entry = next((e for e in journal if e['id'] == entry_id), None)
         if not entry:
             raise Refusal(404, 'No such entry.')
-        file = self.file(entry['key'])
+        members = [e for e in journal if e.get('group') == entry['group']] if entry.get('group') else [entry]
         here_name, there_name = ('before', 'after') if entry['isUndone'] else ('after', 'before')
-        place = self.places(entry['key'], file)[entry['target']]
-        if sha(read_bytes(place)) != entry[here_name]:
-            raise Refusal(409, 'The file changed since.')
-        there = None if entry[there_name] == '-' else read_bytes(self.folder / 'blobs' / entry[there_name])
-        if entry[there_name] != '-' and there is None:
-            raise Refusal(410, 'The text to put back is gone.')
-        self.write(entry['key'], file, entry['target'], there)
-        entry['isUndone'] = not entry['isUndone']
+        flips = []
+        for member in members if entry['isUndone'] else reversed(members):
+            file = self.file(member['key'])
+            place = self.places(member['key'], file)[member['target']]
+            if sha(read_bytes(place)) != member[here_name]:
+                raise Refusal(409, 'The file changed since.')
+            there = None if member[there_name] == '-' else read_bytes(self.folder / 'blobs' / member[there_name])
+            if member[there_name] != '-' and there is None:
+                raise Refusal(410, 'The text to put back is gone.')
+            flips.append((member, file, there))
+        for member, file, there in flips:
+            self.write(member['key'], file, member['target'], there)
+            member['isUndone'] = not member['isUndone']
         write_atomic(self.folder / 'journal.json', json.dumps(journal, indent=1).encode())
-        return entry
+        return moved_entry(entry, members)
 
     def journal(self):
         journal = read_json(self.folder / 'journal.json', [])
         return journal if isinstance(journal, list) else []
 
     def journal_shown(self):
-        """The newest entries first, each saying whether it can be undone (or redone) now."""
+        """The newest entries first, each saying whether it can be undone (or redone) now; the entries
+        of one action on a moved file as one."""
         hashes = {}
-        entries = []
-        for entry in reversed(self.journal()[-200:]):
+        journal = self.journal()[-200:]
+        groups = {}
+        for entry in journal:
+            if entry.get('group'):
+                groups.setdefault(entry['group'], []).append(entry)
+
+        def can_flip(entry):
             try:
                 place = self.places(entry['key'], self.file(entry['key']))[entry['target']]
             except Refusal:
-                entries.append({**entry, 'canFlip': False})
-                continue
+                return False
             if place not in hashes:
                 hashes[place] = sha(read_bytes(place))
-            entries.append({**entry, 'canFlip': hashes[place] == entry['before' if entry['isUndone'] else 'after']})
+            return hashes[place] == entry['before' if entry['isUndone'] else 'after']
+
+        entries = []
+        for entry in reversed(journal):
+            members = groups.get(entry.get('group')) or [entry]
+            if entry is members[0]:
+                entries.append({**moved_entry(entry, members), 'canFlip': all(can_flip(member) for member in members)})
         return entries
 
     def kept(self, data):
