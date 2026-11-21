@@ -73,6 +73,8 @@ const state = {
   areUnchangedShown: false,
   // Whether Pending lists the reviewed files too, faded, where they were.
   areReviewedShown: true,
+  // The folders gone with the files deleted from them, by their paths with the closing slash.
+  goneFolders: new Set(),
   top: null,
   folders: new Map(),
   foldersRead: 0,
@@ -254,6 +256,7 @@ async function refresh() {
   state.files = listing.files.sort(treeOrder);
   state.comments = listing.comments;
   state.threads = listing.threads;
+  state.goneFolders = new Set((listing.goneFolders || []).map(path => `${path}/`));
   state.isWatched = listing.isWatched;
   diffView.isWatched = listing.isWatched;
   state.isScanning = listing.isScanning;
@@ -895,7 +898,7 @@ const drawn = { list: '', waiting: '', chosen: null };
 
 function drawList() {
   const drawing = JSON.stringify([state.view, state.key, state.plain,
-    state.areUnchangedShown, state.areReviewedShown, state.top, state.foldersRead, ...state.widenedFolders, '', ...state.narrowedFolders, '', ...state.closedFolders,
+    state.areUnchangedShown, state.areReviewedShown, state.top, state.foldersRead, ...state.widenedFolders, '', ...state.narrowedFolders, '', ...state.closedFolders, '', ...state.goneFolders,
     shownInList().map(file => [file.key, file.movedFrom, file[state.view], file.all, file.isNew, file.isGone, file.isUncarried, !file.pending, !file.accepted])]);
   if (drawing === drawn.list) {
     return;
@@ -980,13 +983,15 @@ function drawList() {
     const head = fold.appendChild(document.createElement('summary'));
     head.style.setProperty('--depth', depth);
     head.title = folder.path;
-    const name = head.appendChild(span('name', canWiden && isChanged ? '' : folder.name));
+    // A folder gone with its files is struck through, as they are, and says so.
+    const isGone = state.goneFolders.has(folder.path);
+    const name = head.appendChild(span(`name${isGone && !(canWiden && isChanged) ? ' gone' : ''}`, canWiden && isChanged ? '' : folder.name));
     if (canWiden && isChanged) {
       // In the full tree each folder of the row widens or narrows on a click, the fold the rest of it.
       // Its tooltip says how much a narrow one leaves out.
       folder.segments.forEach(({ name: segment, path, hidden }, at) => {
         const isWide = at === folder.segments.length - 1 && folder.isWide;
-        const made = name.appendChild(span(`segment${isWide ? ' wide' : ''}`, segment));
+        const made = name.appendChild(span(`segment${isWide ? ' wide' : ''}${state.goneFolders.has(path) ? ' gone' : ''}`, segment));
         made.title = isWide ? `Show only the changed files of ${segment}` : `Show every file of ${segment}${hidden ? ` (${hidden} more)` : ''}`;
         // A button to the keys too: Tab reaches it, Enter or Space widens or narrows.
         made.tabIndex = 0;
@@ -1016,6 +1021,9 @@ function drawList() {
       head.appendChild(span(`mark${isDone ? ' done' : ''}`, isDone ? '✓' : isBegun ? '◐' : '')).title =
         isDone ? 'Nothing pending in it' : isBegun ? 'Accepted in part' : '';
       head.append(span('spring', ''));
+      if (isGone) {
+        head.appendChild(span('state', 'gone')).title = 'The folder is gone, with the files deleted from it';
+      }
       const texts = under.map(file => file[state.view]).filter(count => count && !count.isBinary);
       const total = side => texts.reduce((sum, count) => sum + count[side], 0);
       head.append(...counts(texts.length ? { added: total('added'), removed: total('removed') } : null));

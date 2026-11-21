@@ -250,7 +250,8 @@ body.listHidden #splitter {
   color: var(--added);
 }
 
-.file .state {
+.file .state,
+.folder > summary .state {
   flex: none;
   color: var(--dim);
   font-size: 11px;
@@ -305,6 +306,8 @@ body.listHidden #splitter {
 /* A file deleted, struck through, and one made, in the colours of removed and added lines: in the
    list and the file bar. A file moved to another folder says from where, quietly. */
 .file .name.gone,
+.folder > summary .name.gone,
+.folder > summary .segment.gone,
 #filePath.gone {
   color: var(--removed);
   text-decoration: line-through;

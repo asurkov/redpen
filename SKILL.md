@@ -36,7 +36,8 @@ What to tell the user when it matters:
 - **Accepted** is what was accepted (the text before the session → accepted text). **Unaccept** makes
   a change pending again; the file is not touched.
 - A file deleted is "gone", its name struck through in the removed lines' colour, in the list and
-  the file bar; one made is "new", its name in the added lines' colour. A file moved or renamed
+  the file bar, and so is a folder gone with it; one made is "new", its name in the added lines'
+  colour. A file moved or renamed
   (gone from one place, and a new file at least half of whose lines are its old ones, as git finds
   renames: the same text first, then the same name, then any; in a refactor of thousands, only files
   of one extension are compared) is one row at its new place, `old → new` when renamed in its

@@ -658,7 +658,15 @@ class Review:
             files[-1]['isUncarried'] = bool(is_uncarried) and files[-1]['pending'] is not None
         info = self.git or read_json(self.record / 'session.json', {})
         channel = shared('channel')
+        # The folders a deleted file was in that are gone with it, its own and those up from it.
+        gone_folders = set()
+        for listed in files:
+            folder = os.path.dirname(listed['path']) if listed['isGone'] else ''
+            while folder not in ('', '/') and folder not in gone_folders and not os.path.isdir(folder):
+                gone_folders.add(folder)
+                folder = os.path.dirname(folder)
         return {'session': self.session, 'title': info.get('title') or 'Claude session', 'files': files,
+                'goneFolders': sorted(gone_folders),
                 'comments': self.comments(),
                 'threads': self.threads(),
                 # Whether Claude's command waits for comments now, and how many sent ones nobody took.
