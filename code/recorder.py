@@ -171,13 +171,16 @@ def commit_shell(session, name):
                 continue
             if kind == 'gone':
                 name = os.path.relpath(path, top)
-                old = git(top, 'show', f'HEAD:{name}')
+                listed = git(top, 'ls-tree', 'HEAD', '--', name) or b''
+                is_link = listed.startswith(b'120000 ')
+                # As checking it out writes it, the repository's line endings and filters (Git LFS's
+                # say) applied, else as git keeps it.
+                old = None if is_link else git(top, 'cat-file', '--filters', f'HEAD:{name}')
+                old = old if old is not None else git(top, 'cat-file', 'blob', f'HEAD:{name}')
                 if old is None:
                     continue
                 # A link is kept as a link's text: the review puts it back as a link; a file as
                 # executable as git kept it.
-                listed = git(top, 'ls-tree', 'HEAD', '--', name) or b''
-                is_link = listed.startswith(b'120000 ')
                 record(session, path, link_mark + old if is_link else old, is_link, listed.startswith(b'100755 '))
             else:
                 record(session, path, None, os.path.islink(path))

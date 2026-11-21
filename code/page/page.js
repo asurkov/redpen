@@ -493,15 +493,23 @@ async function show(key, place) {
   const root = workRoot();
   const left = state.opened.texts[view.left];
   const right = state.opened.texts[view.right];
-  const isShown = !isTooChanged && left.text !== null && right.text !== null;
+  const isText = !isTooChanged && left.text !== null && right.text !== null;
+  // The editor compares lines, not how they end: a change of the line endings alone is said, not
+  // compared, and one beside other changes is named in the file bar.
+  const endings = isText ? [endingsOf(left.text), endingsOf(right.text)] : ['', ''];
+  const isEndingsOnly = isText && left.text !== right.text && left.text.replace(/\r\n?/g, '\n') === right.text.replace(/\r\n?/g, '\n');
+  const isShown = isText && !isEndingsOnly;
   state.isText = isShown;
   // An image, or none on one side: the two side by side.
-  const areImages = !isTooChanged && !isShown && [left, right].some(side => side.image) && [left, right].every(side => side.image || !side.exists);
+  const areImages = !isTooChanged && !isText && [left, right].some(side => side.image) && [left, right].every(side => side.image || !side.exists);
   drawImages(areImages ? [[view.left, left], [view.right, right]] : null);
   const shownPath = file.movedFrom ? moveShown(shortened({ ...file, path: file.movedFrom }, root), shortened(file, root)) : shortened(file, root);
   byId('filePath').textContent = `‎${shownPath}`;
   byId('filePath').title = file.movedFrom ? `Moved from ${file.movedFrom}\nto ${file.path}` : file.path;
-  byId('fileCounts').replaceChildren(...modeChange(file, state.view), ...counts(file[state.view]));
+  const endingsChange = endings.every(Boolean) && endings[0] !== endings[1] && !isEndingsOnly
+    ? [Object.assign(span('state mode', `${endings[0]} → ${endings[1]}`), { title: 'The line endings changed too: the diff compares lines, not how they end' })]
+    : [];
+  byId('fileCounts').replaceChildren(...endingsChange, ...modeChange(file, state.view), ...counts(file[state.view]));
   byId('fileActions').replaceChildren();
   if (isShown && state.view === 'all') {
     const diff = button(byId('fileActions'), 'Diff', toggleAllDiff, `quiet${state.isAllDiffShown ? ' chosen' : ''}`);
@@ -526,6 +534,8 @@ async function show(key, place) {
       state.forcedDiffs.add(key);
       return show(key);
     }), 'quiet').title = 'It may stall the page for seconds, and show the file as one change';
+  } else if (isEndingsOnly) {
+    byId('note').textContent = `Only the line endings changed: ${endings[0] || 'none'} → ${endings[1] || 'none'}. The file as a whole can be accepted or rejected.`;
   } else {
     byId('note').textContent = isShown || areImages ? '' : 'Not a text the page can show: too large, or not UTF-8. The file as a whole can still be accepted or rejected.';
   }
@@ -745,6 +755,12 @@ async function refreshAll() {
   if (!byId('history').hidden) {
     await drawJournal();
   }
+}
+
+// How a text ends its lines: CRLF, LF or CR, mixed with more than one, '' with no line break.
+function endingsOf(text) {
+  const kinds = [[/\r\n/, 'CRLF'], [/(?<!\r)\n/, 'LF'], [/\r(?!\n)/, 'CR']].filter(([found]) => found.test(text)).map(([, name]) => name);
+  return kinds.length > 1 ? 'mixed' : kinds[0] || '';
 }
 
 // The file made executable in the view, or no longer: +x or −x; else nothing.

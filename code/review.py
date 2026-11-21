@@ -1253,7 +1253,7 @@ def carried(record, base):
             places = {'orig': record / 'review/orig' / k, 'none': record / 'review/orig' / f'{k}.none',
                       'base': record / 'base' / k}
             orig, accepted = read_bytes(places['orig']), read_bytes(places['base'])
-            new = committed_text(top, base, name) if file.get('link') else git(top, 'cat-file', 'blob', f'{base}:{name}')
+            new = committed_text(top, base, name) if file.get('link') else checked_out(top, base, name)
             # The record's own orig decides: a file carried before this was interrupted is not again.
             if new == orig:
                 continue
@@ -1335,8 +1335,8 @@ def scanned(record, info):
         is_link = link_mode in modes.get(name, ()) or place.is_symlink()
         if entry.exists() or place.is_dir() and not place.is_symlink():
             continue
-        old = git(top, 'cat-file', 'blob', f'{info["base"]}:{name}')
         old_mode = modes.get(name, (b'',))[0]
+        old = checked_out(top, info['base'], name, old_mode == link_mode)
         if old is not None and old_mode == link_mode:
             old = link_mark + old
         if old is None and not os.path.lexists(place):
@@ -1358,8 +1358,18 @@ def scanned(record, info):
 def committed_text(top, commit, name):
     """A file's text at the commit, a link's as a link's text; None where there is none."""
     listed = git(top, 'ls-tree', '-z', commit, '--', name)
-    data = git(top, 'cat-file', 'blob', f'{commit}:{name}') if listed else None
-    return None if data is None else link_mark + data if listed.startswith(link_mode + b' ') else data
+    is_link = bool(listed) and listed.startswith(link_mode + b' ')
+    data = checked_out(top, commit, name, is_link) if listed else None
+    return None if data is None else link_mark + data if is_link else data
+
+
+def checked_out(top, commit, name, is_link=False):
+    """A file's bytes at the commit as checking it out writes them, the repository's line endings and
+    filters applied (Git LFS's say), else, where a filter fails, as git keeps them; a link's target as
+    git keeps it. None where there is none."""
+    spec = f'{commit}:{name}'
+    data = None if is_link else git(top, 'cat-file', '--filters', spec)
+    return data if data is not None else git(top, 'cat-file', 'blob', spec)
 
 
 def rescan(review, lock):

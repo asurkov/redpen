@@ -50,6 +50,11 @@ What to tell the user when it matters:
 - A file that is not text (not UTF-8, or past 16 MB) is "binary" and accepted or rejected whole. An
   image (PNG, JPEG, GIF, WebP, AVIF, BMP, ICO) shows its two versions side by side, each with its
   size in pixels and bytes; SVG is text, and diffed as text.
+- The diff compares lines, not how they end. A change of the line endings alone says so ("Only the
+  line endings changed: LF → CRLF"), accepted or rejected whole; one beside other changes is named
+  in the file bar. A line ending the page's editor and the server split differently (a lone CR)
+  leaves the file's changes to be accepted or rejected whole. A git review takes a file's old text as
+  checking it out writes it: the repository's line endings and filters (Git LFS's say) applied.
 - A text with more than 20,000 lines changed (added and removed, a lockfile or a bundle say), or one
   the editor gave up comparing (after 5 seconds, it calls the whole file one change), is counted, not
   compared: accepted or rejected whole. **Show the diff anyway** compares it all the same, which may
