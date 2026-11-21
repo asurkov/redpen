@@ -38,6 +38,9 @@ What to tell the user when it matters:
   place, `old → new` when renamed in its folder, "moved" otherwise, its diff against its old text. It
   is accepted or rejected whole: **Accept** keeps the move, **Reject** puts the file back at its old
   place, the new one to the Trash; History has one line for it, and one Undo.
+- A file that is not text (not UTF-8, or past 16 MB) is "binary" and accepted or rejected whole. An
+  image (PNG, JPEG, GIF, WebP, AVIF, BMP, ICO) shows its two versions side by side, each with its
+  size in pixels and bytes; SVG is text, and diffed as text.
 - **All** is everything the session changed, pending or accepted, with no buttons: the file as it is,
   its changes marked in the margin (green added, blue changed, a red notch where lines were removed)
   and on the scrollbar. **Diff** in the file bar, or `d`, shows the removed lines and colours again.

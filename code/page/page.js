@@ -422,6 +422,7 @@ async function openPlain(path, place) {
   byId('fileCounts').replaceChildren(span('state', 'unchanged'));
   byId('fileActions').replaceChildren();
   byId('work').classList.toggle('bare', !state.isText);
+  drawImages(null);
   byId('note').textContent = state.isText ? '' : 'Not a text the page can show: too large, or not UTF-8.';
   if (state.isText) {
     diffView.show({
@@ -471,6 +472,7 @@ async function show(key, place) {
   byId('fileBar').hidden = !file;
   byId('work').classList.toggle('bare', !file);
   byId('note').textContent = file ? '' : view.none;
+  drawImages(null);
   if (!file) {
     return;
   }
@@ -479,6 +481,9 @@ async function show(key, place) {
   const right = state.opened.texts[view.right];
   const isText = left.text !== null && right.text !== null;
   state.isText = isText;
+  // An image, or none on one side: the two side by side.
+  const areImages = !isText && [left, right].some(side => side.image) && [left, right].every(side => side.image || !side.exists);
+  drawImages(areImages ? [[view.left, left], [view.right, right]] : null);
   const shownPath = file.movedFrom ? moveShown(shortened({ ...file, path: file.movedFrom }, root), shortened(file, root)) : shortened(file, root);
   byId('filePath').textContent = `‎${shownPath}`;
   byId('filePath').title = file.movedFrom ? `Moved from ${file.movedFrom}\nto ${file.path}` : file.path;
@@ -498,7 +503,7 @@ async function show(key, place) {
     }
   }
   byId('work').classList.toggle('bare', !isText);
-  byId('note').textContent = isText ? '' : 'Not a text the page can show: too large, or not UTF-8. The file as a whole can still be accepted or rejected.';
+  byId('note').textContent = isText || areImages ? '' : 'Not a text the page can show: too large, or not UTF-8. The file as a whole can still be accepted or rejected.';
   if (isText) {
     diffView.show({
       path: file.path,
@@ -704,6 +709,37 @@ async function refreshAll() {
   if (!byId('history').hidden) {
     await drawJournal();
   }
+}
+
+// What each of a file's three texts is called beside its picture.
+const sideNames = { orig: 'Before', base: 'Accepted', disk: 'Now' };
+
+// Shows an image's two versions side by side, [[text's name, {image, size}], …], each on a
+// checkerboard with its size; or, with none, hides them.
+function drawImages(sides) {
+  const panel = byId('images');
+  panel.hidden = !sides;
+  panel.replaceChildren(...(sides || []).map(([name, side]) => {
+    const pane = document.createElement('figure');
+    pane.className = 'imagePane';
+    const caption = pane.appendChild(document.createElement('figcaption'));
+    caption.append(span('side', sideNames[name]));
+    const frame = pane.appendChild(document.createElement('div'));
+    frame.className = 'imageFrame';
+    if (!side.image) {
+      frame.append(span('none', 'No file'));
+      return pane;
+    }
+    const image = frame.appendChild(document.createElement('img'));
+    image.alt = sideNames[name];
+    image.addEventListener('load', () => caption.append(span('size', `${image.naturalWidth} × ${image.naturalHeight} · ${bytesShown(side.size)}`)));
+    image.src = side.image;
+    return pane;
+  }));
+}
+
+function bytesShown(size) {
+  return size < 1024 ? `${size} B` : size < 1 << 20 ? `${(size / 1024).toFixed(1)} KB` : `${(size / (1 << 20)).toFixed(1)} MB`;
 }
 
 // A move as git shows a rename: the folders both paths share, then {old → new} of the rest, so the

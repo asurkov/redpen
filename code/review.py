@@ -50,7 +50,7 @@ the record is carried over to the new base commit then too (carried()), under th
 against HEAD keeps its base through commits made on top, and is carried over to HEAD once an amend or
 a rebase rewrote the branch (is_rewritten()).
 """
-import argparse, datetime, difflib, filecmp, functools, hashlib, importlib.util, json, os, pathlib, re, subprocess, sys
+import argparse, base64, datetime, difflib, filecmp, functools, hashlib, importlib.util, json, os, pathlib, re, subprocess, sys
 import tempfile, threading, time, urllib.parse
 
 home = pathlib.Path.home()
@@ -164,6 +164,25 @@ def shown(data):
         return data.decode()
     except UnicodeDecodeError:
         return None
+
+
+def image_type(data):
+    """The media type of the image the bytes are, by how they start; None for any other kind."""
+    if data.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'image/png'
+    if data.startswith(b'\xff\xd8\xff'):
+        return 'image/jpeg'
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return 'image/gif'
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return 'image/webp'
+    if data[4:12] in (b'ftypavif', b'ftypavis'):
+        return 'image/avif'
+    if data[:2] == b'BM' and len(data) > 26:
+        return 'image/bmp'
+    if data[:4] == b'\x00\x00\x01\x00':
+        return 'image/x-icon'
+    return None
 
 
 counts = {}
@@ -410,7 +429,12 @@ class Review:
         texts = {}
         for name, place in places.items():
             data = read_bytes(place)
-            texts[name] = {'sha': sha(data), 'exists': data is not None, 'text': shown(data)}
+            texts[name] = {'sha': sha(data), 'exists': data is not None, 'text': shown(data),
+                           'size': None if data is None else len(data)}
+            # An image the page cannot show as text it shows as the picture it is.
+            kind = image_type(data) if data is not None and texts[name]['text'] is None and len(data) <= shown_bytes else None
+            if kind:
+                texts[name]['image'] = f'data:{kind};base64,{base64.b64encode(data).decode()}'
         return {'key': key, 'path': file['path'], 'movedFrom': moved[1]['path'] if moved else None, 'texts': texts}
 
     def top(self):
