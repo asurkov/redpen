@@ -42,7 +42,10 @@ What to tell the user when it matters:
   of one extension are compared) is one row at its new place, `old → new` when renamed in its
   folder, else its name and, quietly, "from" its old path, its diff against its old text. It
   is accepted or rejected whole: **Accept** keeps the move, **Reject** puts the file back at its old
-  place, the new one to the Trash; History has one line for it, and one Undo.
+  place, the new one to the Trash; History has one line for it, and one Undo. A file renamed by its
+  case alone (`git mv Foo.js foo.js`), which macOS's file system finds under either name, is such a
+  rename, `Foo.js → foo.js`; its Reject takes the new name away first, then puts the old one back. A
+  case rename git does not see (a plain `mv`) is not shown.
 - A symbolic link made, retargeted or deleted (in a git review, or by a session's shell command), or
   a file a link took the place of or gave its place to, is a "link" row: its text is
   `symbolic link → target`, accepted or rejected whole, and **Reject** puts the link back, or takes a

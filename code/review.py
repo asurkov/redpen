@@ -414,6 +414,7 @@ class Review:
         self.folder = self.record / 'review'
         # The log of the comments sent to Claude, kept by redpen's channel (../base/channel.py).
         self.sent = self.folder / 'sent.jsonl'
+        self.twins = None
 
     def entries(self):
         for entry in sorted((self.record / 'files').glob('*.json')):
@@ -461,8 +462,32 @@ class Review:
             signatures = {name: signature(place) for name, place in places.items()}
             if file.get('link'):
                 signatures['disk'] = link_signature(places['disk'])
+            elif signatures['disk'] != '-' and not self.is_there(places['disk']):
+                signatures['disk'] = '-'
             rows.append((key, file, places, signatures))
         return rows
+
+    def case_twins(self):
+        """The record's paths another of its paths differs from by case alone: the two names of a file
+        renamed by its case, on a file system that keeps case but ignores it, as macOS's does."""
+        if self.twins is None:
+            paths = [file['path'] for _, file in self.entries()]
+            folded = {}
+            for path in paths:
+                folded[path.casefold()] = folded.get(path.casefold(), 0) + 1
+            self.twins = {path for path in paths if folded[path.casefold()] > 1}
+        return self.twins
+
+    def is_there(self, place):
+        """Whether a file of the record is at its place: for one of case twins, by its name's very case,
+        as the file system finds the other name's file there too."""
+        if str(place) not in self.case_twins():
+            return True
+        folder, name = os.path.split(str(place))
+        try:
+            return name in os.listdir(folder)
+        except OSError:
+            return False
 
     @staticmethod
     def modes(orig_file, base_file, disk):
@@ -502,10 +527,14 @@ class Review:
             disk_hashes[slot] = sha(self.read(file, 'disk', disk))
         return disk_hashes[slot] != after
 
-    @staticmethod
-    def read(file, name, place):
-        """One of the file's texts; of a link, at its own place, the link itself, not what it points to."""
-        return read_link_place(place) if name == 'disk' and file.get('link') else read_bytes(place)
+    def read(self, file, name, place):
+        """One of the file's texts; of a link, at its own place, the link itself, not what it points to;
+        none at the place of a name a case rename took away."""
+        if name == 'disk' and file.get('link'):
+            return read_link_place(place)
+        if name == 'disk' and not self.is_there(place):
+            return None
+        return read_bytes(place)
 
     def moves(self, rows):
         """The files moved, as git finds renames: a file gone from its place paired with a new file
@@ -717,10 +746,16 @@ class Review:
             raise Refusal(409, 'The file changed since it was shown.')
         entries = []
         group = f'move-{time.time_ns():x}'
-        # The old place first: a file put back is there before the new one goes.
-        for member_key, member in ((old_key, old_file), (key, file)):
+        # The old place first: a file put back is there before the new one goes. But for a file renamed
+        # by its case the two places are one to the file system: the new name goes first, or putting
+        # the old one back would write into it, and taking it away then would take the file.
+        members = [(old_key, old_file), (key, file)]
+        if old_file['path'].casefold() == file['path'].casefold():
+            members.reverse()
+        for member_key, member in members:
             member_places = self.places(member_key, member)
-            member_left, member_right = read_bytes(member_places[left_name]), read_bytes(member_places[right_name])
+            member_left = self.read(member, left_name, member_places[left_name])
+            member_right = self.read(member, right_name, member_places[right_name])
             if member_left != member_right:
                 entries.append(self.applied(member_key, member, action, None, member_left, member_right, group))
         if not entries:
