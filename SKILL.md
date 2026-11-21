@@ -30,7 +30,9 @@ deleted or moved in a git work tree, not the rest of what a shell command change
 What to tell the user when it matters:
 - **Pending** is what is not accepted yet (accepted text → the file). **Accept** records a change as
   accepted and leaves the file alone. **Reject** writes the old lines back into the file on disk, right
-  away; rejecting a file the session created moves it to the Trash.
+  away; rejecting a file the session created moves it to the Trash, and takes away the folders that
+  leaves empty (a moved folder's), never the review's top nor above it, nor a folder with anything
+  in it.
 - **Accepted** is what was accepted (the text before the session → accepted text). **Unaccept** makes
   a change pending again; the file is not touched.
 - A file deleted is "gone", its name struck through in the removed lines' colour, in the list and

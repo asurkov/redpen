@@ -829,6 +829,8 @@ class Review:
         place = self.places(key, file)[target]
         if target == 'disk':
             self.write_disk(file, place, data)
+            if data is None:
+                self.remove_emptied(place)
             # What the review writes is not someone else's change: the session's hash follows it.
             if not self.git and (self.record / 'after' / key).exists():
                 write_atomic(self.record / 'after' / key, sha(self.read(file, 'disk', place)).encode())
@@ -839,6 +841,18 @@ class Review:
             write_atomic(self.record / 'files' / f'{key}.json', json.dumps(kept).encode())
         else:
             write_atomic(place, data)
+
+    def remove_emptied(self, place):
+        """Takes away the folders a file taken away leaves empty, a moved folder's say, from its own
+        up, never the review's top nor above it; a folder with anything in it stays."""
+        top = self.top()
+        folder = os.path.dirname(str(place))
+        while top and folder.startswith(top) and f'{folder}/' != top:
+            try:
+                os.rmdir(folder)
+            except OSError:
+                return
+            folder = os.path.dirname(folder)
 
     @staticmethod
     def write_disk(file, place, data):
