@@ -57,7 +57,8 @@ home = pathlib.Path.home()
 store = home / '.redpen/code'
 history = home / '.claude/file-history'
 here = pathlib.Path(__file__).resolve().parent
-# Files under these are Claude's own and temporary ones, not the work's: the page lists them apart.
+# Files under these are Claude's own and temporary ones, not the work's: the page lists them apart;
+# ~/.claude first, as is_other() makes an exception there.
 other_roots = (f'{home}/.claude/', '/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/')
 # A text past this is not sent to the page.
 shown_bytes = 16 << 20
@@ -801,7 +802,10 @@ def unchanged_text(top, path):
 
 
 def is_other(path):
-    """Whether the file is Claude's own or a temporary one, not the work's."""
+    """Whether the file is Claude's own or a temporary one, not the work's. One under ~/.claude in a
+    git work tree of its own, a skill kept in its repository say, is the work's."""
+    if path.startswith(other_roots[0]) and repository_top(os.path.dirname(path)):
+        return False
     return any(path.startswith(root) for root in other_roots)
 
 

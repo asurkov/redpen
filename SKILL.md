@@ -70,7 +70,8 @@ What to tell the user when it matters:
   the choice. An unchanged file is greyed and opens as it is, with nothing to accept or comment on;
   `n` and `p` still step through the changed files. The open folders follow the disk within two
   seconds.
-- Files under `~/.claude` and temporary folders are listed apart, under "other".
+- Files under `~/.claude` and temporary folders are listed apart, under "other", but for those in a
+  git repository of their own under `~/.claude`, such as a skill's: they are the work, in its tree.
 - The page follows the files: an edit by Claude or the user shows up within two seconds.
 
 **Waiting for comments.** After opening the page, keep one background Bash command
