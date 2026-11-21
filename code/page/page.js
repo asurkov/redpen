@@ -426,6 +426,7 @@ async function openPlain(path, place) {
   byId('fileBar').hidden = false;
   byId('filePath').textContent = `‎${path.startsWith(state.top) ? path.slice(state.top.length) : path}`;
   byId('filePath').title = path;
+  byId('filePath').className = '';
   byId('fileCounts').replaceChildren(span('state', 'unchanged'));
   byId('fileActions').replaceChildren();
   byId('work').classList.toggle('bare', !state.isText);
@@ -506,6 +507,7 @@ async function show(key, place) {
   const shownPath = file.movedFrom ? moveShown(shortened({ ...file, path: file.movedFrom }, root), shortened(file, root)) : shortened(file, root);
   byId('filePath').textContent = `‎${shownPath}`;
   byId('filePath').title = file.movedFrom ? `Moved from ${file.movedFrom}\nto ${file.path}` : file.path;
+  byId('filePath').className = file.isGone ? 'gone' : file.isNew ? 'new' : '';
   const endingsChange = endings.every(Boolean) && endings[0] !== endings[1] && !isEndingsOnly
     ? [Object.assign(span('state mode', `${endings[0]} → ${endings[1]}`), { title: 'The line endings changed too: the diff compares lines, not how they end' })]
     : [];
@@ -819,6 +821,22 @@ function bytesShown(size) {
   return size < 1024 ? `${size} B` : size < 1 << 20 ? `${(size / 1024).toFixed(1)} KB` : `${(size / (1 << 20)).toFixed(1)} MB`;
 }
 
+// Where a file moved to another folder was: from the tree's top, or, for a file outside the work's
+// tree, from the folder it is in now (../util.js).
+function movedFromShown(file) {
+  const root = file.isOther ? '' : state.top || workRoot();
+  if (root && file.movedFrom.startsWith(root)) {
+    return file.movedFrom.slice(root.length);
+  }
+  const here = file.path.split('/').slice(0, -1);
+  const there = file.movedFrom.split('/');
+  let shared = 0;
+  while (shared < here.length && shared < there.length - 1 && here[shared] === there[shared]) {
+    shared++;
+  }
+  return [...Array(here.length - shared).fill('..'), ...there.slice(shared)].join('/');
+}
+
 // A move as git shows a rename: the folders both paths share, then {old → new} of the rest, so the
 // end of it, what a narrow bar keeps, says both.
 function moveShown(from, to) {
@@ -912,13 +930,15 @@ function drawList() {
     // A file moved within its folder: its old name, then its new one; moved to another folder: its
     // name, and where it was in the tooltip.
     const isRenamed = file.movedFrom && file.movedFrom.slice(0, file.movedFrom.lastIndexOf('/')) === file.path.slice(0, file.path.lastIndexOf('/'));
-    made.append(span('name', isRenamed ? `${nameOf(file.movedFrom)} → ${nameOf(file.path)}` : nameOf(file.path)), span('spring', ''));
+    // A file deleted is struck through, one made is in the added lines' colour.
+    made.append(span(`name${file.isGone ? ' gone' : file.isNew ? ' new' : ''}`, isRenamed ? `${nameOf(file.movedFrom)} → ${nameOf(file.path)}` : nameOf(file.path)));
     if (file.movedFrom) {
       made.title = `${made.title}\nMoved from ${file.movedFrom}`;
       if (!isRenamed) {
-        made.append(span('state', 'moved'));
+        made.append(span('from', `from ${movedFromShown(file)}`));
       }
     }
+    made.append(span('spring', ''));
     if (file.isLink) {
       made.appendChild(span('state', 'link')).title = 'A symbolic link: its change is where it points, accepted or rejected whole';
     }

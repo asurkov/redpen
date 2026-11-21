@@ -302,6 +302,28 @@ body.listHidden #splitter {
   color: var(--dim);
 }
 
+/* A file deleted, struck through, and one made, in the colours of removed and added lines: in the
+   list and the file bar. A file moved to another folder says from where, quietly. */
+.file .name.gone,
+#filePath.gone {
+  color: var(--removed);
+  text-decoration: line-through;
+}
+
+.file .name.new,
+#filePath.new {
+  color: var(--added);
+}
+
+.file .from {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dim);
+  font-size: 11px;
+}
+
 /* Three weights by how much a row asks of the reader: a file with something pending in full ink; a
    reviewed one, nothing of it pending, dimmed with its counts faded and its ✓; and the full tree's
    files and folders with no change in the list, lightest, with no counts. */
