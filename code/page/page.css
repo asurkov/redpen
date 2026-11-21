@@ -130,6 +130,7 @@ button.main:hover:not(:disabled) {
 
 #views button.chosen,
 #unchangedButton.chosen,
+#reviewedButton.chosen,
 #fileActions button.chosen {
   background: var(--chosen);
   color: var(--ink);
@@ -290,10 +291,22 @@ body.listHidden #splitter {
   color: var(--dim);
 }
 
-/* The full tree's files and folders with no change, and a folder's files past what it lists. */
+/* Three weights by how much a row asks of the reader: a file with something pending in full ink; a
+   reviewed one, nothing of it pending, dimmed with its counts faded and its ✓; and the full tree's
+   files and folders with no change in the list, lightest, with no counts. */
+.file.reviewed .name,
+.folder.reviewed > summary .name {
+  color: var(--dim);
+}
+
+.file.reviewed .plus,
+.file.reviewed .minus {
+  opacity: 0.55;
+}
+
 .file.plain .name,
 .folder.plain > summary .name {
-  color: var(--dim);
+  color: color-mix(in srgb, var(--dim) 55%, var(--ground));
 }
 
 #list .more {

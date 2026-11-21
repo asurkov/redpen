@@ -56,7 +56,10 @@ What to tell the user when it matters:
   changes, whole lines; removed lines go with the lines on both sides of them. `t` and `Shift+t` step to the next and the
   previous thread, through every file's.
 - The header says how many files are reviewed (nothing of them pending) of those the review has; in
-  the list such a file has ✓, and one accepted in part ◐.
+  the list such a file has ✓, and one accepted in part ◐. In Pending a reviewed file stays where it
+  was, dimmed, with ✓ and its lines added and removed faded; `n` and `p` pass it, and a click opens
+  it in Accepted. **Reviewed**, in the header, leaves such files out; the browser keeps the choice.
+  Unchanged files are lighter still, with no counts.
 - The list nests the files in their folders, a folder holding only one folder joined with it
   (`tests/www/unit`). A folder has ✓ when nothing in it is pending and ◐ when part of it is accepted,
   and, folded, its lines added and removed. Stepping into a file opens the folders it is in.

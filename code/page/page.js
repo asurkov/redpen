@@ -64,6 +64,8 @@ const state = {
   // behind "N more", unless widened or narrowed by hand; with the unchanged files shown, a folder
   // holding a changed file starts widened.
   areUnchangedShown: false,
+  // Whether Pending lists the reviewed files too, faded, where they were.
+  areReviewedShown: true,
   top: null,
   folders: new Map(),
   foldersRead: 0,
@@ -77,6 +79,8 @@ const state = {
 };
 // Where the browser keeps whether the list shows the unchanged files, for every review's page.
 const keptUnchangedShown = 'redpenUnchangedShown';
+// And whether Pending lists the reviewed files.
+const keptReviewedHidden = 'redpenReviewedHidden';
 let diffView;
 // One request after another: a poll never reads between an action and its redraw.
 let chain = Promise.resolve();
@@ -98,6 +102,11 @@ async function asked(path, body) {
 }
 
 const listed = () => state.files.filter(file => file[state.view]);
+// A file reviewed in full: changed, and nothing of it pending.
+const isReviewed = file => !file.pending && Boolean(file.all);
+// What the list shows: the view's files, and in Pending, with Reviewed on, the reviewed ones too,
+// faded; the keys step through the view's alone.
+const shownInList = () => state.files.filter(file => file[state.view] || state.view === 'pending' && state.areReviewedShown && isReviewed(file));
 const nameOf = path => path.slice(path.lastIndexOf('/') + 1);
 
 // The folder all the work's files are under, with its closing slash.
@@ -357,6 +366,28 @@ function showUnchanged(isOn) {
 // A file of the review's with no change in the view open opens in one where it has some.
 function showPlain(path) {
   return queued(() => openPlain(path));
+}
+
+// Opens a file reviewed in full where what was done to it shows: in Accepted, where it can be
+// unaccepted, or with nothing accepted (rejected, but for lines that stayed), in All.
+function openReviewed(file) {
+  state.view = file.accepted ? 'accepted' : 'all';
+  drawViews();
+  return show(file.key);
+}
+
+// Lists the reviewed files in Pending, faded, or leaves them out, and keeps the choice.
+function showReviewed(isOn) {
+  return queued(async () => {
+    state.areReviewedShown = isOn;
+    byId('reviewedButton').classList.toggle('chosen', isOn);
+    try {
+      localStorage.setItem(keptReviewedHidden, isOn ? '' : 'yes');
+    } catch {
+      // A browser that keeps nothing: the choice lasts until the page is loaded again.
+    }
+    drawList();
+  });
 }
 
 // Opens a file the review has no change in; with place 'kept', the one open again, at the poll, only
@@ -692,6 +723,7 @@ function drawViews() {
     tab.classList.toggle('chosen', tab.dataset.view === state.view);
     tab.querySelector('.count').textContent = state.files.filter(file => file[tab.dataset.view]).length || '';
   }
+  byId('reviewedButton').hidden = state.view !== 'pending';
 }
 
 // How far the review is, in the work's own files: how many have nothing pending, of those the
@@ -715,8 +747,8 @@ const drawn = { list: '', waiting: '', chosen: null };
 
 function drawList() {
   const drawing = JSON.stringify([state.view, state.key, state.plain,
-    state.areUnchangedShown, state.top, state.foldersRead, ...state.widenedFolders, '', ...state.narrowedFolders, '', ...state.closedFolders,
-    listed().map(file => [file.key, file[state.view], file.isNew, file.isGone, file.isUncarried, !file.pending, !file.accepted])]);
+    state.areUnchangedShown, state.areReviewedShown, state.top, state.foldersRead, ...state.widenedFolders, '', ...state.narrowedFolders, '', ...state.closedFolders,
+    shownInList().map(file => [file.key, file[state.view], file.all, file.isNew, file.isGone, file.isUncarried, !file.pending, !file.accepted])]);
   if (drawing === drawn.list) {
     return;
   }
@@ -739,9 +771,11 @@ function drawList() {
       return plainRow(file, depth);
     }
     const made = document.createElement('button');
-    made.className = `file${file.key === state.key ? ' chosen' : ''}`;
+    // Reviewed, in Pending: faded, with the lines it changed, and opened where what was done shows.
+    const isFaded = state.view === 'pending' && !file.pending;
+    made.className = `file${isFaded ? ' reviewed' : ''}${file.key === state.key ? ' chosen' : ''}`;
     made.style.setProperty('--depth', depth);
-    made.title = file.path;
+    made.title = isFaded ? `${file.path}\nReviewed: nothing pending. Opens in ${file.accepted ? 'Accepted' : 'All'}.` : file.path;
     // ✓ with nothing of the file pending, ◐ with a part of it accepted.
     const mark = made.appendChild(span(`mark${file.pending ? '' : ' done'}`, !file.pending ? '✓' : file.accepted ? '◐' : ''));
     mark.title = !file.pending ? 'Nothing pending' : file.accepted ? 'Accepted in part' : '';
@@ -752,8 +786,8 @@ function drawList() {
     if (file.isUncarried) {
       made.appendChild(span('state again', 'rebased')).title = 'The branch was rebased, and what was accepted in this file did not fit the new base: nothing of it is accepted now, look at it again';
     }
-    made.append(...counts(file[state.view]));
-    made.addEventListener('click', () => queued(() => show(file.key)));
+    made.append(...counts(isFaded ? file.all : file[state.view]));
+    made.addEventListener('click', () => queued(() => isFaded ? openReviewed(file) : show(file.key)));
     return made;
   };
   // A folder's row folds what is in it. It says how far the changed files in it are, ✓ and ◐ as a
@@ -813,6 +847,8 @@ function drawList() {
     }
     if (isChanged) {
       const isDone = under.every(file => !file.pending);
+      // In Pending, a folder with nothing pending is faded as its files are.
+      fold.classList.toggle('reviewed', isDone && state.view === 'pending');
       const isBegun = under.some(file => file.accepted || !file.pending);
       head.appendChild(span(`mark${isDone ? ' done' : ''}`, isDone ? '✓' : isBegun ? '◐' : '')).title =
         isDone ? 'Nothing pending in it' : isBegun ? 'Accepted in part' : '';
@@ -843,7 +879,7 @@ function drawList() {
     }
     return rows;
   };
-  const files = listed();
+  const files = shownInList();
   const others = files.filter(file => file.isOther);
   const work = files.filter(file => !file.isOther);
   const list = byId('list');
@@ -853,7 +889,7 @@ function drawList() {
   const isWide = path => !state.narrowedFolders.has(path) && (state.widenedFolders.has(path) || state.areUnchangedShown && holdsChanged.has(path));
   // With no changed file in the view, the list says so alone, not the rest of the repository.
   list.replaceChildren(...!work.length ? [] : rowsOf(isFull ? treeOf(work, state.top, state.folders, isWide) : treeOf(work, workRoot()), 0, isFull));
-  if (!files.length) {
+  if (!listed().length) {
     list.append(span('none', views[state.view].none));
   }
   if (others.length) {
@@ -1033,6 +1069,13 @@ async function main() {
   }
   byId('unchangedButton').classList.toggle('chosen', state.areUnchangedShown);
   byId('unchangedButton').addEventListener('click', () => showUnchanged(!state.areUnchangedShown));
+  try {
+    state.areReviewedShown = localStorage.getItem(keptReviewedHidden) !== 'yes';
+  } catch {
+    // A browser that keeps nothing: the reviewed files are listed.
+  }
+  byId('reviewedButton').classList.toggle('chosen', state.areReviewedShown);
+  byId('reviewedButton').addEventListener('click', () => showReviewed(!state.areReviewedShown));
   sizeListBySplitter();
   for (const tab of document.querySelectorAll('#views button')) {
     tab.addEventListener('click', () => queued(async () => {
