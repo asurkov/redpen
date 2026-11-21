@@ -41,6 +41,10 @@ What to tell the user when it matters:
 - A file that is not text (not UTF-8, or past 16 MB) is "binary" and accepted or rejected whole. An
   image (PNG, JPEG, GIF, WebP, AVIF, BMP, ICO) shows its two versions side by side, each with its
   size in pixels and bytes; SVG is text, and diffed as text.
+- A text with more than 20,000 lines changed (added and removed, a lockfile or a bundle say), or one
+  the editor gave up comparing (after 5 seconds, it calls the whole file one change), is counted, not
+  compared: accepted or rejected whole. **Show the diff anyway** compares it all the same, which may
+  stall the page for seconds.
 - **All** is everything the session changed, pending or accepted, with no buttons: the file as it is,
   its changes marked in the margin (green added, blue changed, a red notch where lines were removed)
   and on the scrollbar. **Diff** in the file bar, or `d`, shows the removed lines and colours again.

@@ -420,7 +420,9 @@ class Review:
                                  for name in ('page.html', 'page.js', 'editor.js', 'page.css')),
                 'untaken': sum(len(ask.get('comments') or []) for ask in channel.waiting(self.sent))}
 
-    def opened(self, key):
+    def opened(self, key, is_bare=False):
+        """The file's three texts as the page shows them; is_bare: their hashes and sizes alone, for a
+        file the page does not compare."""
         file = self.file(key)
         places = self.places(key, file)
         moved = self.move_of(key)
@@ -429,8 +431,10 @@ class Review:
         texts = {}
         for name, place in places.items():
             data = read_bytes(place)
-            texts[name] = {'sha': sha(data), 'exists': data is not None, 'text': shown(data),
+            texts[name] = {'sha': sha(data), 'exists': data is not None, 'text': None if is_bare else shown(data),
                            'size': None if data is None else len(data)}
+            if is_bare:
+                continue
             # An image the page cannot show as text it shows as the picture it is.
             kind = image_type(data) if data is not None and texts[name]['text'] is None and len(data) <= shown_bytes else None
             if kind:
@@ -1361,7 +1365,8 @@ def get(h, path):
             return send_json(h, review.listing())
         if found.group(2) == 'journal':
             return send_json(h, review.journal_shown())
-        return send_json(h, review.opened(found.group(3)))
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(h.path).query)
+        return send_json(h, review.opened(found.group(3), query.get('texts') == ['none']))
 
 
 def top_of(h, session):

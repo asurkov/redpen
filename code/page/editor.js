@@ -66,7 +66,8 @@ export function spansWithin(change, start, end) {
 export class DiffView {
   // handlers: act(action, spans) for a change's button, or with a list of spans for the selected
   // lines, comment({side, start, end, quote, text}),
-  // uncomment(id) for a comment not sent yet, resolve(id) for a thread.
+  // uncomment(id) for a comment not sent yet, resolve(id) for a thread, gaveUp() when the editor gave
+  // up comparing the texts.
   constructor(element, handlers) {
     this.handlers = handlers;
     this.editor = monaco.editor.createDiffEditor(element, {
@@ -557,6 +558,10 @@ export class DiffView {
     if (!changes) {
       // The editor has not compared the texts yet: it says so again once it has.
       return;
+    }
+    // Out of time, the editor calls all of the texts one change; the page says so instead.
+    if (by.getDiffComputationResult()?.quitEarly) {
+      this.handlers.gaveUp?.();
     }
     if (this.afterDiff) {
       this.afterDiff();

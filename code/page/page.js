@@ -31,6 +31,9 @@ const views = {
   },
 };
 const doneWords = { accept: 'Accepted', reject: 'Rejected', unaccept: 'Unaccepted' };
+// The most lines changed, added and removed, the editor is given to compare: a file of 19,000 took
+// it 2.5 seconds, and it gives up at 5.
+const comparedLines = 20000;
 // Where the page keeps the last rebase of the review it told of.
 const toldRebase = `redpenRebase:${session}`;
 const steps = { n: 'next', j: 'next', 'Alt+ArrowDown': 'next', p: 'previous', k: 'previous', 'Alt+ArrowUp': 'previous' };
@@ -53,6 +56,10 @@ const state = {
   isText: false,
   // Whether All shows its diff; else the file as it is, its changes marked in the margin.
   isAllDiffShown: false,
+  // The files whose diff the editor gave up on, by key, view and signature; and those whose diff was
+  // asked for all the same, by key.
+  givenUpFiles: new Set(),
+  forcedDiffs: new Set(),
   areOthersOpen: false,
   // The list's folders folded by hand, by their paths with the closing slash; and of those with no
   // changed file in them, the ones opened by hand.
@@ -466,7 +473,14 @@ async function show(key, place) {
   }
   state.plain = null;
   state.key = file ? key : null;
-  state.opened = file ? await asked(`/file/${key}`) : null;
+  // Past so many changed lines the editor stalls the page comparing the texts, or gives up and calls
+  // all of them one change: such a file is counted, not compared, and its texts are not even sent,
+  // unless its diff was asked for.
+  const count = file?.[state.view];
+  const changedLines = count && !count.isBinary ? count.added + count.removed : 0;
+  const hasGivenUp = state.givenUpFiles.has(`${key} ${state.view} ${file?.signature}`);
+  const isTooChanged = Boolean(file) && !state.forcedDiffs.has(key) && (changedLines > comparedLines || hasGivenUp);
+  state.opened = file ? await asked(`/file/${key}${isTooChanged ? '?texts=none' : ''}`) : null;
   state.signature = file?.signature;
   drawList();
   byId('fileBar').hidden = !file;
@@ -479,21 +493,21 @@ async function show(key, place) {
   const root = workRoot();
   const left = state.opened.texts[view.left];
   const right = state.opened.texts[view.right];
-  const isText = left.text !== null && right.text !== null;
-  state.isText = isText;
+  const isShown = !isTooChanged && left.text !== null && right.text !== null;
+  state.isText = isShown;
   // An image, or none on one side: the two side by side.
-  const areImages = !isText && [left, right].some(side => side.image) && [left, right].every(side => side.image || !side.exists);
+  const areImages = !isTooChanged && !isShown && [left, right].some(side => side.image) && [left, right].every(side => side.image || !side.exists);
   drawImages(areImages ? [[view.left, left], [view.right, right]] : null);
   const shownPath = file.movedFrom ? moveShown(shortened({ ...file, path: file.movedFrom }, root), shortened(file, root)) : shortened(file, root);
   byId('filePath').textContent = `‎${shownPath}`;
   byId('filePath').title = file.movedFrom ? `Moved from ${file.movedFrom}\nto ${file.path}` : file.path;
   byId('fileCounts').replaceChildren(...counts(file[state.view]));
   byId('fileActions').replaceChildren();
-  if (isText && state.view === 'all') {
+  if (isShown && state.view === 'all') {
     const diff = button(byId('fileActions'), 'Diff', toggleAllDiff, `quiet${state.isAllDiffShown ? ' chosen' : ''}`);
     diff.title = 'Show the removed lines and the changes in colour; off, the file as it is, its changes marked in the margin (d)';
   }
-  if (isText) {
+  if (isShown) {
     button(byId('fileActions'), 'Comment', () => diffView.openBox(diffView.fileTarget()), 'quiet').title = 'Comment for Claude on the whole file';
   }
   for (const [action, label, kind] of view.fileActions) {
@@ -502,9 +516,18 @@ async function show(key, place) {
       made.title = { accept: 'Keep the move', reject: `Put the file back at ${file.movedFrom}`, unaccept: 'Make the move pending again' }[action];
     }
   }
-  byId('work').classList.toggle('bare', !isText);
-  byId('note').textContent = isText || areImages ? '' : 'Not a text the page can show: too large, or not UTF-8. The file as a whole can still be accepted or rejected.';
-  if (isText) {
+  byId('work').classList.toggle('bare', !isShown);
+  if (isTooChanged) {
+    const lines = `${changedLines.toLocaleString('en')} lines changed`;
+    byId('note').replaceChildren(`${hasGivenUp ? `The editor gave up comparing the texts (${lines})` : `${lines}: too many to compare line by line without stalling the page`}. The file as a whole can still be accepted or rejected. `);
+    button(byId('note'), 'Show the diff anyway', () => queued(() => {
+      state.forcedDiffs.add(key);
+      return show(key);
+    }), 'quiet').title = 'It may stall the page for seconds, and show the file as one change';
+  } else {
+    byId('note').textContent = isShown || areImages ? '' : 'Not a text the page can show: too large, or not UTF-8. The file as a whole can still be accepted or rejected.';
+  }
+  if (isShown) {
     diffView.show({
       path: file.path,
       left: left.text,
@@ -518,6 +541,17 @@ async function show(key, place) {
       isDiffHidden: state.view === 'all' && !state.isAllDiffShown,
     });
   }
+}
+
+// The editor gave up comparing the open file's texts: the file is shown counted instead, unless its
+// diff was asked for.
+function gaveUp() {
+  const file = state.files.find(candidate => candidate.key === state.key);
+  if (!file || state.forcedDiffs.has(file.key)) {
+    return;
+  }
+  state.givenUpFiles.add(`${file.key} ${state.view} ${file.signature}`);
+  queued(() => show(file.key));
 }
 
 // Shows All's diff, or hides it for the file as it is; the view stays where it is.
@@ -1120,7 +1154,7 @@ function sizeListBySplitter() {
 
 async function main() {
   await loaded();
-  diffView = new DiffView(byId('editor'), { act, comment, uncomment, resolve, open });
+  diffView = new DiffView(byId('editor'), { act, comment, uncomment, resolve, open, gaveUp });
   diffView.openable = () => state.files.map(file => file.key);
   byId('threadsButton').addEventListener('click', () => stepThread('next'));
   byId('listButton').addEventListener('click', () => document.body.classList.toggle('listHidden'));
