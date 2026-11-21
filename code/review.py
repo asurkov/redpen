@@ -257,6 +257,15 @@ counts = {}
 likenesses = {}
 # The hash of a file as it is, by its place and signature: remembered until the file changes.
 disk_hashes = {}
+# How many answers each of those keeps before it starts anew: enough for reviews of thousands of
+# files, three texts each, as one listing asks of them all.
+cached_answers = 200_000
+# A text past this is counted by git, whose diff is quicker on it than Python's.
+counted_bytes = 256 << 10
+# The moves found, by the files gone and made as they were; and the most pairs of them compared
+# to find moves, a refactor of thousands of files say: past it, those of one extension, else none.
+moves_found = {}
+moved_pairs = 100_000
 # How alike a file gone from its place and a new file must be to be one file moved, as git's rename
 # threshold has it.
 moved_likeness = 0.5
@@ -266,7 +275,7 @@ def likeness(a, a_signature, b, b_signature):
     """How alike the texts at a and b are, from 0 to 1. Remembered until either file changes."""
     slot = (str(a), a_signature, str(b), b_signature)
     if slot not in likenesses:
-        if len(likenesses) > 4000:
+        if len(likenesses) > cached_answers:
             likenesses.clear()
         likenesses[slot] = alike(read_bytes(a), read_bytes(b))
     return likenesses[slot]
@@ -286,12 +295,50 @@ def alike(a, b):
     return matcher.ratio() if matcher.quick_ratio() >= moved_likeness else 0
 
 
+def counted(left, right):
+    """How the text right differs from left, as git's numstat says it: None for the same; else lines
+    added and removed, a line's ending part of it; binary for a text with a NUL in its first 8000
+    bytes, as git tells one."""
+    if left == right:
+        return None
+    if any(text and b'\0' in text[:8000] for text in (left, right)):
+        return {'isBinary': True}
+    lefts, rights = (left or b'').splitlines(keepends=True), (right or b'').splitlines(keepends=True)
+    # The lines both start and end with are not looked at again.
+    head = 0
+    while head < min(len(lefts), len(rights)) and lefts[head] == rights[head]:
+        head += 1
+    tail = 0
+    while tail < min(len(lefts), len(rights)) - head and lefts[-1 - tail] == rights[-1 - tail]:
+        tail += 1
+    lefts, rights = lefts[head:len(lefts) - tail], rights[head:len(rights) - tail]
+    added = removed = 0
+    if lefts and rights:
+        for kind, i1, i2, j1, j2 in difflib.SequenceMatcher(None, lefts, rights, autojunk=False).get_opcodes():
+            if kind != 'equal':
+                removed += i2 - i1
+                added += j2 - j1
+    else:
+        added, removed = len(rights), len(lefts)
+    return {'added': added, 'removed': removed}
+
+
+def hashed(place, place_signature):
+    """The hash of the file at place. Remembered until the file changes."""
+    slot = (str(place), place_signature, False)
+    if slot not in disk_hashes:
+        if len(disk_hashes) > cached_answers:
+            disk_hashes.clear()
+        disk_hashes[slot] = sha(read_bytes(place))
+    return disk_hashes[slot]
+
+
 def compared(a, a_signature, b, b_signature):
     """How the file at b differs from the one at a: None when it does not, else its added and removed
     line counts. Remembered until either file changes."""
     slot = (str(a), a_signature, str(b), b_signature)
     if slot not in counts:
-        if len(counts) > 4000:
+        if len(counts) > cached_answers:
             counts.clear()
         counts[slot] = count(None if a_signature == '-' else a, None if b_signature == '-' else b)
     return counts[slot]
@@ -300,6 +347,11 @@ def compared(a, a_signature, b, b_signature):
 def count(a, b):
     if a is None and b is None or a and b and filecmp.cmp(a, b, shallow=False):
         return None
+    # An ordinary text is counted here, as git would; a git process for each file would take seconds
+    # over a review of thousands.
+    texts = [None if place is None else read_bytes(place) for place in (a, b)]
+    if all(text is None or len(text) <= counted_bytes for text in texts):
+        return counted(*texts)
     ran = subprocess.run(['git', 'diff', '--no-index', '--numstat', '--no-ext-diff', '--',
                           a or '/dev/null', b or '/dev/null'], capture_output=True, text=True, cwd='/')
     found = re.match(r'(\d+|-)\t(\d+|-)\t', ran.stdout)
@@ -445,7 +497,7 @@ class Review:
             return False
         slot = (str(disk), disk_signature, bool(file.get('link')))
         if slot not in disk_hashes:
-            if len(disk_hashes) > 4000:
+            if len(disk_hashes) > cached_answers:
                 disk_hashes.clear()
             disk_hashes[slot] = sha(self.read(file, 'disk', disk))
         return disk_hashes[slot] != after
@@ -459,17 +511,55 @@ class Review:
         """The files moved, as git finds renames: a file gone from its place paired with a new file
         whose text is mostly its old one, the likest pairs first; {new file's key: old file's key}."""
         # A link moved is a link gone and one made, as git sees it.
-        gone = [(key, places['orig'], signatures['orig']) for key, file, places, signatures in rows
+        gone = [(key, places['orig'], signatures['orig'], file['path']) for key, file, places, signatures in rows
                 if signatures['orig'] != '-' and signatures['disk'] == '-' and not file.get('link')]
-        made = [(key, places['disk'], signatures['disk']) for key, file, places, signatures in rows
+        made = [(key, places['disk'], signatures['disk'], file['path']) for key, file, places, signatures in rows
                 if signatures['orig'] == '-' and signatures['disk'] != '-' and not file.get('link')]
-        scored = sorted(((likeness(old, old_signature, new, new_signature), new_key, old_key)
-                         for old_key, old, old_signature in gone for new_key, new, new_signature in made),
-                        reverse=True)
+        # Found once for the files as they are: every listing asks.
+        slot = (str(self.record), tuple((key, sig) for key, _, sig, _ in gone), tuple((key, sig) for key, _, sig, _ in made))
+        if slot in moves_found:
+            return moves_found[slot]
+        size = lambda sig: int(sig.rsplit(':', 1)[1])
         moves = {}
-        for score, new_key, old_key in scored:
-            if score >= moved_likeness and new_key not in moves and old_key not in moves.values():
-                moves[new_key] = old_key
+        # As git finds renames: first the files moved as they were, by their texts' hashes, the
+        # likeliest one of the same name; an empty file is no one file.
+        by_hash = {}
+        for old in gone:
+            if size(old[2]):
+                by_hash.setdefault(hashed(old[1], old[2]), []).append(old)
+        for new in made:
+            olds = by_hash.get(hashed(new[1], new[2])) if size(new[2]) else None
+            if olds:
+                old = next((old for old in olds if os.path.basename(old[3]) == os.path.basename(new[3])), olds[0])
+                olds.remove(old)
+                moves[new[0]] = old[0]
+        # Then, of those left, the ones of the same name; then any two, or past so many pairs those
+        # of the same extension, else no more. A pair of sizes too far apart is not one file.
+        def pair_up(group):
+            """Pairs the files left of each group, if there are few enough pairs; says whether."""
+            olds, news = {}, {}
+            for old in gone:
+                if old[0] not in moves.values():
+                    olds.setdefault(group(old), []).append(old)
+            for new in made:
+                if new[0] not in moves:
+                    news.setdefault(group(new), []).append(new)
+            if sum(len(found) * len(news.get(each, ())) for each, found in olds.items()) > moved_pairs:
+                return False
+            scored = sorted(((likeness(old[1], old[2], new[1], new[2]), new[0], old[0])
+                             for each, found in olds.items() for old in found for new in news.get(each, ())
+                             if min(size(old[2]), size(new[2])) >= moved_likeness * max(size(old[2]), size(new[2])) > 0),
+                            reverse=True)
+            for score, new_key, old_key in scored:
+                if score >= moved_likeness and new_key not in moves and old_key not in moves.values():
+                    moves[new_key] = old_key
+            return True
+        pair_up(lambda found: os.path.basename(found[3]))
+        if not pair_up(lambda found: ''):
+            pair_up(lambda found: os.path.splitext(found[3])[1])
+        if len(moves_found) > 100:
+            moves_found.clear()
+        moves_found[slot] = moves
         return moves
 
     def move_of(self, key):
@@ -496,6 +586,8 @@ class Review:
             if moved_from:
                 places = self.moved_places(places, moved_from[2])
                 signatures = {name: signature(place) for name, place in places.items()}
+            pending = compared(places['base'], signatures['base'], places['disk'], signatures['disk'])
+            accepted = compared(places['orig'], signatures['orig'], places['base'], signatures['base'])
             files.append({
                 'key': key,
                 'path': file['path'],
@@ -503,9 +595,12 @@ class Review:
                 'isNew': signatures['orig'] == '-',
                 'isGone': signatures['disk'] == '-',
                 'signature': ' '.join(signatures.values()),
-                'pending': compared(places['base'], signatures['base'], places['disk'], signatures['disk']),
-                'accepted': compared(places['orig'], signatures['orig'], places['base'], signatures['base']),
-                'all': compared(places['orig'], signatures['orig'], places['disk'], signatures['disk']),
+                'pending': pending,
+                'accepted': accepted,
+                # With nothing accepted, all of it is what is pending; with nothing pending, what was
+                # accepted: a third comparison only for a file with both.
+                'all': pending if accepted is None else accepted if pending is None else
+                       compared(places['orig'], signatures['orig'], places['disk'], signatures['disk']),
                 'isOther': not self.git and is_other(file['path']),
             })
             # Made executable, or no longer: a change of its own, its text the same or not.

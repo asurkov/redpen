@@ -34,7 +34,9 @@ What to tell the user when it matters:
 - **Accepted** is what was accepted (the text before the session → accepted text). **Unaccept** makes
   a change pending again; the file is not touched.
 - A file deleted is "gone", one made "new". A file moved or renamed (gone from one place, and a new
-  file at least half of whose lines are its old ones, as git finds renames) is one row at its new
+  file at least half of whose lines are its old ones, as git finds renames: the same text first,
+  then the same name, then any; in a refactor of thousands, only files of one extension are
+  compared) is one row at its new
   place, `old → new` when renamed in its folder, "moved" otherwise, its diff against its old text. It
   is accepted or rejected whole: **Accept** keeps the move, **Reject** puts the file back at its old
   place, the new one to the Trash; History has one line for it, and one Undo.
