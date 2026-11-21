@@ -294,7 +294,8 @@ session works in (the command's folder's, its recorded files', and those the pat
 a submodule's included) is recorded: a tracked file it
 deleted, with its last committed text as its baseline, and a file it made, as new; git's status before
 and after the command tells them, of the places the command names (the whole tree when it names
-none). The review page keeps its own state beside them, in the record's `review/`
+none; an `mv`'s destination too, not there yet, so a folder moved is its files gone and made, which
+the page pairs as moves). The review page keeps its own state beside them, in the record's `review/`
 folder; of the comments: `comments.json`, those waiting to be sent, `sent.jsonl`, the batches sent,
 `handed.jsonl`, which of the batches Claude was handed and how (`base/channel.py` keeps it), and
 `answers.jsonl`, Claude's answers and the threads the user resolved.

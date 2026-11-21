@@ -262,8 +262,8 @@ def work_trees(session, cwd):
 def named_paths(command, cwd):
     """The places a shell command names, read from the command's folder and from each folder a cd in
     it goes to: of a word that is a file, its folder, where a file moved next to it lands too; of one
-    that is a folder, the folder; and of one with a / in it, in a folder that is there, the path, a *
-    in it matching as in a git pathspec."""
+    that is a folder, the folder; and of one with a / in it, or given to an mv, that is not there yet
+    but its folder is, the path (where a folder moved lands), a * in it matching as in a git pathspec."""
     try:
         words = shlex.split(command)
     except ValueError:
@@ -271,18 +271,29 @@ def named_paths(command, cwd):
     folders = [cwd] + [os.path.normpath(os.path.join(cwd, os.path.expanduser(word)))
                        for before, word in zip([''] + words, words) if before == 'cd']
     paths = set()
+    # Whether the words are an mv's (git mv's too), until the command ends.
+    is_moving = False
     for before, word in zip([''] + words, words):
-        # Where a command runs (cd's, git -C's) is no place it changes.
-        if word.startswith('-') or before in ('cd', '-C'):
+        if word in ('&&', '||', ';', '|', '&'):
+            is_moving = False
             continue
-        for folder in folders:
-            path = os.path.normpath(os.path.join(folder, os.path.expanduser(word)))
-            if os.path.isdir(path) and not os.path.islink(path):
-                paths.add(path)
-            elif os.path.lexists(path):
-                paths.add(os.path.dirname(path))
-            elif '/' in word and os.path.isdir(os.path.dirname(path)):
-                paths.add(path)
+        if word == 'mv':
+            is_moving = True
+            continue
+        is_last = word.endswith(';')
+        word = word.rstrip(';')
+        # Where a command runs (cd's, git -C's) is no place it changes.
+        if word and not word.startswith('-') and before not in ('cd', '-C'):
+            for folder in folders:
+                path = os.path.normpath(os.path.join(folder, os.path.expanduser(word)))
+                if os.path.isdir(path) and not os.path.islink(path):
+                    paths.add(path)
+                elif os.path.lexists(path):
+                    paths.add(os.path.dirname(path))
+                elif ('/' in word or is_moving) and os.path.isdir(os.path.dirname(path)):
+                    paths.add(path)
+        if is_last:
+            is_moving = False
     return sorted(paths)
 
 
