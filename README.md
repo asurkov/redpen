@@ -34,7 +34,7 @@ first edit to it, which does not exist yet, and a way to hand the agent a commen
 
 | File | What |
 |---|---|
-| `recorder.py` | the hook that records a session's edits, and what its shell commands change in a git work tree: each file's baseline, in `~/.redpen/code/<session>/` |
+| `recorder.py` | the hook that records a session's edits, and what its shell commands change in a git work tree: each file's baseline, in `~/.redpen/code/<session>/`; it deletes the records idle for 30 days (`prune`) |
 | `review.py` | answers the review page's requests (`/code/…` on the server), hands the page's comments to Claude (`--wait`, the command Claude keeps waiting, and `--prompt-hook`, the hook), puts Claude's answer under a comment (`--answer`, with `--change` a link to the change made in answer), keeps the overview Claude writes when asked (`--outline`), and says which files their projects generate (`--generated`) |
 | `page/` | the review page |
 | `cursor.py` | writes the record into Cursor as its inline diffs |
@@ -319,6 +319,13 @@ A git review's record, `~/.redpen/code/git-<…>/`, has the same files, made by 
 commit, and `git.json` (repository, base commit, branch, title, the session its comments reach, the
 last rebase it was carried over) in place of
 `session.json`, so the Cursor status-bar item and the redpen pane do not count it.
+
+Records are kept until nothing was done in one for 30 days: no edit recorded, no action, comment or
+overview on its page. Then the recorder's post hook, which looks once a day (`~/.redpen/code/.pruned`
+says when), deletes it, pending changes or not: by then the files' history is the review, and the files
+themselves are never touched. A session's own record is never deleted by its own hook.
+`python3 ~/.claude/skills/redpen/code/recorder.py prune [DAYS] [--dry-run]` deletes those idle for
+`DAYS` (30) now, or says which it would and their size.
 
 ## prose/
 

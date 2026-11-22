@@ -1,6 +1,6 @@
 """recorder.py run as Claude Code runs it, around Edit calls and shell commands in scratch
 repositories: what each records, with what baseline, and what it leaves alone."""
-import json, os, unittest
+import json, os, subprocess, sys, time, unittest
 
 import scratch
 from scratch import hook, recorded, repo, session, shell, write
@@ -93,6 +93,63 @@ class ShellCommands(unittest.TestCase):
             self.assertTrue(recorder.is_reading(command), command)
         for command in writing:
             self.assertFalse(recorder.is_reading(command), command)
+
+
+
+def made_idle(name, days):
+    """Puts a record's last activity days back: its folder, its entries and its review's."""
+    folder = store / name
+    then = time.time() - days * 86400
+    for place in [folder, *folder.iterdir(), *((folder / 'review').iterdir() if (folder / 'review').is_dir() else [])]:
+        os.utime(place, (then, then), follow_symlinks=False)
+
+
+def edited(top, who):
+    """A record of the session's, from one edit."""
+    hook('pre', who, top, 'Edit', {'file_path': str(top / 'a.py')})
+    write(top, {'a.py': f'{who}\n'})
+    hook('post', who, top, 'Edit', {'file_path': str(top / 'a.py')})
+
+
+class Pruning(unittest.TestCase):
+    def setUp(self):
+        self.top = repo({'a.py': 'a\n'})
+        self.old, self.fresh = session(), session()
+        edited(self.top, self.old)
+        edited(self.top, self.fresh)
+        made_idle(self.old, recorder.idle_days + 1)
+
+    def test_an_idle_record_goes_and_a_fresh_one_stays(self):
+        pruned = subprocess.run([sys.executable, str(scratch.code / 'recorder.py'), 'prune', '--dry-run'],
+                                capture_output=True, text=True, env={**os.environ, 'HOME': str(scratch.home)}).stdout
+        self.assertIn(self.old, pruned)
+        self.assertNotIn(self.fresh, pruned)
+        self.assertTrue((store / self.old).exists())
+        subprocess.run([sys.executable, str(scratch.code / 'recorder.py'), 'prune'], check=True,
+                       capture_output=True, env={**os.environ, 'HOME': str(scratch.home)})
+        self.assertFalse((store / self.old).exists())
+        self.assertTrue((store / self.fresh).exists())
+        self.assertEqual((self.top / 'a.py').read_text(), f'{self.fresh}\n')
+
+    def test_the_hook_prunes_once_a_day_and_never_its_own_session(self):
+        (store / '.pruned').unlink(missing_ok=True)
+        made_idle(self.fresh, recorder.idle_days + 1)
+        # An idle session runs a command that only reads, which leaves its record idle: its post hook
+        # prunes the other idle record, not its own.
+        hook('post', self.fresh, self.top, 'Bash', {'command': 'ls'})
+        self.assertFalse((store / self.old).exists())
+        self.assertTrue((store / self.fresh).exists())
+        again = session()
+        edited(self.top, again)
+        made_idle(again, recorder.idle_days + 1)
+        edited(self.top, self.fresh)
+        self.assertTrue((store / again).exists())
+
+    def test_a_folder_that_is_no_record_stays(self):
+        (store / 'notes').mkdir(exist_ok=True)
+        made_idle('notes', recorder.idle_days + 1)
+        recorder.prune()
+        self.assertTrue((store / 'notes').exists())
 
 
 if __name__ == '__main__':

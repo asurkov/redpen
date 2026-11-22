@@ -2,6 +2,7 @@
 """Record the files a Claude Code session edits, for review on redpen's page and in Cursor.
 
 Usage: recorder.py pre|post
+       recorder.py prune [DAYS] [--dry-run]   delete the records nothing was done in for DAYS (30)
 
 pre and post run as PreToolUse and PostToolUse hooks on Edit|Write|MultiEdit|NotebookEdit|Bash and read
 the hook's JSON on stdin. Each session's record is in ~/.redpen/code/<session>/:
@@ -33,8 +34,12 @@ took git long, only a command that can delete or move files (rm, mv, unlink, tra
 watched, for a day. Of a chmod, a file it names that it made executable, or no longer, is recorded
 with its text as it is and its executable bit as it was. A failure never blocks an edit: it goes to
 stderr and the exit status stays 0.
+
+Once a day post deletes the records, sessions' and git reviews', that nothing was done in for 30 days:
+no edit, no action or comment on their page. Their review is the files' history by then, not the
+page's; the files themselves are never touched.
 """
-import datetime, hashlib, json, os, pathlib, re, shlex, subprocess, sys, tempfile, time
+import datetime, hashlib, json, os, pathlib, re, shlex, shutil, subprocess, sys, tempfile, time
 
 home = pathlib.Path.home()
 store = home / '.redpen/code'
@@ -66,6 +71,9 @@ long_seconds = 30
 slow_seconds = 1.5
 slow_hours = 24
 slow_trees = store / 'slow-trees.json'
+# A record nothing was done in for this many days goes, looked for once a day; the stamp says when.
+idle_days = 30
+pruned_stamp = store / '.pruned'
 
 
 def key(path):
@@ -475,6 +483,47 @@ def git(folder, *args):
     return None if ran.returncode else ran.stdout
 
 
+def last_activity(folder):
+    """When anything was last done in a record: an edit recorded, or an action, a comment, an answer or
+    an overview on its page, each of which writes the record's folder or its review/ folder."""
+    marks = [folder, *folder.iterdir()]
+    if (folder / 'review').is_dir():
+        marks += list((folder / 'review').iterdir())
+    return max(os.lstat(mark).st_mtime for mark in marks)
+
+
+def prune(days=idle_days, is_dry=False, kept=()):
+    """Deletes the records, sessions' and git reviews', nothing was done in for days, but those named in
+    kept; with is_dry, only says which. Returns [(name, bytes)]."""
+    gone = []
+    for folder in sorted(store.iterdir()) if store.is_dir() else []:
+        is_record = (folder / 'files').is_dir() or (folder / 'session.json').exists() or (folder / 'git.json').exists()
+        if not folder.is_dir() or folder.is_symlink() or not is_record or folder.name in kept:
+            continue
+        try:
+            if time.time() - last_activity(folder) < days * 86400:
+                continue
+            size = sum(f.lstat().st_size for f in folder.rglob('*') if f.is_file())
+        except OSError:
+            continue
+        if not is_dry:
+            shutil.rmtree(folder, ignore_errors=True)
+        gone.append((folder.name, size))
+    return gone
+
+
+def prune_daily(session):
+    """Prunes the store once a day, the session's own record aside."""
+    try:
+        if time.time() - pruned_stamp.stat().st_mtime < 86400:
+            return
+    except OSError:
+        pass
+    # The stamp first: the other sessions' hooks meanwhile leave it to this one.
+    write_atomic(pruned_stamp, b'')
+    prune(kept={session})
+
+
 def touch(session, transcript):
     """Rewrites session.json with the session's current title and the time now."""
     info = store / session / 'session.json'
@@ -529,11 +578,22 @@ def shorten(text):
 
 
 def main():
+    if sys.argv[1] == 'prune':
+        days = next((int(arg) for arg in sys.argv[2:] if arg.isdigit()), idle_days)
+        is_dry = '--dry-run' in sys.argv
+        gone = prune(days, is_dry)
+        for name, size in gone:
+            print(f'{name}  {size / 1e6:.1f} MB')
+        print(f"{'Would delete' if is_dry else 'Deleted'} {len(gone)} records nothing was done in for {days} days, "
+              f'{sum(size for _, size in gone) / 1e6:.1f} MB.')
+        return
     data = json.load(sys.stdin)
     session = data.get('session_id', '')
     if not re.fullmatch(r'[\w-]+', session):
         return
     tool_input = data.get('tool_input') or {}
+    if sys.argv[1] == 'post':
+        prune_daily(session)
     if data.get('tool_name') == 'Bash':
         # What pre kept, by the call it was kept for.
         name = f"shell-{key(data.get('tool_use_id') or tool_input.get('command') or '')}.json"
