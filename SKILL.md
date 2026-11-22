@@ -84,6 +84,15 @@ What to tell the user when it matters:
   next message in that session, through the `UserPromptSubmit` hook
   `python3 ~/.claude/skills/redpen/code/review.py --prompt-hook` in `~/.claude/settings.json`; without
   that hook they stay unsent.
+- **Overview** (header) opens a drawer with the changes by purpose, as Claude described them: items,
+  each a title, a sentence or two, and its blocks, `file:lines` and a short note, each a way to its
+  lines; ↑ and ↓ step through the blocks in the overview's order. An item says how many of its blocks
+  are pending, and its **Accept** accepts what is pending in them, as one History line with one Undo (a
+  block on a whole file, or on a deleted one, takes the file whole; a moved file and a link are left
+  to their own file bar). A block follows its lines when lines above them move, and is struck through
+  as changed since when they are gone. **Not in the overview** lists the changes no block covers, so
+  nothing hides behind it. **Describe** asks Claude for the overview, or for a new one, the way a
+  comment goes: at once while the waiting command runs, else with the next message.
 - Keys: `n` and `p` (or `j` and `k`) step to the next and the previous change, past a file's last or
   first one into the neighbouring file. The current change is the one the cursor is in, with the
   tinted bar: `a` accepts it in Pending and unaccepts it in Accepted, `r` opens a comment on the
@@ -155,6 +164,21 @@ EOF
 After a change made in answer to the comment, add `--change <file>:<line>` (the line in the file as
 it is now, or the file alone): the answer then links to the change, and the user goes to it with
 one click and resolves the thread.
+
+**Writing the overview.** When the user presses Describe, the waiting command (or the hook) prints an
+ask for an overview, naming the review. Write it as JSON on stdin of
+
+```bash
+python3 ~/.claude/skills/redpen/code/review.py --outline <review> <<'EOF'
+{"items": [{"title": "…", "text": "…", "blocks": [{"path": "/abs/file", "start": 10, "end": 24, "note": "…"}]}]}
+EOF
+```
+
+Items by purpose, in the order to read them; lines from 1 in the file as it is now, or with
+`"side": "orig"` in the file as it was (lines taken away, a deleted file); no start and end for a whole
+file. The command keeps each block's lines to find them again, refuses a path the review does not have
+or lines its file does not have, saying which, and lists the changes no block covers: add each to an
+item, unless it needs no word. Writing one answers the ask still waiting.
 
 `--session <id>` prints another session's page; the server's index lists every session with a record.
 
@@ -307,8 +331,9 @@ and after the command tells them, of the places the command names (the whole tre
 none; an `mv`'s destination too, not there yet, so a folder moved is its files gone and made, which
 the page pairs as moves). The review page keeps its own state beside them, in the record's `review/`
 folder; of the comments: `comments.json`, those waiting to be sent, `sent.jsonl`, the batches sent,
-`handed.jsonl`, which of the batches Claude was handed and how (`base/channel.py` keeps it), and
-`answers.jsonl`, Claude's answers and the threads the user resolved.
+`handed.jsonl`, which of the batches Claude was handed and how (`base/channel.py` keeps it),
+`answers.jsonl`, Claude's answers and the threads the user resolved, and `outline.json`, the overview
+(an ask for one goes among the comments as `{describe: true}`).
 
 A git review's record, `~/.redpen/code/git-<…>/`, has the same files, made by `review.py --git` from a
 commit, and `git.json` (repository, base commit, branch, title, the session its comments reach, the

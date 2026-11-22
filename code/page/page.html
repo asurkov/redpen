@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Claude Edits</title>
+<title>redpen</title>
 <link rel="stylesheet" href="../../page/page.css">
 </head>
 <body>
@@ -19,6 +19,7 @@
     <button data-view="accepted">Accepted <span class="count"></span></button>
     <button data-view="all">All <span class="count"></span></button>
   </nav>
+  <button id="overviewButton" class="quiet" title="The changes by purpose, as Claude describes them, each part a way to its code">Overview</button>
   <button id="historyButton" class="quiet">History</button>
 </header>
 <main>
@@ -37,6 +38,17 @@
     <div id="images" hidden></div>
     <div id="note"></div>
   </section>
+  <aside id="overview" hidden>
+    <div class="drawerHead">
+      <b>Overview</b>
+      <span class="spring"></span>
+      <button id="previousBlock" class="quiet" title="The overview's previous block">↑</button>
+      <button id="nextBlock" class="quiet" title="The overview's next block">↓</button>
+      <button id="describeButton" class="quiet" title="Ask Claude to describe the changes">Describe</button>
+      <button id="overviewClose" class="quiet" title="Close">✕</button>
+    </div>
+    <div id="outline"></div>
+  </aside>
   <aside id="history" hidden>
     <div class="drawerHead"><b>History</b><button id="historyClose" class="quiet" title="Close">✕</button></div>
     <ol id="journal"></ol>

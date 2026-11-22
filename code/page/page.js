@@ -85,6 +85,13 @@ const state = {
   plainSha: null,
   // When the review was last carried over to another base commit, as the server said it.
   rebase: null,
+  // The overview Claude wrote, as last read; what it was read for (the overview's and the files'
+  // signatures), read again when that changes while the drawer is open; and the block stepped to, by
+  // its place among all the blocks.
+  outline: null,
+  outlineRead: '',
+  outlineStamp: '',
+  block: -1,
 };
 // Where the browser keeps whether the list shows the unchanged files, for every review's page.
 const keptUnchangedShown = 'redpenUnchangedShown';
@@ -260,6 +267,10 @@ async function refresh() {
   state.isWatched = listing.isWatched;
   diffView.isWatched = listing.isWatched;
   state.isScanning = listing.isScanning;
+  state.outlineStamp = JSON.stringify([listing.outline, listing.files.map(file => file.signature)]);
+  if (!byId('overview').hidden && state.outlineStamp !== state.outlineRead) {
+    await drawOverview();
+  }
   if (state.page && listing.page && listing.page !== state.page && loadAgain()) {
     return;
   }
@@ -636,6 +647,9 @@ function actFolder(action, folder, files) {
 
 // What a History entry was on, by name: a file, or a folder its files were in.
 function placeName(entry) {
+  if (entry.item) {
+    return `“${entry.item}”`;
+  }
   return entry.folder ? `${nameOf(entry.path.slice(0, -1))}/` : nameOf(entry.path);
 }
 
@@ -786,6 +800,9 @@ async function refreshAll() {
   await refresh();
   if (!byId('history').hidden) {
     await drawJournal();
+  }
+  if (!byId('overview').hidden) {
+    await drawOverview();
   }
 }
 
@@ -1130,9 +1147,11 @@ async function drawJournal() {
       return row;
     }
     row.className = entry.isUndone ? 'undone' : '';
-    const done = entry.folder ? `${entry.files} file${entry.files === 1 ? '' : 's'} in` : whatOf(entry.change);
+    const files = `${entry.files} file${entry.files === 1 ? '' : 's'}`;
+    const done = entry.item ? placeName(entry) : entry.folder ? `${files} in` : whatOf(entry.change);
     const what = row.appendChild(span('what', `${doneWords[entry.action]} ${done}`));
-    what.append(span('where', entry.movedFrom ? `${nameOf(entry.movedFrom)} → ${nameOf(entry.path)}` : placeName(entry)), span('when', new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
+    const where = entry.item ? files : entry.movedFrom ? `${nameOf(entry.movedFrom)} → ${nameOf(entry.path)}` : placeName(entry);
+    what.append(span('where', where), span('when', new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
     const flipButton = button(row, entry.isUndone ? 'Redo' : 'Undo', () => flip(entry.id));
     flipButton.disabled = !entry.canFlip;
     flipButton.title = entry.canFlip ? '' : 'The file changed since';
@@ -1142,6 +1161,143 @@ async function drawJournal() {
     rows.push(Object.assign(document.createElement('li'), { className: 'none', textContent: 'Nothing accepted or rejected yet.' }));
   }
   byId('journal').replaceChildren(...rows);
+}
+
+// What an ask for the overview waits on, as the drawer says it.
+const askedWords = {
+  draft: 'Asked: Claude writes it with your next message in the chat.',
+  sent: 'Asked: Claude takes it next.',
+  taken: 'Claude is writing it.',
+};
+const blockStates = { pending: 'pending', accepted: 'accepted', unchanged: 'unchanged', stale: 'changed since' };
+
+// Where a block or a change left out is, by its file's name and lines.
+function blockPlace(block) {
+  const lines = block.start == null ? '' : block.start === block.end ? `:${block.start}` : `:${block.start}–${block.end}`;
+  return `${nameOf(block.path)}${lines}${block.side === 'orig' ? ' (before)' : ''}`;
+}
+
+// The overview's blocks in its order, each item's in turn.
+const outlineBlocks = () => (state.outline?.items || []).flatMap(item => item.blocks);
+
+// Reads the overview and draws the drawer: each item with what is left of it pending and its own
+// Accept, its blocks each a way to its lines, then the changes no block covers.
+async function drawOverview() {
+  state.outlineRead = state.outlineStamp;
+  try {
+    state.outline = await asked('/outline');
+  } catch (error) {
+    byId('outline').replaceChildren(Object.assign(document.createElement('p'), { className: 'none', textContent: error.message }));
+    return;
+  }
+  const { items, uncovered, asked: askedState } = state.outline;
+  byId('describeButton').textContent = items.length ? 'Describe again' : 'Describe';
+  byId('describeButton').disabled = Boolean(askedState);
+  const parts = [];
+  if (askedState) {
+    parts.push(Object.assign(document.createElement('p'), { className: 'asked', textContent: askedWords[askedState] }));
+  }
+  if (!items.length && !askedState) {
+    parts.push(Object.assign(document.createElement('p'), {
+      className: 'none',
+      textContent: 'No overview yet. Describe asks Claude for one: the changes by purpose, each part a way to its code.',
+    }));
+  }
+  let at = 0;
+  items.forEach((item, index) => {
+    const section = document.createElement('section');
+    section.className = 'item';
+    const head = section.appendChild(document.createElement('div'));
+    head.className = 'itemHead';
+    head.append(span('title', item.title));
+    const stale = item.blocks.filter(block => block.state === 'stale').length;
+    head.append(span(`progress${item.pending ? '' : ' done'}`, item.pending ? `${item.pending} pending` : stale ? `${stale} changed since` : 'reviewed'));
+    if (item.pending) {
+      button(head, 'Accept', () => acceptItem(index, item), 'quiet').title = 'Accept what is pending in these blocks, as one History line';
+    }
+    if (item.text) {
+      section.append(Object.assign(document.createElement('p'), { textContent: item.text }));
+    }
+    const list = section.appendChild(document.createElement('ol'));
+    for (const block of item.blocks) {
+      const place = at++;
+      const row = list.appendChild(document.createElement('li'));
+      row.className = `${block.state}${place === state.block ? ' current' : ''}`;
+      const where = button(row, blockPlace(block), () => openBlock(place), 'where');
+      where.title = `${block.path}\n${blockStates[block.state]}`;
+      if (block.note) {
+        row.append(span('note', block.note));
+      }
+    }
+    parts.push(section);
+  });
+  if (items.length && uncovered.length) {
+    const section = document.createElement('section');
+    section.className = 'item uncovered';
+    section.append(span('title', `Not in the overview: ${uncovered.length} change${uncovered.length === 1 ? '' : 's'}`));
+    const list = section.appendChild(document.createElement('ol'));
+    for (const change of uncovered) {
+      const row = list.appendChild(document.createElement('li'));
+      button(row, change.isRemoval ? `${nameOf(change.path)}: lines taken away after ${change.start - 1}` : blockPlace(change),
+        () => open({ key: change.key, line: change.start || undefined }), 'where').title = change.path;
+    }
+    parts.push(section);
+  }
+  byId('outline').replaceChildren(...parts);
+}
+
+// Opens a block of the overview, by its place among all of them: its file at its lines.
+function openBlock(place) {
+  const block = outlineBlocks()[place];
+  if (!block) {
+    return;
+  }
+  state.block = place;
+  for (const row of byId('outline').querySelectorAll('li.current')) {
+    row.classList.remove('current');
+  }
+  byId('outline').querySelectorAll('.item:not(.uncovered) li')[place]?.classList.add('current');
+  return open({ key: block.key, line: block.side === 'disk' && block.start ? block.start : undefined });
+}
+
+// Steps to the overview's next or previous block, round the ends.
+function stepBlock(direction) {
+  const count = outlineBlocks().length;
+  if (!count) {
+    return toast('The overview has no blocks.');
+  }
+  const place = state.block < 0 ? (direction === 'next' ? 0 : count - 1) : (state.block + (direction === 'next' ? 1 : count - 1)) % count;
+  return openBlock(place);
+}
+
+// Accepts what is pending of an overview item, as one History line with one Undo.
+function acceptItem(index, item) {
+  return queued(async () => {
+    try {
+      const entry = await asked('/apply-item', {
+        index,
+        time: state.outline.time,
+        signatures: Object.fromEntries(state.files.map(file => [file.key, file.signature])),
+      });
+      toast(`Accepted “${item.title}” in ${entry.files} file${entry.files === 1 ? '' : 's'}`, 'Undo', () => flip(entry.id));
+    } catch (error) {
+      toast(error.message);
+    }
+    await refreshAll();
+  });
+}
+
+// Asks Claude to describe the changes.
+function describe() {
+  return queued(async () => {
+    try {
+      const { asked: askedState } = await asked('/describe', {});
+      toast(askedWords[askedState] || 'Asked Claude for an overview.');
+    } catch (error) {
+      toast(error.message);
+    }
+    await drawOverview();
+  });
 }
 
 // The strip at the bottom: how many threads there are and how many of them wait for Claude; and,
@@ -1306,6 +1462,20 @@ async function main() {
     }
   }));
   byId('historyClose').addEventListener('click', () => (byId('history').hidden = true));
+  byId('overviewButton').addEventListener('click', () => queued(async () => {
+    byId('overview').hidden = !byId('overview').hidden;
+    byId('overviewButton').classList.toggle('chosen', !byId('overview').hidden);
+    if (!byId('overview').hidden) {
+      await drawOverview();
+    }
+  }));
+  byId('overviewClose').addEventListener('click', () => {
+    byId('overview').hidden = true;
+    byId('overviewButton').classList.remove('chosen');
+  });
+  byId('describeButton').addEventListener('click', describe);
+  byId('previousBlock').addEventListener('click', () => stepBlock('previous'));
+  byId('nextBlock').addEventListener('click', () => stepBlock('next'));
   byId('waitingButton').addEventListener('click', () => (byId('waitingList').hidden = !byId('waitingList').hidden));
   document.addEventListener('keydown', takeKey, true);
   await queued(refresh);

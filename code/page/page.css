@@ -402,6 +402,7 @@ body.listHidden #splitter {
 
 #fileBar[hidden],
 #history[hidden],
+#overview[hidden],
 #waiting[hidden],
 #toast[hidden] {
   display: none;
@@ -785,12 +786,122 @@ body.listHidden #splitter {
   resize: vertical;
 }
 
-#history {
+#history,
+#overview {
   width: 300px;
   flex: none;
   overflow: auto;
   border-left: 1px solid var(--line);
   background: var(--panel);
+}
+
+/* The overview: items by purpose, each with its blocks, a way to their lines. */
+#overview {
+  width: 340px;
+}
+
+#overview .drawerHead {
+  gap: 4px;
+}
+
+#outline > p {
+  margin: 8px 10px;
+}
+
+#outline .none,
+#outline .asked {
+  color: var(--dim);
+}
+
+#outline .item {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+#outline .itemHead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+#outline .item .title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+#outline .progress {
+  flex: none;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+#outline .progress.done {
+  color: var(--dim);
+}
+
+#outline .item p {
+  margin: 3px 0 4px;
+}
+
+#outline ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#outline li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  padding: 2px 4px;
+  margin: 0 -4px;
+  border-radius: 4px;
+}
+
+#outline li.current {
+  background: var(--chosen);
+}
+
+#outline .where {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--changed);
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  cursor: pointer;
+}
+
+#outline .where:hover {
+  text-decoration: underline;
+}
+
+#outline .note {
+  flex: 1 1 140px;
+  min-width: 0;
+  color: var(--dim);
+}
+
+/* What is reviewed of a block fades; one whose lines changed since says so. */
+#outline li.accepted .where,
+#outline li.unchanged .where {
+  color: var(--dim);
+}
+
+#outline li.stale .where {
+  color: var(--dim);
+  text-decoration: line-through;
+}
+
+#outline .uncovered .title {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .drawerHead {
@@ -902,8 +1013,14 @@ body.listHidden #splitter {
   color: inherit;
 }
 
-/* A narrow pane is a tall one: the list stands over the editor, which keeps the whole width. */
+/* A narrow pane is a tall one: the list stands over the editor, which keeps the whole width, and the
+   header's buttons go on as many rows as they need. */
 @media (max-width: 760px) {
+  #top {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
   main {
     flex-direction: column;
   }
@@ -922,7 +1039,8 @@ body.listHidden #splitter {
     cursor: row-resize;
   }
 
-  #history {
+  #history,
+  #overview {
     position: absolute;
     z-index: 50;
     top: 0;

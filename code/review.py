@@ -11,6 +11,9 @@ Usage: review.py [--session ID] [--port N]   start the server unless it runs; pr
                                              the next ones; Claude keeps it running in the background
        review.py --answer ID                 put Claude's answer, read from stdin, under the comment
                                              on its page
+       review.py --outline [REVIEW]          keep the overview of the changes, JSON read from stdin,
+                                             for the page of REVIEW (the session's); say the changes
+                                             it leaves out
        review.py --prompt-hook               UserPromptSubmit hook: hands the session's comments to
                                              the model, those no waiting command took
 
@@ -33,6 +36,9 @@ measured from. Beside them, in the record's review/ folder, the page keeps:
   handed.jsonl      which of them Claude was handed, and how (see ../base/channel.py)
   answers.jsonl     Claude's answers, each naming the comment it is under, and the threads the user
                     resolved, one per line
+  outline.json      the overview Claude wrote when asked (an ask among the comments, {describe}):
+                    items by purpose, each with the blocks of lines it is made of, each block with
+                    those lines as they were, to find them again
 
 So a file has three texts: orig, base and disk (the file itself). Pending changes are base → disk:
 Accept moves one into base, Reject writes base's lines back into the file. Accepted changes are
@@ -268,6 +274,10 @@ counted_bytes = 256 << 10
 # to find moves, a refactor of thousands of files say: past it, those of one extension, else none.
 moves_found = {}
 moved_pairs = 100_000
+# The most an overview holds: items, blocks in all, and changes it leaves out that the page lists.
+outline_items = 40
+outline_blocks = 400
+uncovered_shown = 300
 # How alike a file gone from its place and a new file must be to be one file moved, as git's rename
 # threshold has it.
 moved_likeness = 0.5
@@ -369,7 +379,10 @@ def count(a, b):
 
 def shown_entry(entry, members):
     """A journal entry as the page shows it: of an action on a folder's files, at the folder, saying
-    how many; of one on a moved file, at its new place, saying the old one."""
+    how many; of one on a moved file, at its new place, saying the old one; of an overview item's
+    Accept, by the item's title, saying how many files."""
+    if entry.get('item'):
+        return {**entry, 'change': None}
     if entry.get('folder'):
         return {**entry, 'path': entry['folder'], 'change': None}
     if len(members) < 2:
@@ -405,6 +418,32 @@ def spliced(left, right, change, is_left_taken):
         else:
             lefts[left_start:left_end] = rights[right_start:right_end]
     return '\n'.join(rights if is_left_taken else lefts).encode()
+
+
+def changes_between(a, b):
+    """The changes from lines a to lines b, as difflib's opcodes, the equal stretches left out:
+    (tag, a_start, a_end, b_start, b_end), each span counted from 0, its end left out."""
+    return [op for op in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes() if op[0] != 'equal']
+
+
+def touches(span, start, end):
+    """Whether lines start..end of a text (from 1, both in) touch a change's span [a, b) of it: overlap
+    it or, where the change only took lines away (an empty span), stand right beside it."""
+    a, b = span
+    return a < end and start - 1 < b if a < b else start - 1 <= a <= end
+
+
+def located(lines, block):
+    """Where an overview block's lines are in the text now, (start, end) from 1: its own place while
+    they are still there, else the nearest place they are; None when they are nowhere."""
+    quote = block['quote'].split('\n')
+    start, end = block['start'], block['end']
+    if lines[start - 1:end] == quote:
+        return start, end
+    found = [at + 1 for at in range(len(lines) - len(quote) + 1)
+             if lines[at] == quote[0] and lines[at:at + len(quote)] == quote]
+    nearest = min(found, key=lambda at: abs(at - start), default=None)
+    return None if nearest is None else (nearest, nearest + len(quote) - 1)
 
 
 class Review:
@@ -673,8 +712,10 @@ class Review:
                 folder = os.path.dirname(folder)
         return {'session': self.session, 'title': info.get('title') or 'Claude session', 'files': files,
                 'goneFolders': sorted(gone_folders),
-                'comments': self.comments(),
+                'comments': [comment for comment in self.comments() if not comment.get('describe')],
                 'threads': self.threads(),
+                # The overview kept, by its file's signature, and where an ask for one is.
+                'outline': {'signature': signature(self.folder / 'outline.json'), 'asked': self.asked_state()},
                 # Whether Claude's command waits for comments now, and how many sent ones nobody took.
                 'isWatched': channel.watching(self.sent) == 'wait',
                 # Whether a git review's files are still being found.
@@ -1034,8 +1075,10 @@ class Review:
         handed = {line.get('ask') for line in channel.records(self.folder / 'handed.jsonl')}
         said = [dict(comment, state='taken' if ask.get('id') in handed else 'sent')
                 for ask in channel.records(self.sent) for comment in ask.get('comments') or []
-                if isinstance(comment, dict)]
-        said += [dict(comment, state='draft') for comment in self.comments() if isinstance(comment, dict)]
+                if isinstance(comment, dict) and not comment.get('describe')]
+        # The ask for an overview goes the comments' way, and is no thread.
+        said += [dict(comment, state='draft') for comment in self.comments()
+                 if isinstance(comment, dict) and not comment.get('describe')]
         notes = channel.records(self.folder / 'answers.jsonl')
         threads, firsts = {}, {}
         for comment in said:
@@ -1081,6 +1124,253 @@ class Review:
             channel.add_line(self.folder / 'answers.jsonl', dict(note, change=change) if change else note)
         return True
 
+    # The overview Claude writes of the changes when the user asks: items by purpose, each with the
+    # blocks of code it is made of. A block is lines of a file on one side (disk: the file as it is;
+    # orig: as it was before), kept with the lines it named, so they are found again when lines above
+    # them move, and marked stale when they are gone.
+
+    def describe(self):
+        """Asks Claude for the overview: an ask among the comments, sent at once while Claude's
+        command waits, else with the session's next message."""
+        channel = shared('channel')
+        with channel.locked(self.sent):
+            if not any(comment.get('describe') for comment in self.comments()):
+                ask = {'id': f'{time.time_ns():x}', 'time': now(), 'describe': True}
+                write_atomic(self.folder / 'comments.json', json.dumps(self.comments() + [ask], indent=1).encode())
+            if channel.watching(self.sent) == 'wait':
+                self.post(channel)
+        return {'asked': self.asked_state()}
+
+    def asked_state(self):
+        """Where the last ask for an overview is: 'draft', to go with the next message; 'sent', not
+        taken yet; 'taken', Claude writes it; None, answered or never asked."""
+        if any(comment.get('describe') for comment in self.comments()):
+            return 'draft'
+        channel = shared('channel')
+        asks = [(ask, comment) for ask in channel.records(self.sent) for comment in ask.get('comments') or []
+                if isinstance(comment, dict) and comment.get('describe')]
+        if not asks:
+            return None
+        # By the ask's own time, which now() wrote, as it writes the overview's; the log's is local.
+        last, asked = asks[-1]
+        outline = read_json(self.folder / 'outline.json', {})
+        if isinstance(outline, dict) and str(outline.get('time') or '') >= str(asked.get('time') or ''):
+            return None
+        handed = {line.get('ask') for line in channel.records(self.folder / 'handed.jsonl')}
+        return 'taken' if last.get('id') in handed else 'sent'
+
+    def lines_of(self, key):
+        """The file's three texts as lines, split as spliced() splits them: a missing text has none of
+        its own, [''], and one that is no text (a link, binary, or past what is counted) is None. A moved
+        file's at its new place, its orig the old place's."""
+        file = self.file(key)
+        places = self.places(key, file)
+        moved = self.move_of(key)
+        if moved:
+            places = self.moved_places(places, self.places(*moved))
+        lines = {}
+        for name, place in places.items():
+            data = None if file.get('link') else self.read(file, name, place)
+            try:
+                is_text = not file.get('link') and (data is None or len(data) <= counted_bytes)
+                lines[name] = (data or b'').decode().split('\n') if is_text else None
+            except UnicodeDecodeError:
+                lines[name] = None
+        return lines
+
+    def set_outline(self, data):
+        """Keeps Claude's overview, each block's lines read from its file as it is now; refuses one that
+        names a file the review does not have, or lines its file does not have, saying which."""
+        items = data.get('items') if isinstance(data, dict) else None
+        if not isinstance(items, list) or not items:
+            raise Refusal(400, 'The overview has no items: {"items": [{"title", "text", "blocks": [...]}]}.')
+        if len(items) > outline_items:
+            raise Refusal(400, f'The overview has {len(items)} items: at most {outline_items}.')
+        problems, kept_items = [], []
+        for n, item in enumerate(items, 1):
+            if not isinstance(item, dict) or not isinstance(item.get('title'), str) or not item['title'].strip():
+                problems.append(f'Item {n} has no title.')
+                continue
+            blocks = []
+            for m, block in enumerate(item.get('blocks') or [], 1):
+                where = f'Item {n}, block {m}'
+                if not isinstance(block, dict) or not isinstance(block.get('path'), str):
+                    problems.append(f'{where} names no path.')
+                    continue
+                path = os.path.abspath(block['path'])
+                found = next((key(p) for p in (path, os.path.realpath(path))
+                              if (self.record / 'files' / f'{key(p)}.json').exists()), None)
+                side = block.get('side') or 'disk'
+                if not found:
+                    problems.append(f"{where}: {path} is not among the review's files.")
+                    continue
+                if side not in ('disk', 'orig'):
+                    problems.append(f'{where}: side is "disk" (the file as it is) or "orig" (as it was).')
+                    continue
+                kept = {'key': found, 'path': self.file(found)['path'], 'side': side,
+                        'note': str(block.get('note') or '').strip()[:300]}
+                if block.get('start') is not None or block.get('end') is not None:
+                    try:
+                        start, end = int(block['start']), int(block['end'] if block.get('end') is not None else block['start'])
+                    except (KeyError, TypeError, ValueError):
+                        problems.append(f'{where}: start and end are line numbers.')
+                        continue
+                    lines = self.lines_of(found)[side]
+                    if lines is None:
+                        problems.append(f'{where}: {path} is no text the page shows by lines; leave out start and end.')
+                        continue
+                    if not 1 <= start <= end <= len(lines):
+                        problems.append(f'{where}: {path} has no lines {start}-{end}{" as it was" if side == "orig" else ""}: it has {len(lines)}.')
+                        continue
+                    kept.update(start=start, end=end, quote='\n'.join(lines[start - 1:end]))
+                blocks.append(kept)
+            kept_items.append({'title': item['title'].strip()[:160], 'text': str(item.get('text') or '').strip()[:1200],
+                               'blocks': blocks})
+        count = sum(len(item['blocks']) for item in kept_items)
+        if count > outline_blocks:
+            problems.append(f'The overview has {count} blocks: at most {outline_blocks}.')
+        if problems:
+            raise Refusal(400, 'The overview was not kept:\n' + '\n'.join(problems))
+        channel = shared('channel')
+        with channel.locked(self.sent):
+            write_atomic(self.folder / 'outline.json', json.dumps({'time': now(), 'items': kept_items}, indent=1).encode())
+            # An ask for it still waiting is answered: it goes, and is not told again.
+            left = [comment for comment in self.comments() if not comment.get('describe')]
+            if len(left) != len(self.comments()):
+                write_atomic(self.folder / 'comments.json', json.dumps(left, indent=1).encode())
+            answered = [ask for ask in channel.waiting(self.sent) if ask.get('comments')
+                        and all(isinstance(comment, dict) and comment.get('describe') for comment in ask['comments'])]
+            if answered:
+                channel.mark(self.sent, answered, 'outline')
+        return self.outline_shown()
+
+    def outline_shown(self):
+        """The overview as the page shows it: each block where its lines are now and what is left of
+        it to review ('pending', 'accepted', 'unchanged', 'stale': its lines are gone), each item's
+        pending blocks counted; the changes no block touches; and where an ask for it is."""
+        shown = {'asked': self.asked_state(), 'time': None, 'items': [], 'uncovered': []}
+        outline = read_json(self.folder / 'outline.json', None)
+        if not isinstance(outline, dict):
+            return shown
+        listed = {file['key']: file for file in self.listing()['files']}
+        # A moved file's blocks may name its old place: they are the file's at its new one.
+        owner = {key(file['movedFrom']): file['key'] for file in listed.values() if file.get('movedFrom')}
+        facts = {}
+
+        def facts_of(file_key):
+            if file_key not in facts:
+                try:
+                    lines = self.lines_of(file_key)
+                except Refusal:
+                    lines = {'orig': None, 'base': None, 'disk': None}
+                compared = lambda a, b: changes_between(lines[a], lines[b]) if None not in (lines[a], lines[b]) else None
+                facts[file_key] = (lines, compared('base', 'disk'), compared('orig', 'disk'))
+            return facts[file_key]
+
+        def state_of(block, file_key):
+            file = listed.get(file_key)
+            whole = 'pending' if file and file['pending'] else 'accepted' if file and file['all'] else 'unchanged'
+            if block.get('start') is None:
+                return whole, None
+            lines, pending, changed = facts_of(file_key)
+            span = located(lines[block['side']], block) if lines[block['side']] is not None else None
+            if span is None:
+                return 'stale', None
+            # Lines taken away: the file's state; the file as it is: its own lines'.
+            if block['side'] == 'orig' or pending is None or changed is None:
+                return whole, span
+            if any(touches((b1, b2), *span) for _, _, _, b1, b2 in pending):
+                return 'pending', span
+            if any(touches((b1, b2), *span) for _, _, _, b1, b2 in changed):
+                return 'accepted', span
+            return 'unchanged', span
+
+        covers = {}
+        for item in outline.get('items') or []:
+            blocks = []
+            for block in item.get('blocks') or []:
+                file_key = owner.get(block['key'], block['key'])
+                state, span = state_of(block, file_key)
+                blocks.append({'key': file_key, 'path': block['path'], 'side': block['side'], 'note': block.get('note') or '',
+                               'start': span[0] if span else block.get('start'), 'end': span[1] if span else block.get('end'),
+                               'isFile': block.get('start') is None, 'state': state})
+                if block.get('start') is None:
+                    covers.setdefault(file_key, []).append(('file', None))
+                elif span:
+                    covers.setdefault(file_key, []).append((block['side'], span))
+            shown['items'].append({'title': item.get('title') or '', 'text': item.get('text') or '', 'blocks': blocks,
+                                   'pending': sum(block['state'] == 'pending' for block in blocks)})
+        for file_key, file in listed.items():
+            if not file['all'] or file['isOther'] or len(shown['uncovered']) >= uncovered_shown:
+                continue
+            marks = covers.get(file_key, [])
+            if any(side == 'file' for side, _ in marks):
+                continue
+            changed = facts_of(file_key)[2]
+            if not changed:
+                # No text to compare by lines, or a change of its own (a move, a mode): the file whole.
+                if not marks:
+                    shown['uncovered'].append({'key': file_key, 'path': file['path'], 'start': None, 'end': None})
+                continue
+            for _, a1, a2, b1, b2 in changed:
+                if not any(touches((b1, b2) if side == 'disk' else (a1, a2), *span) for side, span in marks):
+                    shown['uncovered'].append({'key': file_key, 'path': file['path'], 'start': b1 + 1, 'end': max(b1 + 1, b2),
+                                               'isRemoval': b1 == b2})
+        shown['time'] = outline.get('time')
+        return shown
+
+    def apply_item(self, index, stamp, signatures):
+        """Accepts what is pending of one overview item, as one entry of the journal: in each file the
+        changes its blocks touch, or the whole file for a block on all of it or on a deleted file. If the
+        overview and the files are as the page showed them."""
+        outline = read_json(self.folder / 'outline.json', None)
+        if not isinstance(outline, dict) or outline.get('time') != stamp:
+            raise Refusal(409, 'The overview changed since the page showed it.')
+        items = outline.get('items') or []
+        if not isinstance(index, int) or not 0 <= index < len(items):
+            raise Refusal(400, 'No such item.')
+        listed = {file['key']: file for file in self.listing()['files']}
+        owner = {key(file['movedFrom']): file['key'] for file in listed.values() if file.get('movedFrom')}
+        named = {}
+        for block in items[index]['blocks']:
+            named.setdefault(owner.get(block['key'], block['key']), []).append(block)
+        if not isinstance(signatures, dict) or any(k in listed and listed[k]['signature'] != signatures.get(k) for k in named):
+            raise Refusal(409, 'A file changed since the page showed it.')
+        todo = []
+        for file_key, blocks in named.items():
+            if file_key not in listed or not listed[file_key]['pending']:
+                continue
+            file = self.file(file_key)
+            # A moved file and a link are accepted whole, from their own file bar.
+            if self.move_of(file_key) or file.get('link'):
+                continue
+            places = self.places(file_key, file)
+            base, disk = self.read(file, 'base', places['base']), self.read(file, 'disk', places['disk'])
+            if disk is None or any(block.get('start') is None for block in blocks):
+                todo.append((file_key, file, None, base, disk))
+                continue
+            lines = self.lines_of(file_key)
+            if None in (lines['base'], lines['disk']):
+                continue
+            touched = []
+            for _, a1, a2, b1, b2 in changes_between(lines['base'], lines['disk']):
+                for block in blocks:
+                    # Lines taken away are found in the accepted text while it is still the old one.
+                    side = 'disk' if block['side'] == 'disk' else 'base' if lines['orig'] == lines['base'] else None
+                    span = side and located(lines[side], block)
+                    if span and touches((b1, b2) if side == 'disk' else (a1, a2), *span):
+                        touched.append({'leftStart': a1, 'leftEnd': a2, 'rightStart': b1, 'rightEnd': b2})
+                        break
+            if touched:
+                todo.append((file_key, file, touched, base, disk))
+        if not todo:
+            raise Refusal(409, 'Nothing of it is pending.')
+        group = f'item-{time.time_ns():x}'
+        marks = {'item': items[index]['title'], 'files': len(todo)}
+        entries = [self.applied(file_key, file, 'accept', change, base, disk, group, marks)
+                   for file_key, file, change, base, disk in todo]
+        return shown_entry(entries[0], entries)
+
 
 def fenced(text):
     longest = max((len(run) for run in re.findall(r'`+', text)), default=0)
@@ -1088,9 +1378,15 @@ def fenced(text):
     return f'{fence}\n{text}\n{fence}'
 
 
-def described(comments, git=None):
-    """The comments as the model is told them; git is what a git review is of."""
+def described(comments, git=None, name=None):
+    """The comments as the model is told them, and an ask for an overview among them; git is what a
+    git review is of, name the review's."""
     changes = f"the changes in {git['repo']} against {git['spec']}" if git else 'your changes'
+    asks = [comment for comment in comments if comment.get('describe')]
+    comments = [comment for comment in comments if not comment.get('describe')]
+    told = [outline_asked(changes, git, name)] if asks else []
+    if not comments:
+        return '\n'.join(told)
     out = [f'The user left these comments on {changes} on the redpen review page; each quotes the '
            'lines it is on as they saw them.']
     for comment in comments:
@@ -1109,7 +1405,26 @@ def described(comments, git=None):
             '(its Markdown is drawn: fenced code, lists, `code`, **bold**): '
             f"`python3 {here / 'review.py'} --answer <comment id>`, the answer on stdin; after a change made "
             'in answer, add `--change <file>:<line>`, and the answer links to it.']
-    return '\n'.join(out)
+    return '\n'.join(out + ['', *told] if told else out)
+
+
+def outline_asked(changes, git, name):
+    """What tells the model to write the overview the user asked for."""
+    diffed = f" (`git -C {git['repo']} diff {git['base']}`, and its untracked files)" if git else ''
+    before = ' at the base commit' if git else ' before your edits'
+    return '\n'.join([
+        f'The user asked on the redpen review page for an overview of {changes}{diffed}: what they do, by '
+        'purpose, each part pointing at its code. Write it as JSON and run '
+        f"`python3 {here / 'review.py'} --outline {name}` with it on stdin:",
+        '```json',
+        '{"items": [{"title": "<a few words>", "text": "<one or two sentences: what it does and why>",',
+        '  "blocks": [{"path": "<absolute path>", "start": <first line>, "end": <last line>, "note": "<a short line>"}]}]}',
+        '```',
+        'Lines are counted from 1 in the file as it is now. For lines taken away, or a deleted file, add '
+        f'"side": "orig" and count in the file as it was{before}. A block with no start and end is the whole '
+        'file. Group the changes by purpose, not by file, in the order a reviewer should read them, and let '
+        'every change belong to an item: the command and the page list those no block covers. Each note says '
+        'what its block does, in a few words; say only what the code shows.'])
 
 
 def prompt_hook():
@@ -1129,7 +1444,7 @@ def prompt_hook():
                 comments, asks = review.comments(), channel.waiting(review.sent)
                 told = [comment for ask in asks for comment in ask.get('comments') or []] + comments
                 if told:
-                    found.append((review, comments, asks, described(told, review.git)))
+                    found.append((review, comments, asks, described(told, review.git, review.session)))
         unwaited = unwaited_reviews(session)
         if not found and not unwaited:
             return
@@ -1195,7 +1510,7 @@ def wait(session):
             with channel.locked(review.sent):
                 review.post(channel)
             handed += channel.hand_over(review.sent, 'wait',
-                                        lambda ask: print(described(ask.get('comments') or [], review.git)))
+                                        lambda ask: print(described(ask.get('comments') or [], review.git, review.session)))
         if handed:
             return
         time.sleep(1)
@@ -1221,6 +1536,25 @@ def answer(session, comment_id, where=None):
         except Refusal:
             pass
     sys.exit(f'No comment {comment_id!r} was sent from a review page.')
+
+
+def outline(name):
+    """Keeps the overview on stdin for the review's page, and says what it leaves out."""
+    try:
+        data = json.load(sys.stdin)
+    except ValueError as e:
+        sys.exit(f'The overview on stdin is not JSON: {e}')
+    try:
+        shown = Review(name).set_outline(data)
+    except Refusal as e:
+        sys.exit(str(e))
+    blocks = sum(len(item['blocks']) for item in shown['items'])
+    print(f"The overview is on the page of {name}: {len(shown['items'])} items, {blocks} blocks.")
+    if shown['uncovered']:
+        print(f"{len(shown['uncovered'])} changes no block covers: add each to an item, unless it needs no word.")
+        for change in shown['uncovered'][:40]:
+            lines = '' if change['start'] is None else f":{change['start']}-{change['end']}"
+            print(f"  {change['path']}{lines}{' (lines taken away there)' if change.get('isRemoval') else ''}")
 
 
 def git(repo, *args):
@@ -1778,7 +2112,7 @@ def get(h, path):
     if found:
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(h.path).query)
         return send_json(h, unchanged_text(top_of(h, found.group(1)), (query.get('path') or [None])[0]))
-    found = re.fullmatch(r'/api/([\w-]+)/(files|journal|file/([0-9a-f]{16}))', path)
+    found = re.fullmatch(r'/api/([\w-]+)/(files|journal|outline|file/([0-9a-f]{16}))', path)
     if not found:
         raise Refusal(404, 'Not found.')
     with kept_lock(h):
@@ -1788,6 +2122,8 @@ def get(h, path):
             return send_json(h, review.listing())
         if found.group(2) == 'journal':
             return send_json(h, review.journal_shown())
+        if found.group(2) == 'outline':
+            return send_json(h, review.outline_shown())
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(h.path).query)
         return send_json(h, review.opened(found.group(3), query.get('texts') == ['none']))
 
@@ -1800,7 +2136,7 @@ def top_of(h, session):
 
 
 def post(h, path, body):
-    found = re.fullmatch(r'/api/([\w-]+)/(apply-files|apply|flip|comment|uncomment|send|resolve)', path)
+    found = re.fullmatch(r'/api/([\w-]+)/(apply-files|apply-item|apply|flip|comment|uncomment|send|resolve|describe)', path)
     if not found:
         raise Refusal(404, 'Not found.')
     review = Review(found.group(1))
@@ -1808,6 +2144,10 @@ def post(h, path, body):
         return send_json(h, review.apply(body.get('key'), body.get('action'), body.get('change'), body.get('expected')))
     if found.group(2) == 'apply-files':
         return send_json(h, review.apply_files(body.get('keys'), body.get('action'), body.get('signatures'), body.get('folder')))
+    if found.group(2) == 'apply-item':
+        return send_json(h, review.apply_item(body.get('index'), body.get('time'), body.get('signatures')))
+    if found.group(2) == 'describe':
+        return send_json(h, review.describe())
     if found.group(2) == 'flip':
         return send_json(h, review.flip(body.get('id')))
     if found.group(2) == 'comment':
@@ -1828,6 +2168,7 @@ def main():
     parser.add_argument('--prompt-hook', action='store_true')
     parser.add_argument('--wait', action='store_true')
     parser.add_argument('--answer', metavar='ID')
+    parser.add_argument('--outline', nargs='?', const='', metavar='REVIEW')
     parser.add_argument('--change', metavar='PATH[:LINE]')
     parser.add_argument('--git', nargs='?', const='.', metavar='REPO')
     parser.add_argument('--base', metavar='REV', help="default: the branch's upstream, else HEAD")
@@ -1839,6 +2180,8 @@ def main():
         return wait(args.session)
     if args.answer:
         return answer(args.session, args.answer, args.change)
+    if args.outline is not None:
+        return outline(args.outline or args.session)
     server = shared('server')
     port = args.port or server.default_port
     if not server.running(port):
