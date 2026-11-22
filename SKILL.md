@@ -1,16 +1,17 @@
 ---
 name: redpen
-description: "Review this Claude Code session's file edits, change by change: on a page in the desktop app's Browser pane, the way Cursor shows its agent's edits (each file whole with red and green lines, Accept/Reject per change and per file, an Accepted view to revisit and unaccept, undo history, comments on lines that reach Claude at once or with the next message), or in Cursor itself as its own inline diffs with Undo/Keep; the page also reviews a git work tree's whole change against a commit (a CL made over several sessions, shell-made changes included). Use when the user invokes /redpen, or asks to review, accept or reject Claude's edits in Claude's own UI, or to see or review them in Cursor, \"Cursor style\", or as Cursor inline diffs."
+description: "Review Claude Code's file edits change by change: on a page in the desktop app's Browser pane (Accept/Reject per change and per file, undo, comments that reach Claude, an overview of the changes by purpose), or in Cursor as its own inline diffs; the page also reviews a git work tree's whole change against a commit (a CL made over several sessions). Use when the user invokes /redpen, or asks to review, accept or reject Claude's edits, to review a CL, or to see the edits in Cursor."
 argument-hint: "[cursor | --git [REPO] [--base REV]] [--session ID] [--workspace ID] [--clear]"
 ---
 
 # redpen
 
-Review of what Claude changed, change by change. `code/` reviews a session's file edits in two places:
-on the review page (`/redpen`) and in Cursor (`/redpen cursor`). Both read the record at the end.
+Review of what Claude changed, change by change. `code/` reviews a session's file edits on the review
+page (`/redpen`) and in Cursor (`/redpen cursor`). `prose/` is docdiff, a skill of its own (`/docdiff`,
+found through `~/.claude/skills/docdiff`, a link to `prose/`; its instructions are `prose/SKILL.md`).
 
-`prose/` is docdiff, the review of a repo's documents. It is a skill of its own, `/docdiff`, found
-through `~/.claude/skills/docdiff`, a link to `prose/`; its instructions are `prose/SKILL.md`.
+How the page, Cursor's part and the Claude Code mod behave, the record and the server, is in
+`README.md` beside this file: read it to answer the user's questions about them.
 
 ## The review page
 
@@ -18,135 +19,20 @@ through `~/.claude/skills/docdiff`, a link to `prose/`; its instructions are `pr
 python3 ~/.claude/skills/redpen/code/review.py
 ```
 
-The script starts redpen's server ([below](#the-server)) unless it runs, and prints the page's URL for
-this session, `http://127.0.0.1:7878/code/s/<session>/`. Open that URL in the Browser pane
-(`preview_start` with `url`, or `navigate`) and tell the user it is open. Do not click Accept, Reject or
-Unaccept there yourself, nor press `a`: those are the user's.
+The script starts redpen's server unless it runs, and prints the page's URL for this session,
+`http://127.0.0.1:7878/code/s/<session>/`. Open that URL in the Browser pane (`preview_start` with
+`url`, or `navigate`) and tell the user it is open. Do not click Accept, Reject or Unaccept there
+yourself, nor press `a`: those are the user's. `--session <id>` prints another session's page; the
+server's index, http://127.0.0.1:7878/, lists every review.
+
+The page shows what the session's Edit and Write calls changed, and what its shell commands changed in
+a git work tree; a git review (below) shows a work tree's every change, whoever made it.
 
 **Links into the page.** `<page URL>#<path>:<line>` opens the page at that file and line, in a view
 that has it (the path from the repository's top, or absolute; `:<line>` and a range's `-<line>` may be
 left out); a file of the tree with no change opens as it is. To show the user a change you speak of,
 `navigate` the Browser pane's tab to such a link: the page opens it without loading again, and takes
 the link off its address, so the same link opens it again later.
-
-The page shows what the session's Edit and Write calls changed, and what its shell commands changed
-in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not outside one; a
-[git review](#a-git-review) shows a work tree's every change.
-
-What to tell the user when it matters:
-- **Pending** is what is not accepted yet (accepted text → the file). **Accept** records a change as
-  accepted and leaves the file alone. **Reject** writes the old lines back into the file on disk, right
-  away; rejecting a file the session created moves it to the Trash, and takes away the folders that
-  leaves empty (a moved folder's), never the review's top nor above it, nor a folder with anything
-  in it.
-- **Accepted** is what was accepted (the text before the session → accepted text). **Unaccept** makes
-  a change pending again; the file is not touched.
-- A file deleted is "gone", its name struck through in the removed lines' colour, in the list and
-  the file bar, and so is a folder gone with it; one made is "new", its name in the added lines'
-  colour. A file moved or renamed
-  (gone from one place, and a new file at least half of whose lines are its old ones, as git finds
-  renames: the same text first, then the same name, then any; in a refactor of thousands, only files
-  of one extension are compared) is one row at its new place, `old → new` when renamed in its
-  folder, else its name and, quietly, "from" its old path, its diff against its old text. It
-  is accepted or rejected whole: **Accept** keeps the move, **Reject** puts the file back at its old
-  place, the new one to the Trash; History has one line for it, and one Undo. A file renamed by its
-  case alone (`git mv Foo.js foo.js`), which macOS's file system finds under either name, is such a
-  rename, `Foo.js → foo.js`; its Reject takes the new name away first, then puts the old one back. A
-  case rename git does not see (a plain `mv`) is not shown.
-- A symbolic link made, retargeted or deleted (in a git review, or by a session's shell command), or
-  a file a link took the place of or gave its place to, is a "link" row: its text is
-  `symbolic link → target`, accepted or rejected whole, and **Reject** puts the link back, or takes a
-  new one away, not a file with its target's path in it. A file edited through a link is that file.
-- A file made executable, or no longer (the bit git keeps), says `+x` or `−x`, in the list and the
-  file bar; one that changed no more than that is listed `+0 −0`. The whole file's Accept, Reject and
-  Unaccept take the bit along, and Undo puts it back; a deleted script put back is executable again.
-  A git review reads the bit from git, a session from the file at its first edit and from a `chmod`
-  that names the file.
-- A file that is not text (not UTF-8, or past 16 MB) is "binary" and accepted or rejected whole. An
-  image (PNG, JPEG, GIF, WebP, AVIF, BMP, ICO) shows its two versions side by side, each with its
-  size in pixels and bytes; SVG is text, and diffed as text.
-- The diff compares lines, not how they end. A change of the line endings alone says so ("Only the
-  line endings changed: LF → CRLF"), accepted or rejected whole; one beside other changes is named
-  in the file bar. A line ending the page's editor and the server split differently (a lone CR)
-  leaves the file's changes to be accepted or rejected whole. A git review takes a file's old text as
-  checking it out writes it: the repository's line endings and filters (Git LFS's say) applied.
-- A text with more than 20,000 lines changed (added and removed, a lockfile or a bundle say), or one
-  the editor gave up comparing (after 5 seconds, it calls the whole file one change), is counted, not
-  compared: accepted or rejected whole. **Show the diff anyway** compares it all the same, which may
-  stall the page for seconds.
-- **All** is everything the session changed, pending or accepted, with no buttons: the file as it is,
-  its changes marked in the margin (green added, blue changed, a red notch where lines were removed)
-  and on the scrollbar. **Diff** in the file bar, or `d`, shows the removed lines and colours again.
-- **History** lists every accept, reject and unaccept with Undo/Redo. An entry whose text changed
-  since is greyed out.
-- A comment (select text → Comment, Comment under a change, or Comment in the file bar for the
-  whole file, whose thread stands above its first line) stays under its lines as a thread,
-  which says whether it is sent and whether Claude has it, and shows Claude's answer under it.
-  **Reply** adds to the thread, **Resolve** takes it off the page. An answer that came with a change
-  links to that change. The header counts the open threads, with how many Claude answered last, and
-  steps to the next one on a click; the strip at the bottom lists the threads of every file. While Claude's
-  waiting command runs (below), a comment goes to Claude as it is made, and its thread says so
-  until the answer comes. Otherwise it goes to Claude when the command next starts, or with the user's
-  next message in that session, through the `UserPromptSubmit` hook
-  `python3 ~/.claude/skills/redpen/code/review.py --prompt-hook` in `~/.claude/settings.json`; without
-  that hook they stay unsent.
-- **Generated files** fold into "N generated" at the end of the list, with **Accept generated** for
-  those with something pending, as one History line: the files the project's `.gitattributes` marks
-  `linguist-generated` (as GitHub reads it), and where it says nothing, lockfiles (`package-lock.json`,
-  `yarn.lock`, `Cargo.lock`, `go.sum`, …) and files whose first five lines carry a generator's banner:
-  `@generated`, "generated" with "do not edit" (Go's `Code generated … DO NOT EDIT.`, protoc's,
-  Prisma's), or "this file is autogenerated" (pip-compile's), not "DO NOT EDIT" alone;
-  `-linguist-generated` (or `=false`) keeps a file out. They open and reject as any file,
-  but the view counts and the progress leave them out, `n` and `p` step past them, the overview does
-  not describe them, and the row above the prompt, the pane and the Cursor status-bar item do not count them
-  (`review.py --generated PATH...` says which are).
-- **Overview** (header) opens a drawer with the changes by purpose, as Claude described them: items,
-  each a title, a sentence or two, and its blocks, `file:lines` and a short note, each a way to its
-  lines; ↑ and ↓ step through the blocks in the overview's order. An item says how many of its blocks
-  are pending, and its **Accept** accepts what is pending in them, as one History line with one Undo (a
-  block on a whole file, or on a deleted one, takes the file whole; a moved file and a link are left
-  to their own file bar). A block follows its lines when lines above them move, and is struck through
-  as changed since when they are gone. **Not in the overview** lists the changes no block covers, so
-  nothing hides behind it. **Describe** asks Claude for the overview, or for a new one, the way a
-  comment goes: at once while the waiting command runs, else with the next message.
-- Keys: `n` and `p` (or `j` and `k`) step to the next and the previous change, past a file's last or
-  first one into the neighbouring file. The current change is the one the cursor is in, with the
-  tinted bar: `a` accepts it in Pending and unaccepts it in Accepted, `r` opens a comment on the
-  selected text, or else on it. Reject has no key. With lines selected, `a` and the Accept and
-  Reject buttons at the selection, beside Comment, take only the selected lines of the
-  changes, whole lines; removed lines go with the lines on both sides of them. `t` and `Shift+t` step to the next and the
-  previous thread, through every file's.
-- The header says how many files are reviewed (nothing of them pending) of those the review has; in
-  the list such a file has ✓, and one accepted in part ◐. In Pending a reviewed file stays where it
-  was, dimmed, with ✓ and its lines added and removed faded; `n` and `p` pass it, and a click opens
-  it in Accepted. **Reviewed**, in the header, leaves such files out; the browser keeps the choice.
-  Unchanged files are lighter still, with no counts.
-- The list nests the files in their folders, a folder holding only one folder joined with it
-  (`tests/www/unit`). A folder has ✓ when nothing in it is pending and ◐ when part of it is accepted,
-  and, folded, its lines added and removed. Stepping into a file opens the folders it is in. A
-  folder's row, under the pointer, has the view's whole-file actions for every file in it with
-  something in the view (Accept and Reject in Pending, Unaccept in Accepted): one line in History,
-  one Undo. On a folder gone with its files, Accept takes their deletion, Reject puts them back.
-- The tree starts at the top of the repository (a git review's work tree; for a session, the
-  repository its files are in, else the folder they all are in). Each folder shows its changed files
-  and ends in "N more" for the rest, what git ignores left out; a folder name's tooltip says how much
-  it leaves out. A click on a folder's name, also within a joined
-  row (`www` in `tests/www/unit`), or on "N more" widens it to everything in it, its folders folded; a
-  click on the name of a widened one narrows it again; the arrow and the rest of the row fold it.
-  **Unchanged**, in the header, starts each folder holding a changed file widened; the browser keeps
-  the choice. An unchanged file is greyed and opens as it is, with nothing to accept or comment on;
-  `n` and `p` still step through the changed files. The open folders follow the disk within two
-  seconds.
-- Files under `~/.claude` and temporary folders are listed apart, under "other", but for those in a
-  git repository of their own under `~/.claude`, such as a skill's: they are the work, in its tree.
-- The page follows the files: an edit by Claude or the user shows up within two seconds. An action
-  on a text that changed since the page showed it is refused, and the page shows it anew.
-- A session's diff is against the file before the session's first edit to it, so a change made
-  since by someone or something else (another session, the user, a formatter, a shell command the
-  recorder does not follow) shows as the session's. Such a file says **edited elsewhere**, in the
-  list and the file bar, from the moment it differs from how the session's last edit (or the page's
-  Reject) left it, for good once the session edits it again; Reject's tooltip warns that it undoes
-  those changes too.
 
 **Waiting for comments.** After opening the page, keep one background Bash command
 (`run_in_background`) waiting for the comments the user sends from it:
@@ -155,17 +41,16 @@ What to tell the user when it matters:
 python3 ~/.claude/skills/redpen/code/review.py --wait
 ```
 
-It waits on the session's page and on the git reviews made from the session (below), those made
-while it waits too. It prints the comments as they are made and ends; those made between one wait
-and the next are printed by the next as it starts. When it ends with comments, start it again at once,
-then answer or act on each. A comment reaches you once: from this command, or from the
-`UserPromptSubmit` hook with the user's next message. While a git review of the session's has no
-command waiting, the hook says so with the prompt: start the command then.
+It waits on the session's page and on the git reviews made from the session, those made while it
+waits too. It prints the comments as they are made and ends; those made between one wait and the next
+are printed by the next as it starts. When it ends with comments, start it again at once, then answer
+or act on each. A comment reaches you once: from this command, or from the `UserPromptSubmit` hook with
+the user's next message. While a git review of the session's has no command waiting, the hook says so
+with the prompt: start the command then.
 
-Each comment names its file and lines and quotes them as the user saw them, and carries its id; one
-on "the whole file" quotes nothing. A
-comment "of the accepted text" or "of the file as it was before your edits" is on lines the file may
-no longer have. A reply names the thread it is in.
+Each comment names its file and lines and quotes them as the user saw them, and carries its id; one on
+"the whole file" quotes nothing. A comment "of the accepted text" or "of the file as it was before your
+edits" is on lines the file may no longer have. A reply names the thread it is in.
 
 **Answering on the page.** Besides what you say in the chat or change in the files, put a short answer
 under each comment, so the user reads it where they asked; the page draws its Markdown (fenced code,
@@ -177,9 +62,9 @@ The answer.
 EOF
 ```
 
-After a change made in answer to the comment, add `--change <file>:<line>` (the line in the file as
-it is now, or the file alone): the answer then links to the change, and the user goes to it with
-one click and resolves the thread.
+After a change made in answer to the comment, add `--change <file>:<line>` (the line in the file as it
+is now, or the file alone): the answer then links to the change, and the user goes to it with one click
+and resolves the thread.
 
 **Writing the overview.** When the user presses Describe, the waiting command (or the hook) prints an
 ask for an overview, naming the review. Write it as JSON on stdin of
@@ -194,9 +79,8 @@ Items by purpose, in the order to read them; lines from 1 in the file as it is n
 `"side": "orig"` in the file as it was (lines taken away, a deleted file); no start and end for a whole
 file. The command keeps each block's lines to find them again, refuses a path the review does not have
 or lines its file does not have, saying which, and lists the changes no block covers: add each to an
-item, unless it needs no word. Writing one answers the ask still waiting.
-
-`--session <id>` prints another session's page; the server's index lists every session with a record.
+item, unless it needs no word. Leave out the files the project generates. Writing one answers the ask
+still waiting.
 
 ### A git review
 
@@ -204,39 +88,13 @@ item, unless it needs no word. Writing one answers the ask still waiting.
 python3 ~/.claude/skills/redpen/code/review.py --git [REPO] [--base REV]
 ```
 
-The same page for a git work tree: every file that differs from a commit, whoever changed it and how
-(any session, a shell command, the user), untracked files included and ignored ones not, and in each
-submodule that differs, its files that differ from the commit the base keeps for it (a submodule
-moved to another commit shows the files that commit changed; one added or taken away, or whose base
-commit it does not have, is not followed; Reject writes its files, not its commit). Use it for a
-whole change, such as a CL made over several sessions. `REPO` is a folder in the work tree (default: the
-current one). The base is the commit the work tree and `REV` both come from: `--base origin/main` for a
-branch with its commits, `--base HEAD` for uncommitted work alone. With no `--base`, `REV` is the
-branch's upstream, else `HEAD`. The script prints the page's URL,
-`http://127.0.0.1:7878/code/s/git-<folder>-<path hash>-<commit>/`; open it as above.
-
-- Pending, Accept, Reject, Accepted, Unaccept, History, comments and keys work as for a session, with
-  the base commit's text in place of the text before the session. Reject writes into the work tree;
-  git's index and commits are never written.
-- The review of a branch against another commit than `HEAD` follows its base. After a rebase, the
-  page, loaded again, or the command, run again, carries the record over to the new base commit, under
-  the same URL (the `<commit>` in it is the one the review started from): a file upstream did not
-  change stays as it is; in one it changed, what was accepted is put into the new text again where
-  it fits, and where it does not, nothing of the file is accepted and the list marks it `rebased`;
-  a file that is the base's again leaves the review. The page says so once, and History has a line.
-  A review is found by its repository, `REV` and branch.
-- Against `HEAD`, or with no branch checked out, what was accepted stays accepted while the base
-  commit is the same; another base commit (after a commit) is another review, with nothing accepted.
-  Once an amend or a rebase rewrote the branch, so that `HEAD` no longer comes from the base, the
-  review against `HEAD` is carried over to `HEAD` as above, under the same URL: with everything
-  committed it has nothing pending.
-- The page shows the files the record has at once and looks for others behind it (the header says
-  so while it does). A file that changes after the page was opened appears when the page is reloaded
-  or the command is run again.
-- Comments reach the session that ran the command last: at once while its `review.py --wait` runs
-  (the one command waits on the git reviews too), else with the user's next message there.
-The page's editor is Monaco, in `code/vendor/monaco/`; `code/vendor/fetch_monaco.py` fetches it where it
-is missing.
+Every file of a git work tree that differs from a commit, whoever changed it, untracked files included:
+for a whole change, such as a CL made over several sessions. `REPO` is a folder in the work tree
+(default: the current one). The base is the commit the work tree and `REV` both come from:
+`--base origin/main` for a branch with its commits, `--base HEAD` for uncommitted work alone; with no
+`--base`, the branch's upstream, else `HEAD`. Open the URL it prints,
+`http://127.0.0.1:7878/code/s/git-<folder>-<path hash>-<commit>/`, as above. Its comments reach the
+session that ran the command last, through the same waiting command.
 
 ## In Cursor
 
@@ -244,127 +102,18 @@ is missing.
 python3 ~/.claude/skills/redpen/code/cursor.py
 ```
 
-For each file this session edited, the script writes the file's baseline (its text before the session's
-first edit to it, or as last accepted on the review page) into Cursor's state database
-(`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, table `cursorDiskKV`) as an
-`inlineDiff:<workspaceId>:claude-<uuid>` record. When a window opens, Cursor diffs that old text against
-the file on disk and shows the result like an agent edit. The baselines come from the record; a file
-edited before the hooks were installed is added to it from Claude Code's file history
-(`~/.claude/file-history/<session>/<sha256(path)[:16]>@v1`). A file the session created shows all green.
+The script writes each file this session edited, with its baseline, into Cursor as Cursor's own inline
+diffs, with Keep and Undo. Then tell the user to reload the Cursor window that holds the files (Command
+Palette → "Developer: Reload Window"), and pass on what the script printed: which workspace got how
+many files, and any skips. `--workspace <id>` picks the workspace, `--session <id>` another session,
+`--clear` takes every such diff away.
 
-After running it, tell the user to reload the Cursor window that holds the files (Command Palette →
-"Developer: Reload Window"); Cursor reads these records only when a window loads. Pass on what the script
-printed: which workspace got how many files, and any skips.
+## After changing redpen
 
-What to tell the user when it matters:
-- **Keep** keeps the file as it is on disk. **Undo** puts the old text back into the editor; the file
-  on disk changes when it is saved. Undo on a file the session created empties it.
-- The diff is the old text against the disk now, so it also shows changes made after the session's
-  first edit by anyone else (the user, another session).
-- Each file goes to the Cursor workspace whose folders hold it, the one used last when several do
-  (a folder opened alone and a multi-root `.code-workspace` holding it are different workspaces).
-  `--workspace <id>` picks one; the ids are the folder names under
-  `~/Library/Application Support/Cursor/User/workspaceStorage/`.
-- Skipped: files equal to their old text, deleted files, files outside every Cursor workspace, and files
-  Cursor already has a pending diff of its own for (so Cursor's own agent review is not overwritten).
-- Rerunning replaces this script's earlier diff for a file. `--clear` removes every diff the script
-  wrote, writes nothing, and takes effect on the next reload.
-- `--session <id>` shows another Claude Code session's edits (default: `$CLAUDE_CODE_SESSION_ID`).
-
-The record format is Cursor's internal one, verified on Cursor 3.29.9; if a reload shows nothing, check
-the window's dev tools console for `[inlineDiff]` lines. `REDPEN_CURSOR_USER_DIR` points the script at
-another Cursor user data directory, such as a test profile started with `--user-data-dir`.
-
-### The redpen status-bar item
-
-The redpen extension in `code/extension/` is one item in Cursor's status bar, "redpen · N to review":
-the files in the window's folders that sessions of the last 12 hours changed and that differ from
-their baselines, generated ones aside. It updates as each edit lands, without a reload, and hides with
-nothing to review. A click opens the session's review page in Cursor's Simple Browser, beside the
-code, starting redpen's server unless it runs; with several sessions, it asks which (its tooltip lists
-them). Accept, Reject and comments are the page's; the item only reads the record. The command
-palette has it as "redpen: Open Review".
-
-Install or update the extension with `python3 ~/.claude/skills/redpen/code/extension/install.py`, which
-installs it into every Cursor profile (each has its own extensions; `--profile <name>` picks one) and
-takes out the Claude Edits extension it replaces (`local.claude-edits`), then reload the window.
-Cursor's Agents Window runs only Cursor's built-in extensions, so the item shows only in editor windows.
-`install.py --uninstall` removes it.
-
-## In Claude Code: the row above the prompt and the pane
-
-The mod in `code/mod/` (the plugin `redpen`) is the review page's way in from Claude Code, in the
-terminal and in the desktop app. While the session's work has changes, a row above the prompt counts
-them beside Open review, leaving the side of the window to the page; Claude's own and temporary files,
-and generated ones, are not counted there. `/edits` opens a pane that lists the files this session
-edited with their lines added and removed, each a way to its review (a link into the page). The mod
-only reads the record: the review itself is the page. Open review opens
-this session's review page in the desktop app's Browser pane through its MCP server (`Claude Browser`),
-in the tab it opened before while that tab stays open, and brings the pane to the front (`ccd_view`'s
-`show_pane`); from the terminal, in the default browser.
-
-The folder is its own marketplace, `redpen`, and the plugin is read from it as it is on disk, so an edit
-there reaches a session with `/reload-plugins`. It loads in every session once the user has installed it
-(the commands change `~/.claude/settings.json`, so they are the user's to run, from a terminal):
-
-```bash
-claude plugin marketplace add ~/.claude/skills/redpen/code/mod
-claude plugin install redpen@redpen --scope user
-```
-
-`claude plugin uninstall redpen@redpen` removes it. Its tests: `claude plugin test
-~/.claude/skills/redpen/code/mod`.
-
-## Tests
-
-`python3 -m unittest discover -s ~/.claude/skills/redpen/code/tests` runs `review.py` on git reviews of
-scratch repositories and `recorder.py` through its hooks, in a scratch home (the real records and the
-Trash are left alone), in a few seconds. Run them after a change to either; the Claude Code mod has
-its own (`claude plugin test`, above).
-
-## The server
-
-`base/server.py` is one server for both parts, on `127.0.0.1:7878`: the review pages under `/code/`,
-docdiff's reviews under `/<name>/`, and at http://127.0.0.1:7878/ one index of both, the last active
-first. It runs a part's code as it is on disk, loading a changed script, plugin or other module of
-`base/` again at the next request, so only a change to `base/server.py` itself needs a restart:
-
-```bash
-python3 -I ~/.claude/skills/redpen/base/server.py --restart
-```
-
-`--stop` stops it, and `--port N` works with another server on port N, a test's say. Its log is
-`~/.redpen/server.log`. The LaunchAgent that keeps it running is in `prose/SKILL.md`, under "The
-server".
-
-## The record
-
-`code/recorder.py` runs as a PreToolUse and PostToolUse hook on Edit|Write|MultiEdit|NotebookEdit|Bash (set in
-`~/.claude/settings.json`) and records every session's edits as they happen in
-`~/.redpen/code/<session>/`: `session.json` (title, time of the last edit), `files/<key>.json` (the
-path, whether the session created the file, whether it is a link, and whether it was executable
-before the session and as accepted) and `base/<key>` (the file's baseline: its text before
-the session's first edit to it, or as last kept or accepted; a file the session created has none until
-then). The title is the one the desktop app shows, else the session's first prompt. Of a shell
-command, what it did in a git work tree the session works in (the command's folder's, its recorded
-files', and those the paths it names are in, a submodule's included) is recorded: a tracked file it
-changed or deleted, with its last committed text as its baseline, and a file it made, as new; git's
-status before and after the command tells them, of the places the command names (the whole tree when
-it names none; an `mv`'s destination too, not there yet, so a folder moved is its files gone and made,
-which the page pairs as moves), each changed file by its signature. A command made of reading ones
-alone (`ls`, `cat`, `grep`, `git log`, `sed` without `-i`, …) writing no output into a file is not
-watched; one is about 35 ms in all, 65 with git asked in a tree like camperaid's. A file changed
-already before the command (its last committed text then is no exact baseline), or one a command
-running over 30 seconds changed (someone else may have), is marked as edited elsewhere; a file another
-session's own edit left as it is during the command is that session's, not recorded. A tree whose
-status took git over 1.5 seconds is watched, for a day, only around an `rm`, `mv`, `unlink`, `trash` or
-`find -delete` (`~/.redpen/code/slow-trees.json`). The review page keeps its own state beside them, in the record's `review/`
-folder; of the comments: `comments.json`, those waiting to be sent, `sent.jsonl`, the batches sent,
-`handed.jsonl`, which of the batches Claude was handed and how (`base/channel.py` keeps it),
-`answers.jsonl`, Claude's answers and the threads the user resolved, and `outline.json`, the overview
-(an ask for one goes among the comments as `{describe: true}`).
-
-A git review's record, `~/.redpen/code/git-<…>/`, has the same files, made by `review.py --git` from a
-commit, and `git.json` (repository, base commit, branch, title, the session its comments reach, the
-last rebase it was carried over) in place of
-`session.json`, so the Cursor status-bar item and the redpen pane do not count it.
+- `python3 -m unittest discover -s ~/.claude/skills/redpen/code/tests` tests `review.py` and
+  `recorder.py`, in a scratch home, in a few seconds; `claude plugin test ~/.claude/skills/redpen/code/mod`
+  tests the Claude Code mod. Run them after a change to either.
+- The server runs `code/` and `prose/` as they are on disk; only a change to `base/server.py` needs
+  `python3 -I ~/.claude/skills/redpen/base/server.py --restart`. Its log is `~/.redpen/server.log`.
+- The mod reaches an open session with `/reload-plugins`, the Cursor extension with `install.py` and a
+  window reload; installing either is the user's to do (README, "Setup").
