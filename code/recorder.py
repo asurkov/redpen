@@ -21,15 +21,20 @@ the hook's JSON on stdin. Each session's record is in ~/.redpen/code/<session>/:
 pre keeps the file's text in pending/ the first time the session goes to edit the file, and post moves
 it into the record once the edit has succeeded, so an edit that is denied or fails records nothing.
 
-Of a shell command that can delete or move files (rm, mv, unlink, trash, find -delete), pre keeps what
-git says is deleted and made in the work trees the session works in, of the places the command names
-(all of the trees when it names none), and post records what the command changed of it: a tracked
-file it deleted, with its last committed text as its baseline, and a file it made, as new; a link as a
-link. Of a chmod, a file it names that it made executable, or no longer, is recorded with its text as
-it is and its executable bit as it was. Anything else a shell command does is not recorded.
-A failure never blocks an edit: it goes to stderr and the exit status stays 0.
+Of a shell command that may write (any but one made of reading commands alone: ls, cat, grep, git log,
+sed without -i, …, with no output into a file), pre keeps what git says is changed, deleted and made
+in the work trees the session works in, of the places the command names (all of the trees when it
+names none), with each changed file's signature, and post records what the command changed of it: a
+tracked file it changed or deleted, with its last committed text as its baseline, and a file it made,
+as new; a link as a link. A file that was changed already before the command, or that changed during a
+long one, is marked as taking in changes not the session's (outside/); one another session's own edit
+left as it is, during the command, is that session's and not recorded. In a work tree whose status
+took git long, only a command that can delete or move files (rm, mv, unlink, trash, find -delete) is
+watched, for a day. Of a chmod, a file it names that it made executable, or no longer, is recorded
+with its text as it is and its executable bit as it was. A failure never blocks an edit: it goes to
+stderr and the exit status stays 0.
 """
-import datetime, hashlib, json, os, pathlib, re, shlex, subprocess, sys, tempfile
+import datetime, hashlib, json, os, pathlib, re, shlex, subprocess, sys, tempfile, time
 
 home = pathlib.Path.home()
 store = home / '.redpen/code'
@@ -40,6 +45,27 @@ link_mark = b'\0symlink\0'
 moving = re.compile(r'(^|[\s;&|(`])(rm|mv|unlink|trash)(?=\s)|\s-delete(?=\s|;|$)')
 # One that can make a file executable, or no longer.
 chmodding = re.compile(r'(^|[\s;&|(`])chmod(?=\s)')
+# Commands that only read: a shell command made of these alone, writing no output into a file, changes
+# no file, and git is not asked around it. sed, find and git read too, but for what they are told.
+reading = {'ls', 'cat', 'head', 'tail', 'less', 'more', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'wc', 'sort', 'uniq',
+           'cut', 'tr', 'nl', 'echo', 'printf', 'stat', 'file', 'which', 'type', 'command', 'pwd', 'date', 'diff',
+           'cmp', 'comm', 'du', 'df', 'tree', 'jq', 'column', 'basename', 'dirname', 'realpath', 'readlink',
+           'printenv', 'whoami', 'id', 'uname', 'hostname', 'ps', 'pgrep', 'lsof', 'true', 'false', 'test', '[',
+           'sleep', 'cd', 'pushd', 'popd', 'hexdump', 'xxd', 'od', 'strings', 'shasum', 'sha256sum', 'md5',
+           'md5sum', 'awk', 'ping', 'dig', 'host', 'nslookup', 'man', 'time'}
+git_reading = {'log', 'show', 'diff', 'status', 'rev-parse', 'ls-files', 'ls-tree', 'cat-file', 'blame', 'grep',
+               'describe', 'shortlog', 'reflog', 'rev-list', 'for-each-ref', 'merge-base', 'check-attr',
+               'check-ignore', 'fetch', 'remote', 'config', 'branch', 'tag', 'worktree', 'help', 'version'}
+find_writing = {'-delete', '-exec', '-execdir', '-ok', '-okdir', '-fprint', '-fprint0', '-fprintf', '-fls'}
+# Where an output goes that writes no file.
+no_file = {'/dev/null', '/dev/stdout', '/dev/stderr'}
+# A command that took this long may have met someone else's edits: what it changed is marked so.
+long_seconds = 30
+# A work tree whose status took git this long is watched only around commands that delete or move
+# files, for slow_hours: {top: when it was found slow}.
+slow_seconds = 1.5
+slow_hours = 24
+slow_trees = store / 'slow-trees.json'
 
 
 def key(path):
@@ -173,37 +199,49 @@ def commit(session, path):
 
 
 def stage_shell(session, data, name):
-    """Before a shell command that can delete or move files: keeps what git says is deleted and made
-    in the work trees the session works in."""
+    """Before a shell command that may write: keeps what git says is changed, deleted and made in the
+    work trees the session works in, each changed file with its signature, and the time."""
     command = (data.get('tool_input') or {}).get('command') or ''
     cwd = data.get('cwd') or '/'
     trees = {}
-    if moving.search(command):
+    is_moving = bool(moving.search(command))
+    if is_moving or not is_reading(command):
+        slow = read_json(slow_trees, {})
         # As git spells them: its work trees' tops are real paths.
         named = [os.path.realpath(path) for path in named_paths(command, cwd)]
         # Each path is asked of the work tree it is in: a submodule's, not the one around it, which
         # refuses a path in a submodule and with it the rest.
         owners = {path: tree_of(path) for path in named}
         for top in sorted(set(work_trees(session, cwd)) | {top for top in owners.values() if top}):
+            if not is_moving and time.time() - slow.get(top, 0) < slow_hours * 3600:
+                continue
             # In a large tree git's status takes seconds: it is asked of the paths the command names
             # in the tree alone, and of a tree it names none in, not at all, unless it names no path.
             paths = [path for path, owner in owners.items() if owner == top]
             if paths or not named:
-                trees[top] = {'paths': paths, 'changed': changed(top, paths)}
+                began = time.time()
+                found = changed(top, paths)
+                if time.time() - began > slow_seconds and not paths:
+                    write_atomic(slow_trees, json.dumps({**read_json(slow_trees, {}), top: time.time()}).encode())
+                trees[top] = {'paths': paths, 'changed': found,
+                              'signatures': {path: file_signature(path) for path, kind in found.items() if kind != 'gone'}}
     # Of a chmod, whether each file it names is executable before it: in a git work tree or not.
     modes = {path: is_executable(path) for path in named_files(command, cwd)} if chmodding.search(command) else {}
     if trees or modes:
-        write_atomic(store / session / 'pending' / name, json.dumps({'trees': trees, 'modes': modes}).encode())
+        write_atomic(store / session / 'pending' / name,
+                     json.dumps({'trees': trees, 'modes': modes, 'time': time.time()}).encode())
 
 
 def commit_shell(session, name):
-    """After the command: records a tracked file it deleted, with its last committed text as its
-    baseline, and a file it made, as new; one the record has stays as it is. Says whether it
+    """After the command: records a tracked file it changed or deleted, with its last committed text
+    as its baseline, and a file it made, as new; one the record has stays as it is. Says whether it
     recorded any."""
     staged = store / session / 'pending' / name
     before = read_json(staged) or {}
     staged.unlink(missing_ok=True)
     added = False
+    began = before.get('time') or time.time()
+    is_long = time.time() - began > long_seconds
     # What the command changed is the session's own doing, recorded or not before.
     touched = set()
     # A file a chmod made executable, or no longer: its text as it is, and its bit as it was.
@@ -216,31 +254,119 @@ def commit_shell(session, name):
             added = True
     for top, kept in (before.get('trees') or {}).items():
         was = kept['changed']
+        marks = kept.get('signatures') or {}
         for path, kind in changed(top, kept['paths']).items():
-            if was.get(path) == kind:
+            # As it was: in the same state, and, for a file there, as it was written.
+            if was.get(path) == kind and (kind == 'gone' or marks.get(path, file_signature(path)) == file_signature(path)):
+                continue
+            # Another session's own edit, made while the command ran, is that session's.
+            if kind != 'gone' and is_others_edit(session, path, began):
                 continue
             touched.add(path)
             if (store / session / 'files' / f'{key(path)}.json').exists():
                 continue
-            if kind == 'gone':
-                name = os.path.relpath(path, top)
-                listed = git(top, 'ls-tree', 'HEAD', '--', name) or b''
-                is_link = listed.startswith(b'120000 ')
-                # As checking it out writes it, the repository's line endings and filters (Git LFS's
-                # say) applied, else as git keeps it.
-                old = None if is_link else git(top, 'cat-file', '--filters', f'HEAD:{name}')
-                old = old if old is not None else git(top, 'cat-file', 'blob', f'HEAD:{name}')
+            if kind == 'made':
+                record(session, path, None, os.path.islink(path))
+            else:
+                old = committed(top, path)
                 if old is None:
                     continue
-                # A link is kept as a link's text: the review puts it back as a link; a file as
-                # executable as git kept it.
-                record(session, path, link_mark + old if is_link else old, is_link, listed.startswith(b'100755 '))
-            else:
-                record(session, path, None, os.path.islink(path))
+                record(session, path, *old)
+            # Changed before the command, or perhaps by someone else while a long one ran: its diff takes
+            # in changes not the session's.
+            if kind != 'gone' and (path in was or is_long):
+                write_atomic(store / session / 'outside' / key(path), b'')
             added = True
     for path in touched:
         keep_after(session, path)
     return added
+
+
+def committed(top, path):
+    """The file's last committed text, as checking it out writes it (the repository's line endings and
+    filters, Git LFS's say, applied, else as git keeps it), whether git keeps it as a link, whether as
+    executable: as record() takes them. None when HEAD has no such file."""
+    name = os.path.relpath(path, top)
+    listed = git(top, 'ls-tree', 'HEAD', '--', name) or b''
+    is_link = listed.startswith(b'120000 ')
+    old = None if is_link else git(top, 'cat-file', '--filters', f'HEAD:{name}')
+    old = old if old is not None else git(top, 'cat-file', 'blob', f'HEAD:{name}')
+    if old is None:
+        return None
+    # A link is kept as a link's text: the review puts it back as a link.
+    return (link_mark + old if is_link else old), is_link, listed.startswith(b'100755 ')
+
+
+def file_signature(path):
+    """Changes whenever the file does: its modification and change times and its size; '-' with none."""
+    try:
+        stat = os.lstat(path)
+    except OSError:
+        return '-'
+    return f'{stat.st_mtime_ns}:{stat.st_ctime_ns}:{stat.st_size}'
+
+
+def is_others_edit(session, path, since):
+    """Whether another session's own edit, made since the time given, left the file as it is."""
+    found = None
+    for after in store.glob(f'*/after/{key(path)}'):
+        if after.parent.parent.name == session:
+            continue
+        try:
+            if after.stat().st_mtime < since:
+                continue
+            found = found or sha(disk_text(path))
+            if after.read_text() == found:
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def is_reading(command):
+    """Whether a shell command only reads: each of its commands one of the reading ones, none writing
+    its output into a file. A heredoc or a command substitution runs what is not read here: no."""
+    if '<<' in command or '`' in command or '$(' in command:
+        return False
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return False
+    words = []
+    for token in tokens + [';']:
+        if token in ('&&', '||', ';', ';;', '|', '&', '(', ')', '|&'):
+            if words and not is_reading_one(words):
+                return False
+            words = []
+        else:
+            words.append(token)
+    return True
+
+
+def is_reading_one(words):
+    """Whether one command, its words as the shell splits them, only reads."""
+    for at, word in enumerate(words):
+        if word in ('>', '>>', '&>', '&>>', '>|') and (at + 1 == len(words) or words[at + 1] not in no_file):
+            return False
+    # Its name, past the variables set for it.
+    while words and re.fullmatch(r'\w+=.*', words[0]):
+        words = words[1:]
+    if not words:
+        return True
+    name, rest = os.path.basename(words[0]), words[1:]
+    if name == 'sed':
+        return not any(word.startswith(('-i', '--in-place')) for word in rest)
+    if name == 'find':
+        return not find_writing & set(rest)
+    if name == 'git':
+        # Past git's own options, -C and -c taking a value.
+        at = 0
+        while at < len(rest) and rest[at].startswith('-'):
+            at += 2 if rest[at] in ('-C', '-c') else 1
+        return at < len(rest) and rest[at] in git_reading
+    return name in reading
 
 
 def work_trees(session, cwd):
@@ -321,8 +447,8 @@ def named_files(command, cwd):
 
 
 def changed(top, paths=()):
-    """The files git says are deleted ('gone') and made ('made') in the work tree at top, by their
-    paths; of the paths named alone, if any; ignored ones left out."""
+    """The files git says are deleted ('gone'), made ('made') and otherwise changed ('changed') in the
+    work tree at top, by their paths; of the paths named alone, if any; ignored ones left out."""
     out = git(top, 'status', '--porcelain', '-z', '--no-renames', '--untracked-files=all', '--', *paths)
     found = {}
     for item in (out or b'').split(b'\0'):
@@ -333,6 +459,8 @@ def changed(top, paths=()):
             found[path] = 'gone'
         elif x + y == '??' or x == 'A' and y != 'D':
             found[path] = 'made'
+        elif {'M', 'T'} & {x, y}:
+            found[path] = 'changed'
     return found
 
 

@@ -23,8 +23,8 @@ this session, `http://127.0.0.1:7878/code/s/<session>/`. Open that URL in the Br
 (`preview_start` with `url`, or `navigate`) and tell the user it is open. Do not click Accept, Reject or
 Unaccept there yourself, nor press `a`: those are the user's.
 
-The page shows what the session's Edit and Write calls changed, and the files its shell commands
-deleted or moved in a git work tree, not the rest of what a shell command changed; a
+The page shows what the session's Edit and Write calls changed, and what its shell commands changed
+in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not outside one; a
 [git review](#a-git-review) shows a work tree's every change.
 
 What to tell the user when it matters:
@@ -330,13 +330,19 @@ path, whether the session created the file, whether it is a link, and whether it
 before the session and as accepted) and `base/<key>` (the file's baseline: its text before
 the session's first edit to it, or as last kept or accepted; a file the session created has none until
 then). The title is the one the desktop app shows, else the session's first prompt. Of a shell
-command, only what an `rm`, `mv`, `unlink`, `trash` or `find -delete` in it did in a git work tree the
-session works in (the command's folder's, its recorded files', and those the paths it names are in,
-a submodule's included) is recorded: a tracked file it
-deleted, with its last committed text as its baseline, and a file it made, as new; git's status before
-and after the command tells them, of the places the command names (the whole tree when it names
-none; an `mv`'s destination too, not there yet, so a folder moved is its files gone and made, which
-the page pairs as moves). The review page keeps its own state beside them, in the record's `review/`
+command, what it did in a git work tree the session works in (the command's folder's, its recorded
+files', and those the paths it names are in, a submodule's included) is recorded: a tracked file it
+changed or deleted, with its last committed text as its baseline, and a file it made, as new; git's
+status before and after the command tells them, of the places the command names (the whole tree when
+it names none; an `mv`'s destination too, not there yet, so a folder moved is its files gone and made,
+which the page pairs as moves), each changed file by its signature. A command made of reading ones
+alone (`ls`, `cat`, `grep`, `git log`, `sed` without `-i`, …) writing no output into a file is not
+watched; one is about 35 ms in all, 65 with git asked in a tree like camperaid's. A file changed
+already before the command (its last committed text then is no exact baseline), or one a command
+running over 30 seconds changed (someone else may have), is marked as edited elsewhere; a file another
+session's own edit left as it is during the command is that session's, not recorded. A tree whose
+status took git over 1.5 seconds is watched, for a day, only around an `rm`, `mv`, `unlink`, `trash` or
+`find -delete` (`~/.redpen/code/slow-trees.json`). The review page keeps its own state beside them, in the record's `review/`
 folder; of the comments: `comments.json`, those waiting to be sent, `sent.jsonl`, the batches sent,
 `handed.jsonl`, which of the batches Claude was handed and how (`base/channel.py` keeps it),
 `answers.jsonl`, Claude's answers and the threads the user resolved, and `outline.json`, the overview
