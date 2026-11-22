@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 // Files Claude changed, created and deleted, against their baselines, in a store and a working folder
@@ -28,7 +28,8 @@ const bandSite = {
 } as const
 
 // The session's record: each file's entry and, unless it is new, its baseline; and the files on disk.
-// `numstat` is what git counts for a file against its baseline.
+// `numstat` is what git counts for a file against its baseline. `marks` are the record's after/<key>
+// marks, by path, with when each was written; `surfaces`, where the session draws.
 function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boolean; isGenerated?: boolean; numstat: string }[]) {
   const disk = new Set<string>()
   const entries = new Map<string, string>()
@@ -42,7 +43,10 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
   })
   const ran: string[] = []
   const opened: string[] = []
+  const marks = new Map<string, number>()
+  const surfaces: ('terminal' | 'desktop')[] = ['desktop']
   on('env.get', () => ({ value: '/h' }))
+  on('session.surfaces', () => ({ value: [...surfaces] }))
   on('session.id', () => ({ value: 's1' }))
   on('session.cwd', () => ({ value: '/w' }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -52,10 +56,11 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
     return { value: { isPlaced: true } }
   })
   on('ui.toast', () => ({ value: undefined }))
-  on('clock.every', () => ({ value: undefined }))
+  // The every-1.5-seconds scan waits on a clock that moves only when a test moves it.
+  const clock = mock.clock(on)
   on('fs.list', (_, e) => ({
-    value: [...entries.keys()].filter(p => p.startsWith(`${e.path}/`))
-      .map(p => ({ name: p.slice(e.path.length + 1), kind: 'file' as const, size: 1, mtimeMs: 1, isLink: false })),
+    value: [...entries.keys(), ...marks.keys()].filter(p => p.startsWith(`${e.path}/`))
+      .map(p => ({ name: p.slice(e.path.length + 1), kind: 'file' as const, size: 1, mtimeMs: marks.get(p) ?? 1, isLink: false })),
   }))
   on('fs.read', (_, e) => ({ value: entries.get(e.path) ?? '' }))
   on('fs.exists', (_, e) => ({ value: disk.has(e.path) }))
@@ -76,7 +81,7 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
     if (e.argv[1] === '/h/.claude/skills/redpen/code/review.py') return done(0, `${page}\n`)
     return done(0)
   })
-  return { ran, opened }
+  return { ran, opened, marks, surfaces, clock }
 }
 
 test('the pane lists the edited files with their counts', async ($, on) => {
@@ -265,4 +270,57 @@ test('a file in the pane opens the review at that file, in the tab open already'
   expect(calls.filter(call => !call.startsWith('tabs_context') && !call.startsWith('show_pane')).slice(-2))
     .toEqual(['tabs_select {"tabId":"tab-1"}', `navigate {"url":"${linked}","tabId":"tab-1"}`])
   await ui.unmount()
+})
+
+test('a turn that edited the work opens the review as it ends', async ($, on) => {
+  const { marks, surfaces, clock } = session(on, [
+    { path: file, numstat: '2\t1' },
+    { path: '/h/.claude/settings.json', numstat: '1\t0' },
+  ])
+  const calls: string[] = []
+  on('mcp.connect', (_, e) => ({ value: { isConnected: true as const, server: e.server } }))
+  on('mcp.call', (_, e) => {
+    calls.push(`${e.server} ${e.tool}`)
+    return { value: { content: [{ type: 'text', text: '{"tabs":[],"tabId":"tab-1"}' }], isError: false } }
+  })
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('tool.call', () => ({ result: { content: [] } }))
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
+  const opens = () => calls.filter(call => call === 'Claude Browser preview_start').length
+  let turns = 0
+  // A turn of the main loop; edits, given, are the session's own to those files (by their keys), as
+  // the recorder marks them; during, if given, runs in the turn.
+  const turn = async (edits: string[], ending: { reason?: 'answer' | 'aborted'; agentId?: string } = {}, during?: () => Promise<unknown>) => {
+    const turnId = `t${++turns}`
+    await $.turn.start({ text: '', turnId, agentId: ending.agentId })
+    for (const key of edits) marks.set(`${record}/after/${key}`, turns + 1)
+    await during?.()
+    const reason = ending.reason ?? 'answer'
+    await $.turn.complete({ answer: '', durationMs: 1, isAborted: reason === 'aborted', turnId, reason, agentId: ending.agentId })
+    await clock.settle()
+  }
+
+  await turn(['k0'])
+  expect(opens()).toBe(1)
+  // No edit, or only one to Claude's own files: nothing opens.
+  await turn([])
+  await turn(['k1'])
+  expect(opens()).toBe(1)
+  // A turn that showed something in the Browser pane keeps it there.
+  await turn(['k0'], {}, () => $.tool.call({ tool: 'mcp__Claude_Browser__navigate', url: 'http://localhost:3000/' }))
+  expect(opens()).toBe(1)
+  // An interrupted turn opens nothing.
+  await turn(['k0'], { reason: 'aborted' })
+  expect(opens()).toBe(1)
+  // A subagent's edits open the review as the main turn that ran it ends, not as its own turn does.
+  await turn([], {}, async () => {
+    await turn(['k0'], { agentId: 'a1' })
+    expect(opens()).toBe(1)
+  })
+  expect(opens()).toBe(2)
+  // In the terminal, the row above the prompt says so; nothing opens.
+  surfaces.splice(0, 1, 'terminal')
+  await turn(['k0'])
+  expect(opens()).toBe(2)
 })

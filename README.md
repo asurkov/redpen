@@ -264,6 +264,12 @@ this session's review page in the desktop app's Browser pane through its MCP ser
 in the tab it opened before while that tab stays open, and brings the pane to the front (`ccd_view`'s
 `show_pane`); from the terminal, in the default browser.
 
+In the desktop app the review also opens by itself, the same way, as a turn ends that edited the work:
+a file of the work, not Claude's own, temporary or generated, that the session edited in the turn (its
+recorder's `after/` mark rewritten, a subagent's edit included) and that still differs from its
+baseline. A turn that used the Browser pane itself leaves it as the turn left it, and an interrupted or
+failed turn, or one in the terminal, leaves it to the row.
+
 The folder is its own marketplace, `redpen`, and the plugin is read from it as it is on disk, so an edit
 there reaches a session with `/reload-plugins`. It loads in every session once the user has installed it
 (the commands change `~/.claude/settings.json`, so they are the user's to run, from a terminal):

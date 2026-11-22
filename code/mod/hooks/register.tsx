@@ -181,6 +181,29 @@ const sortedFiles = (list: EditedFile[], home: string) => {
   return { work, changed: work.filter(file => file.kind === 'changed') }
 }
 
+// The record's marks of the session's own edits, by key, with when each was written: the recorder
+// rewrites after/<key> at each edit of the session's to the file, its shell commands' too.
+async function editMarks($: EngineInterface) {
+  const { record } = await places($)
+  const listed = await $.fs.list(`${record}/after`).catch(() => [])
+  return new Map(listed.filter(({ name }) => !name.startsWith('.')).map(({ name, mtimeMs }) => [name, mtimeMs]))
+}
+
+// The marks as the main loop's turn found them, and whether the turn used the Browser pane itself.
+let marksAtStart: Map<string, number> | undefined
+let isBrowserUsed = false
+
+// Opens the review, in the desktop app, when the turn edited a file of the work that still differs
+// from its baseline.
+async function openIfEdited($: EngineInterface, before: Map<string, number>) {
+  if (!(await $.session.surfaces()).includes('desktop')) return
+  const edited = new Set([...await editMarks($)].filter(([key, mtimeMs]) => before.get(key) !== mtimeMs).map(([key]) => key))
+  if (!edited.size) return
+  await scan($)
+  const { changed } = sortedFiles(await read($, files), (await places($)).home)
+  if (changed.some(file => edited.has(file.key))) await openRedpen($, 'desktop')
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -194,6 +217,31 @@ export const register: Register = on => {
     await $.ui.open({ id: paneId, title: 'redpen' })
     void scan($)
     return { text: 'redpen pane opened.' }
+  })
+
+  // A turn of the session's own that edited the work's files opens the review as it ends, as Open
+  // review does, unless the turn showed something in the Browser pane itself; an interrupted one,
+  // or one that failed, leaves it to the row above the prompt.
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) {
+      marksAtStart = await editMarks($)
+      isBrowserUsed = false
+    }
+    return next(e)
+  })
+
+  on('tool.call', { tool: /^mcp__Claude_Browser__/ }, ($, e, next) => {
+    isBrowserUsed = true
+    return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    const ended = await next(e)
+    const before = e.agentId === undefined ? marksAtStart : undefined
+    if (!before) return ended
+    marksAtStart = undefined
+    if (e.reason === 'answer' && !isBrowserUsed) void openIfEdited($, before).catch(() => undefined)
+    return ended
   })
 
   // One row above the prompt while the session's work has changes: their count and the way to the
