@@ -133,8 +133,9 @@ function openingJson(result: McpToolResult | undefined): Record<string, unknown>
 
 // Opens this session's redpen page, the whole review (Accept and Reject, history, comments on any
 // line), in the desktop's Browser pane: in the tab it opened there before while that tab is open, else
-// in a new one. From the terminal, or with no Browser pane to reach, in the default browser.
-async function openRedpen($: EngineInterface, surface: string) {
+// in a new one. From the terminal, or with no Browser pane to reach, in the default browser. Given a
+// file, at that file: the page opens what a link into it names, #<path>.
+async function openRedpen($: EngineInterface, surface: string, path?: string) {
   const { home } = await places($)
   const ran = await $.process.run(['python3', `${home}/.claude/skills/redpen/code/review.py`,
     '--session', await $.session.id()]).catch(() => undefined)
@@ -143,9 +144,10 @@ async function openRedpen($: EngineInterface, surface: string) {
     $.ui.toast(`redpen did not start: ${ran?.stderr.trim().split('\n')[0] || 'its script did not run'}`)
     return
   }
+  const linked = path ? `${url}#${path.split('/').map(encodeURIComponent).join('/')}` : url
   const browser = surface === 'desktop' ? await $.mcp.connect(browserServer).catch(() => undefined) : undefined
   if (!browser?.isConnected) {
-    await $.process.run(['/usr/bin/open', url])
+    await $.process.run(['/usr/bin/open', linked])
     return
   }
   const call = (tool: string, args: Record<string, unknown>) =>
@@ -153,9 +155,11 @@ async function openRedpen($: EngineInterface, surface: string) {
   const tab = await read($, redpenTab)
   const tabs = (openingJson(await call('tabs_context', {}))?.tabs ?? []) as { tabId: string }[]
   const isOpen = tab.url === url && tabs.some(open => open.tabId === tab.id)
-  const shown = isOpen ? await call('tabs_select', { tabId: tab.id }) : await call('preview_start', { url })
+  const shown = isOpen ? await call('tabs_select', { tabId: tab.id }) : await call('preview_start', { url: linked })
+  // In the tab open already, a new link is the same page's: it opens the file where the page stands.
+  if (isOpen && path && shown && !shown.isError) await call('navigate', { url: linked, tabId: tab.id })
   if (!shown || shown.isError) {
-    await $.process.run(['/usr/bin/open', url])
+    await $.process.run(['/usr/bin/open', linked])
     $.ui.toast('The Browser pane did not open it; it is open in your browser.')
     return
   }
@@ -230,7 +234,7 @@ export const register: Register = on => {
       const dir = shown(file.path).slice(0, -name.length).replace(/\/$/, '')
       return (
         <Box flexDirection="row" gap={1} flexWrap="wrap" alignItems="center" key={`file:${file.path}`}>
-          <Text>{name}</Text>
+          <Button key={`open:${file.path}`} plain label={name} onPress={press => void openRedpen($, press.surface, file.path)} />
           <Text color="diffAdded">{`+${file.added}`}</Text>
           <Text color="diffRemoved">{`−${file.removed}`}</Text>
           {file.note ? <Text dimColor>{file.note}</Text> : undefined}

@@ -243,21 +243,58 @@ function loadAgain() {
   return true;
 }
 
-// Takes up what loadAgain() left, once.
+// Takes up what loadAgain() left, once; says whether it did.
 async function resume() {
   let left = null;
   try {
     left = JSON.parse(sessionStorage.getItem(resumed));
     sessionStorage.removeItem(resumed);
   } catch {
-    return;
+    return false;
   }
   if (left?.at !== location.pathname || !views[left.view] || !state.files.some(file => file.key === left.key)) {
-    return;
+    return false;
   }
   state.view = left.view;
   drawViews();
   await show(left.key, left.line || undefined);
+  return true;
+}
+
+// Takes the link off the address once it is opened, or passed over: the same link again is then a
+// change of the address, and opens it again.
+function takeLink() {
+  if (location.hash) {
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+}
+
+// Opens what a link into the page names, #<path>[:<line>], the path absolute or from the review's top
+// (a range, :<line>-<line>, opens at its first line): a file of the review at the line, in a view that
+// has it; a file of the tree it has no change in, as it is.
+function openLinked() {
+  let target;
+  try {
+    target = decodeURIComponent(location.hash.slice(1));
+  } catch {
+    return;
+  }
+  const [, where, line] = /^(.*?)(?::(\d+)(?:-\d+)?)?$/.exec(target) || [];
+  if (!where) {
+    return;
+  }
+  takeLink();
+  const root = state.top || workRoot() || '/';
+  const path = where.startsWith('/') ? where : `${root}${where.replace(/^\.\//, '')}`;
+  const number = line ? Number(line) : undefined;
+  const file = state.files.find(candidate => candidate.path === path) || state.files.find(candidate => candidate.path.endsWith(`/${where}`));
+  if (file) {
+    return open({ key: file.key, line: number });
+  }
+  if (state.top && path.startsWith(state.top)) {
+    return queued(() => openPlain(path, number));
+  }
+  toast(`The review has no file ${where}.`);
 }
 
 // Reads the file list again and redraws what changed; opens another file when the open one left
@@ -1526,7 +1563,14 @@ async function main() {
   byId('waitingButton').addEventListener('click', () => (byId('waitingList').hidden = !byId('waitingList').hidden));
   document.addEventListener('keydown', takeKey, true);
   await queued(refresh);
-  await queued(resume);
+  // A page loaded again goes back where it was, its link taken already; else a link into it opens
+  // what it names.
+  if (await queued(resume)) {
+    takeLink();
+  } else {
+    openLinked();
+  }
+  window.addEventListener('hashchange', openLinked);
   setInterval(() => {
     if (!document.hidden) {
       queued(() => refresh().catch(() => {}));

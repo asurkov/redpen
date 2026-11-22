@@ -23,6 +23,12 @@ this session, `http://127.0.0.1:7878/code/s/<session>/`. Open that URL in the Br
 (`preview_start` with `url`, or `navigate`) and tell the user it is open. Do not click Accept, Reject or
 Unaccept there yourself, nor press `a`: those are the user's.
 
+**Links into the page.** `<page URL>#<path>:<line>` opens the page at that file and line, in a view
+that has it (the path from the repository's top, or absolute; `:<line>` and a range's `-<line>` may be
+left out); a file of the tree with no change opens as it is. To show the user a change you speak of,
+`navigate` the Browser pane's tab to such a link: the page opens it without loading again, and takes
+the link off its address, so the same link opens it again later.
+
 The page shows what the session's Edit and Write calls changed, and what its shell commands changed
 in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not outside one; a
 [git review](#a-git-review) shows a work tree's every change.
@@ -288,8 +294,9 @@ Cursor's Agents Window runs only Cursor's built-in extensions, so the item shows
 The mod in `code/mod/` (the plugin `redpen`) is the review page's way in from Claude Code, in the
 terminal and in the desktop app. While the session's work has changes, a row above the prompt counts
 them beside Open review, leaving the side of the window to the page; Claude's own and temporary files,
-and generated ones, are not counted there. `/edits` opens a pane that lists the files this session edited with their lines
-added and removed. The mod only reads the record: the review itself is the page. Open review opens
+and generated ones, are not counted there. `/edits` opens a pane that lists the files this session
+edited with their lines added and removed, each a way to its review (a link into the page). The mod
+only reads the record: the review itself is the page. Open review opens
 this session's review page in the desktop app's Browser pane through its MCP server (`Claude Browser`),
 in the tab it opened before while that tab stays open, and brings the pane to the front (`ccd_view`'s
 `show_pane`); from the terminal, in the default browser.

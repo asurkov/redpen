@@ -239,3 +239,30 @@ test('generated files are listed, said so, and counted neither in the pane nor i
   expect((await band.find({ type: 'Text', text: /^redpen/ }))?.text).toBe('redpen · 1 of 1 files changed')
   await band.unmount()
 })
+
+test('a file in the pane opens the review at that file, in the tab open already', async ($, on) => {
+  session(on, [{ path: '/w/src/my file.txt', numstat: '2\t1' }])
+  const calls: string[] = []
+  let tabs: string[] = []
+  on('mcp.connect', (_, e) => ({ value: { isConnected: true as const, server: e.server } }))
+  on('mcp.call', (_, e) => {
+    calls.push(`${e.tool} ${JSON.stringify(e.args)}`)
+    const text = (value: unknown) => ({ value: { content: [{ type: 'text', text: `${JSON.stringify(value)}\nA sentence after.` }], isError: false } })
+    if (e.tool === 'tabs_context') return text({ tabs: tabs.map(tabId => ({ tabId })) })
+    if (e.tool === 'preview_start') {
+      tabs = ['tab-1']
+      return text({ tabId: 'tab-1' })
+    }
+    return text({})
+  })
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...paneSite, surface: 'desktop' })
+  const linked = `${page}#/w/src/my%20file.txt`
+  await ui.press({ key: 'open:/w/src/my file.txt' })
+  expect(calls).toContain(`preview_start {"url":"${linked}"}`)
+  // Pressed again: the same tab, the page told the file by its link.
+  await ui.press({ key: 'open:/w/src/my file.txt' })
+  expect(calls.filter(call => !call.startsWith('tabs_context') && !call.startsWith('show_pane')).slice(-2))
+    .toEqual(['tabs_select {"tabId":"tab-1"}', `navigate {"url":"${linked}","tabId":"tab-1"}`])
+  await ui.unmount()
+})
