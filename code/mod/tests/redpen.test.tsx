@@ -8,11 +8,11 @@ const file = '/w/src/a.txt'
 const page = 'http://127.0.0.1:7878/code/s/s1/'
 
 const paneSite = {
-  plugin: 'edit-review',
+  plugin: 'redpen',
   component: 'Pane',
-  requestId: 'edit-review',
+  requestId: 'redpen',
   props: {
-    title: 'Claude Edits',
+    title: 'redpen',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -86,7 +86,7 @@ test('the pane lists the edited files with their counts', async ($, on) => {
     expect((await ui.find({ key: 'file:/w/gone.txt' }))?.text).toBe('gone.txt+0−4deleted')
     expect((await ui.find({ key: 'file:/w/logo.png' }))?.text).toBe('logo.png+0−0binary')
     expect(await ui.find({ key: 'file:/w/same.txt' })).toBeUndefined()
-    expect((await ui.find({ key: 'redpen' }))?.props.label).toBe('Open in redpen')
+    expect((await ui.find({ key: 'redpen' }))?.props.label).toBe('Open review')
     await ui.unmount()
   }
 })
@@ -119,7 +119,7 @@ test("Claude's own files and the temporary ones stay folded until asked for", as
   await ui.unmount()
 })
 
-test('Open in redpen opens the page in the Browser pane, in the same tab while it is open', async ($, on) => {
+test('Open review opens the page in the Browser pane, in the same tab while it is open', async ($, on) => {
   const ran = session(on, [{ path: file, numstat: '2\t1' }])
   const calls: string[] = []
   let tabs: string[] = []

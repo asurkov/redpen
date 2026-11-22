@@ -6,12 +6,12 @@ import type { EditedFile } from '../types'
 // The files this session edited, from the record redpen's recorder keeps in
 // ~/.redpen/code/<session>/ (files/<key>.json and base/<key>), each counted against its baseline: its
 // text before the session's first edit to it, or as last accepted on the review page. The review
-// itself (Accept and Reject, history, comments) is redpen's page, which Open in redpen brings up.
+// itself (Accept and Reject, history, comments) is redpen's page, which Open review brings up.
 
-const paneId = 'edit-review'
-const files = atom({ plugin: 'edit-review', key: 'files' } as const, [], { shape: 'files-2' })
-const areOthersOpen = atom({ plugin: 'edit-review', key: 'areOthersOpen' } as const, false)
-const redpenTab = atom({ plugin: 'edit-review', key: 'redpenTab' } as const, { id: '', url: '' })
+const paneId = 'redpen'
+const files = atom({ plugin: 'redpen', key: 'files' } as const, [], { shape: 'files-2' })
+const areOthersOpen = atom({ plugin: 'redpen', key: 'areOthersOpen' } as const, false)
+const redpenTab = atom({ plugin: 'redpen', key: 'redpenTab' } as const, { id: '', url: '' })
 
 type Places = { record: string; cwd: string; home: string }
 
@@ -146,22 +146,22 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.command.register({ name: 'edits', description: 'Show the files this session edited, and open their review in redpen' })
-    void $.ui.open({ id: paneId, title: 'Claude Edits' })
+    void $.ui.open({ id: paneId, title: 'redpen' })
     await scan($, true)
     $.clock.every(1500, () => void scan($))
     return started
   })
 
   on('command.run', { command: 'edits' }, async $ => {
-    await $.ui.open({ id: paneId, title: 'Claude Edits' })
+    await $.ui.open({ id: paneId, title: 'redpen' })
     void scan($)
-    return { text: 'Claude Edits pane opened.' }
+    return { text: 'redpen pane opened.' }
   })
 
   on('ui.render', { component: 'Pane', requestId: paneId }, async ($, e) => {
     if (e.surface === 'mobile') {
       const { Text } = $.ui.resolve(e)
-      return <Text dimColor>Claude Edits shows on the desktop and in the terminal.</Text>
+      return <Text dimColor>redpen shows on the desktop and in the terminal.</Text>
     }
     const { Box, Text, Button } = $.ui.resolve(e)
     const { cwd, home } = await places($)
@@ -200,7 +200,7 @@ export const register: Register = on => {
             {work.length ? `${changed.length} of ${work.length} files changed` : 'No edits in this session yet.'}
           </Text>
           {list.length > 0 &&
-            <Button key="redpen" label="Open in redpen" onPress={press => void openRedpen($, press.surface)} />}
+            <Button key="redpen" label="Open review" onPress={press => void openRedpen($, press.surface)} />}
         </Box>
         <Box flexDirection="column">
           {work.filter(isListed).map(fileRow)}

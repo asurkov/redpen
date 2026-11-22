@@ -39,7 +39,7 @@ first edit to it, which does not exist yet, and a way to hand the agent a commen
 | `page/` | the review page |
 | `cursor.py` | writes the record into Cursor as its inline diffs |
 | `extension/` | the Claude Edits sidebar for Cursor |
-| `mod/` | the Claude Edits pane for Claude Code itself (`/edits`): the edited files and Open in redpen, a plugin read from this folder |
+| `mod/` | the redpen pane for Claude Code itself (`/edits`): the edited files and Open review, a plugin read from this folder |
 | `vendor/fetch_monaco.py` | fetches the page's editor, Monaco, into `vendor/monaco/` (not kept in the repository) |
 
 ## prose/
@@ -99,11 +99,11 @@ The Claude Edits sidebar, for Cursor:
 python3 ~/.claude/skills/redpen/code/extension/install.py
 ```
 
-The Claude Edits pane, for Claude Code:
+The redpen pane, for Claude Code:
 
 ```bash
 claude plugin marketplace add ~/.claude/skills/redpen/code/mod
-claude plugin install edit-review@redpen --scope user
+claude plugin install redpen@redpen --scope user
 ```
 
 `/docdiff`: a link that makes `prose/` a skill folder of its own. docdiff, gdocsync and a LaunchAgent

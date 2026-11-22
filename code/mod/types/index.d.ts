@@ -1,4 +1,4 @@
-// What the Claude Edits pane draws: the files this session edited, as redpen's recorder hooks record
+// What the redpen pane draws: the files this session edited, as redpen's recorder hooks record
 // them in ~/.redpen/code/<session>/, each counted against its baseline.
 
 export type EditedFile = {
@@ -18,11 +18,11 @@ export type EditedFile = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'edit-review': {
+    'redpen': {
       files: Shaped<EditedFile[]>
       // Whether Claude's own files and the temporary ones are listed.
       areOthersOpen: boolean
-      // The Browser pane tab "Open in redpen" opened, and the page it opened there.
+      // The Browser pane tab "Open review" opened, and the page it opened there.
       redpenTab: { id: string; url: string }
     }
   }

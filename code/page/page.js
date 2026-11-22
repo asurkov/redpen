@@ -266,7 +266,7 @@ async function refresh() {
   state.page = state.page || listing.page;
   tellRebase(listing.rebased);
   byId('title').textContent = listing.title;
-  document.title = `${listing.title} · Claude Edits`;
+  document.title = `${listing.title} · redpen`;
   drawViews();
   drawProgress();
   drawWaiting();

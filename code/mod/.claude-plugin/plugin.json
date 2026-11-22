@@ -1,5 +1,5 @@
 {
-  "name": "edit-review",
+  "name": "redpen",
   "version": "0.1.0",
   "description": "Lists the files this session edited, with their lines added and removed, and opens their review on redpen's page",
   "types": "./types/index.d.ts"

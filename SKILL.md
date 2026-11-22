@@ -254,12 +254,12 @@ installs it into every Cursor profile (each has its own extensions; `--profile <
 reload the window. Cursor's Agents Window runs only Cursor's built-in extensions, so the view shows only
 in editor windows. `install.py --uninstall` removes it.
 
-## In Claude Code: the Claude Edits pane
+## In Claude Code: the redpen pane
 
-The mod in `code/mod/` (the plugin `edit-review`) is the review page's way in from Claude Code, in the
+The mod in `code/mod/` (the plugin `redpen`) is the review page's way in from Claude Code, in the
 terminal and in the desktop app. It opens a pane at the session's start (`/edits` opens it again) that
 lists the files this session edited with their lines added and removed, and only reads the record: the
-review itself is the page. Open in redpen opens this session's review page in the desktop app's Browser
+review itself is the page. Open review opens this session's review page in the desktop app's Browser
 pane through its MCP server (`Claude Browser`), in the tab it opened before while that tab stays open,
 and brings the pane to the front (`ccd_view`'s `show_pane`); from the terminal, in the default browser.
 
@@ -269,10 +269,10 @@ there reaches a session with `/reload-plugins`. It loads in every session once t
 
 ```bash
 claude plugin marketplace add ~/.claude/skills/redpen/code/mod
-claude plugin install edit-review@redpen --scope user
+claude plugin install redpen@redpen --scope user
 ```
 
-`claude plugin uninstall edit-review@redpen` removes it. Its tests: `claude plugin test
+`claude plugin uninstall redpen@redpen` removes it. Its tests: `claude plugin test
 ~/.claude/skills/redpen/code/mod`.
 
 ## The server
@@ -313,4 +313,4 @@ folder; of the comments: `comments.json`, those waiting to be sent, `sent.jsonl`
 A git review's record, `~/.redpen/code/git-<…>/`, has the same files, made by `review.py --git` from a
 commit, and `git.json` (repository, base commit, branch, title, the session its comments reach, the
 last rebase it was carried over) in place of
-`session.json`, so the Cursor sidebar and the Claude Edits pane do not list it.
+`session.json`, so the Cursor sidebar and the redpen pane do not list it.

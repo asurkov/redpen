@@ -1091,7 +1091,7 @@ def fenced(text):
 def described(comments, git=None):
     """The comments as the model is told them; git is what a git review is of."""
     changes = f"the changes in {git['repo']} against {git['spec']}" if git else 'your changes'
-    out = [f'The user left these comments on {changes} on the Claude Edits review page; each quotes the '
+    out = [f'The user left these comments on {changes} on the redpen review page; each quotes the '
            'lines it is on as they saw them.']
     for comment in comments:
         lines = f"line {comment['start']}" if comment['start'] == comment['end'] else f"lines {comment['start']}-{comment['end']}"
