@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Pack the Claude Edits extension beside this script into a .vsix and install it into Cursor.
+"""Pack the redpen extension beside this script into a .vsix and install it into Cursor.
 
 Usage: install.py [--uninstall] [--profile NAME]
 
 Cursor loads it on the next window reload. Each Cursor profile has its own extensions, so it goes into
 the default profile and every other one; --profile names one profile instead. CURSOR names Cursor's
-command-line tool (default: the one inside /Applications/Cursor.app).
+command-line tool (default: the one inside /Applications/Cursor.app). The extension it replaces, Claude
+Edits, is taken out of the same profiles.
 """
 import argparse, json, os, pathlib, subprocess, sys, tempfile, zipfile
 
@@ -14,6 +15,8 @@ cursor = os.environ.get('CURSOR', '/Applications/Cursor.app/Contents/Resources/a
 manifest = json.loads((here / 'package.json').read_text())
 storage = pathlib.Path.home() / 'Library/Application Support/Cursor/User/globalStorage/storage.json'
 extension_id = f"{manifest['publisher']}.{manifest['name']}"
+# The extension's id while it was Claude Edits: taken out wherever this one goes in, so one view shows.
+replaced_id = 'local.claude-edits'
 
 content_types = '''<?xml version="1.0" encoding="utf-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -54,12 +57,21 @@ def profiles():
     return [[]] + [['--profile', p['name']] for p in named]
 
 
+def remove_replaced(target):
+    """Uninstalls Claude Edits from the profile, if it is there."""
+    listed = subprocess.run([cursor, '--list-extensions', *target], capture_output=True, text=True).stdout.split()
+    if replaced_id in listed:
+        subprocess.call([cursor, '--uninstall-extension', replaced_id, *target])
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('--uninstall', action='store_true')
     ap.add_argument('--profile')
     args = ap.parse_args()
     targets = [['--profile', args.profile]] if args.profile else profiles()
+    for target in targets:
+        remove_replaced(target)
     if args.uninstall:
         sys.exit(max(subprocess.call([cursor, '--uninstall-extension', extension_id, *t]) for t in targets))
     files = ['package.json', 'extension.js', 'media/icon.svg']

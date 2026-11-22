@@ -205,7 +205,7 @@ python3 ~/.claude/skills/redpen/code/cursor.py
 ```
 
 For each file this session edited, the script writes the file's baseline (its text before the session's
-first edit to it, or as last kept in the Claude Edits sidebar) into Cursor's state database
+first edit to it, or as last accepted on the review page) into Cursor's state database
 (`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, table `cursorDiskKV`) as an
 `inlineDiff:<workspaceId>:claude-<uuid>` record. When a window opens, Cursor diffs that old text against
 the file on disk and shows the result like an agent edit. The baselines come from the record; a file
@@ -235,24 +235,22 @@ The record format is Cursor's internal one, verified on Cursor 3.29.9; if a relo
 the window's dev tools console for `[inlineDiff]` lines. `REDPEN_CURSOR_USER_DIR` points the script at
 another Cursor user data directory, such as a test profile started with `--user-data-dir`.
 
-### Claude Edits sidebar
+### The redpen sidebar
 
-The Claude Edits extension in `code/extension/` shows the record in its own Activity Bar view, newest
-session first, for review. It shows only the files inside the window's folders, each with its
-`+added −removed` line counts against its baseline, and updates as each edit lands, without a reload;
-the badge counts the files with changes. Clicking a file opens its changes side by side, where the diff
-editor's arrows revert single changes in the file (saved like any edit). **Keep** (✓, on a file in the
-list or in the title bar of its editor) moves the baseline to the file as it is, saving it first, so
-Claude's next edits show alone; **Keep All** on a session does that for each of its files. **Undo** puts
-the baseline back into the file as an editor edit that Cmd+Z takes back; for a file the session created,
-it asks, then moves the file to the Trash. From an editor, Keep applies to every session that edited the
-file and Undo to the newest one. The close button on a session dismisses it, deleting its record, not the
-files. The view can be dragged into the secondary sidebar next to Cursor's Agents.
+The redpen extension in `code/extension/` shows the record in its own Activity Bar view, newest session
+first. It shows only the files inside the window's folders, each with its `+added −removed` line counts
+against its baseline, and updates as each edit lands, without a reload; the badge counts the files with
+changes. Clicking a file opens its changes side by side, where the diff editor's arrows revert single
+changes in the file (saved like any edit). **Open Review** (on a session, or in the view's title bar for
+the newest session) opens the session's review page in Cursor's Simple Browser, beside the code, starting
+redpen's server unless it runs; Accept, Reject and comments are the page's. The view only reads the
+record. It can be dragged into the secondary sidebar next to Cursor's Agents.
 
 Install or update the extension with `python3 ~/.claude/skills/redpen/code/extension/install.py`, which
-installs it into every Cursor profile (each has its own extensions; `--profile <name>` picks one), then
-reload the window. Cursor's Agents Window runs only Cursor's built-in extensions, so the view shows only
-in editor windows. `install.py --uninstall` removes it.
+installs it into every Cursor profile (each has its own extensions; `--profile <name>` picks one) and
+takes out the Claude Edits extension it replaces (`local.claude-edits`), then reload the window.
+Cursor's Agents Window runs only Cursor's built-in extensions, so the view shows only in editor windows.
+`install.py --uninstall` removes it.
 
 ## In Claude Code: the row above the prompt and the pane
 

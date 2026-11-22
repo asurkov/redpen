@@ -11,7 +11,7 @@ the hook's JSON on stdin. Each session's record is in ~/.redpen/code/<session>/:
                     created it; link for a change to a link itself; executable: {orig, base},
                     whether it was executable before the session and as accepted
   base/<key>        the file's baseline: its text before the session's first edit to it, or as the
-                    Claude Edits sidebar last kept it; absent for a new file not kept since
+                    review page last accepted it; absent for a new file not accepted since
   after/<key>       the SHA-256 of the file as the session's last edit (or the review's Reject) left
                     it: a file that differs was changed since by someone or something else
   outside/<key>     there when the file was changed so before one of the session's edits: its diff

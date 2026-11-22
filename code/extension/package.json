@@ -1,9 +1,9 @@
 {
-  "name": "claude-edits",
-  "displayName": "Claude Edits",
-  "description": "Reviews the files Claude Code sessions edited, as redpen's recorder keeps them: their changes side by side, with Keep and Undo.",
+  "name": "redpen",
+  "displayName": "redpen",
+  "description": "Lists the files Claude Code sessions edited, as redpen's recorder keeps them, with their changes side by side, and opens their review on redpen's page.",
   "publisher": "local",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "license": "UNLICENSED",
   "engines": {
     "vscode": "^1.80.0"
@@ -16,134 +16,78 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "claudeEdits",
-          "title": "Claude Edits",
+          "id": "redpen",
+          "title": "redpen",
           "icon": "media/icon.svg"
         }
       ]
     },
     "views": {
-      "claudeEdits": [
+      "redpen": [
         {
-          "id": "claudeEdits.files",
+          "id": "redpen.files",
           "name": "Files"
         }
       ]
     },
     "commands": [
       {
-        "command": "claudeEdits.refresh",
+        "command": "redpen.refresh",
         "title": "Refresh",
-        "category": "Claude Edits",
+        "category": "redpen",
         "icon": "$(refresh)"
       },
       {
-        "command": "claudeEdits.openFile",
+        "command": "redpen.openFile",
         "title": "Open File",
-        "category": "Claude Edits",
+        "category": "redpen",
         "icon": "$(go-to-file)"
       },
       {
-        "command": "claudeEdits.openDiff",
+        "command": "redpen.openDiff",
         "title": "Open Changes",
-        "category": "Claude Edits",
+        "category": "redpen",
         "icon": "$(diff)"
       },
       {
-        "command": "claudeEdits.keepFile",
-        "title": "Keep File",
-        "category": "Claude Edits",
-        "icon": "$(check)"
-      },
-      {
-        "command": "claudeEdits.undoFile",
-        "title": "Undo File",
-        "category": "Claude Edits",
-        "icon": "$(discard)"
-      },
-      {
-        "command": "claudeEdits.keepSession",
-        "title": "Keep All",
-        "category": "Claude Edits",
-        "icon": "$(check-all)"
-      },
-      {
-        "command": "claudeEdits.dismiss",
-        "title": "Dismiss Session",
-        "category": "Claude Edits",
-        "icon": "$(close)"
+        "command": "redpen.openReview",
+        "title": "Open Review",
+        "category": "redpen",
+        "icon": "$(preview)"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "claudeEdits.refresh",
-          "when": "view == claudeEdits.files",
-          "group": "navigation"
+          "command": "redpen.openReview",
+          "when": "view == redpen.files",
+          "group": "navigation@1"
+        },
+        {
+          "command": "redpen.refresh",
+          "when": "view == redpen.files",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
         {
-          "command": "claudeEdits.undoFile",
-          "when": "view == claudeEdits.files && viewItem == file.changed",
+          "command": "redpen.openFile",
+          "when": "view == redpen.files && viewItem == file",
           "group": "inline@1"
         },
         {
-          "command": "claudeEdits.keepFile",
-          "when": "view == claudeEdits.files && viewItem == file.changed",
-          "group": "inline@2"
-        },
-        {
-          "command": "claudeEdits.openFile",
-          "when": "view == claudeEdits.files && viewItem =~ /^file/",
-          "group": "inline@3"
-        },
-        {
-          "command": "claudeEdits.keepSession",
-          "when": "view == claudeEdits.files && viewItem == session",
+          "command": "redpen.openReview",
+          "when": "view == redpen.files && viewItem == session",
           "group": "inline@1"
-        },
-        {
-          "command": "claudeEdits.dismiss",
-          "when": "view == claudeEdits.files && viewItem == session",
-          "group": "inline@2"
-        }
-      ],
-      "editor/title": [
-        {
-          "command": "claudeEdits.undoFile",
-          "when": "resourcePath in claudeEdits.changedFiles",
-          "group": "navigation@1"
-        },
-        {
-          "command": "claudeEdits.keepFile",
-          "when": "resourcePath in claudeEdits.changedFiles",
-          "group": "navigation@2"
         }
       ],
       "commandPalette": [
         {
-          "command": "claudeEdits.keepFile",
-          "when": "resourcePath in claudeEdits.changedFiles"
-        },
-        {
-          "command": "claudeEdits.undoFile",
-          "when": "resourcePath in claudeEdits.changedFiles"
-        },
-        {
-          "command": "claudeEdits.openFile",
+          "command": "redpen.openFile",
           "when": "false"
         },
         {
-          "command": "claudeEdits.openDiff",
-          "when": "false"
-        },
-        {
-          "command": "claudeEdits.keepSession",
-          "when": "false"
-        },
-        {
-          "command": "claudeEdits.dismiss",
+          "command": "redpen.openDiff",
           "when": "false"
         }
       ]

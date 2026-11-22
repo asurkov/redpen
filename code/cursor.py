@@ -5,7 +5,7 @@ Accept and Reject, as if Cursor's agent had made them.
 Usage: cursor.py [--session ID] [--workspace ID] [--clear]
 
 For each file the session edited, its baseline in the record recorder.py keeps (its text
-before the session's first edit to it or as the Claude Edits sidebar last kept it, or nothing for a file
+before the session's first edit to it or as the review page last accepted it, or nothing for a file
 the session created) goes into Cursor's state database as an inline diff against the file on disk.
 Cursor reads these when a window opens, so the window is to be reloaded (Developer: Reload Window) to
 show them. Accept keeps the file as it is and

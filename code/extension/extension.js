@@ -1,16 +1,18 @@
-// Claude Edits: the files Claude Code sessions edited, as redpen's recorder keeps them in
-// ~/.redpen/code/<session>/ (see ../recorder.py), for review. A file's changes are
-// against its baseline: its text before the session's first edit to it, or as last kept. Clicking a file
-// opens its changes side by side, where the diff editor's arrows revert single changes. Keep moves the
-// baseline to the file as it is, so later edits show alone; Undo puts the baseline back into the file.
+// redpen in Cursor: the files Claude Code sessions edited, as redpen's recorder keeps them in
+// ~/.redpen/code/<session>/ (see ../recorder.py), with their lines added and removed against their
+// baselines: a file's text before the session's first edit to it, or as last accepted on redpen's page.
+// Clicking a file opens its changes side by side; Open Review opens the session's review page, where
+// changes are accepted and rejected. The view only reads the record: the page alone writes it.
 const vscode = require('vscode');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const {execFile} = require('child_process');
 
 const storeDir = path.join(os.homedir(), '.redpen', 'code');
+const reviewScript = path.join(os.homedir(), '.claude', 'skills', 'redpen', 'code', 'review.py');
 // Documents of this scheme hold a file's baseline: the path is the file's, the query the baseline's.
-const baseScheme = 'claude-edits-base';
+const baseScheme = 'redpen-base';
 
 function readText(file) {
   try {
@@ -27,14 +29,6 @@ function readJson(file) {
   } catch {
     return null;
   }
-}
-
-// Readers see the old file or the new one, never a part of it.
-function writeAtomic(target, data) {
-  fs.mkdirSync(path.dirname(target), {recursive: true});
-  const tmp = path.join(path.dirname(target), `.tmp-${process.pid}-${Date.now()}`);
-  fs.writeFileSync(tmp, data);
-  fs.renameSync(tmp, target);
 }
 
 // Each session's record, newest first.
@@ -104,7 +98,7 @@ function lineChanges(oldText, newText, maxD = 5000) {
 }
 
 // What changed in a file since its baseline, for its line in the list. A file the session created has
-// no baseline until it is kept.
+// no baseline until it is accepted.
 function fileStatus(file) {
   const base = readText(file.base);
   if (base === null && !file.new) return {kind: 'unknown', text: 'old text missing'};
@@ -176,8 +170,8 @@ class EditsProvider {
     const folder = vscode.workspace.asRelativePath(path.dirname(file.path), true);
     item.description = `${file.status.text}  ${folder}`;
     item.tooltip = `${file.path}\n${file.status.text}`;
-    item.contextValue = isChanged(file) ? 'file.changed' : 'file';
-    item.command = {command: 'claudeEdits.openDiff', title: 'Open Changes', arguments: [node]};
+    item.contextValue = 'file';
+    item.command = {command: 'redpen.openDiff', title: 'Open Changes', arguments: [node]};
     return item;
   }
 }
@@ -187,39 +181,34 @@ function baseUri(file) {
   return vscode.Uri.from({scheme: baseScheme, path: file.path, query: file.base});
 }
 
-// Moves the file's baseline to the file as it is.
-async function keep(file) {
-  const doc = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && d.uri.fsPath === file.path);
-  // Changes reverted in the diff editor count once saved.
-  if (doc && doc.isDirty) await doc.save();
-  // A deleted file has no text to keep.
-  if (fs.existsSync(file.path)) writeAtomic(file.base, fs.readFileSync(file.path));
+// The session's review page, its server started unless it runs.
+function reviewUrl(session) {
+  return new Promise((resolve, reject) => execFile('python3', [reviewScript, '--session', session],
+      (error, stdout, stderr) => error ?
+        reject(new Error(stderr.trim().split('\n')[0] || error.message)) :
+        resolve(stdout.trim().split('\n').pop())));
 }
 
-// Puts the file's baseline back into it.
-async function undo(file) {
-  const uri = vscode.Uri.file(file.path);
-  if (!fs.existsSync(file.base)) {
-    const answer = await vscode.window.showWarningMessage(`Move ${path.basename(file.path)} to the Trash?`,
-        {modal: true, detail: 'Claude created it in this session.'}, 'Move to Trash');
-    if (answer) await vscode.workspace.fs.delete(uri, {useTrash: true});
+// Opens the session's review page in an editor beside the code, or in the default browser where Cursor
+// has no Simple Browser.
+async function openReview(session) {
+  let url;
+  try {
+    url = await reviewUrl(session.session);
+  } catch (error) {
+    vscode.window.showErrorMessage(`redpen did not start: ${error.message}`);
     return;
   }
-  if (!fs.existsSync(file.path)) {
-    await vscode.workspace.fs.writeFile(uri, fs.readFileSync(file.base));
-    return;
+  try {
+    await vscode.commands.executeCommand('simpleBrowser.show', url);
+  } catch {
+    await vscode.env.openExternal(vscode.Uri.parse(url));
   }
-  // An edit of the document rather than of the disk, so Undo in its editor takes it back.
-  const doc = await vscode.workspace.openTextDocument(uri);
-  const edit = new vscode.WorkspaceEdit();
-  edit.replace(uri, doc.validateRange(new vscode.Range(0, 0, doc.lineCount, 0)), fs.readFileSync(file.base, 'utf8'));
-  await vscode.workspace.applyEdit(edit);
-  await doc.save();
 }
 
 function activate(context) {
   const provider = new EditsProvider();
-  const view = vscode.window.createTreeView('claudeEdits.files', {treeDataProvider: provider, showCollapseAll: true});
+  const view = vscode.window.createTreeView('redpen.files', {treeDataProvider: provider, showCollapseAll: true});
   const baseChanged = new vscode.EventEmitter();
 
   const refresh = () => {
@@ -227,9 +216,7 @@ function activate(context) {
     const changed = provider.changedFiles();
     view.badge = changed.length ? {value: changed.length, tooltip: `${changed.length} files with changes`} : undefined;
     view.message = provider.sessions.length ? undefined : 'No Claude Code edits in this workspace yet.';
-    // Shows Keep and Undo in the title bar of these files' editors.
-    vscode.commands.executeCommand('setContext', 'claudeEdits.changedFiles', changed.map(file => file.path));
-    // An open diff follows its baseline when Keep moves it.
+    // An open diff follows its baseline when the page accepts or rejects.
     for (const doc of vscode.workspace.textDocuments) {
       if (doc.uri.scheme === baseScheme) baseChanged.fire(doc.uri);
     }
@@ -238,14 +225,6 @@ function activate(context) {
   const refreshSoon = () => {
     clearTimeout(timer);
     timer = setTimeout(refresh, 300);
-  };
-
-  // The listed files with changes that an editor's command acts on, newest session first.
-  const listed = uri => {
-    uri = uri || vscode.window.activeTextEditor?.document.uri;
-    if (!uri) return [];
-    const file = uri.scheme === baseScheme ? uri.path : uri.fsPath;
-    return provider.changedFiles().filter(f => f.path === file);
   };
 
   fs.mkdirSync(storeDir, {recursive: true});
@@ -259,10 +238,10 @@ function activate(context) {
         onDidChange: baseChanged.event,
         provideTextDocumentContent: uri => readText(uri.query) || '',
       }),
-      vscode.commands.registerCommand('claudeEdits.refresh', refresh),
-      vscode.commands.registerCommand('claudeEdits.openFile', node =>
+      vscode.commands.registerCommand('redpen.refresh', refresh),
+      vscode.commands.registerCommand('redpen.openFile', node =>
         vscode.commands.executeCommand('vscode.open', vscode.Uri.file(node.file.path))),
-      vscode.commands.registerCommand('claudeEdits.openDiff', node => {
+      vscode.commands.registerCommand('redpen.openDiff', node => {
         const name = path.basename(node.file.path);
         if (!fs.existsSync(node.file.path)) {
           return vscode.commands.executeCommand('vscode.open', baseUri(node.file));
@@ -270,29 +249,11 @@ function activate(context) {
         return vscode.commands.executeCommand('vscode.diff', baseUri(node.file),
             vscode.Uri.file(node.file.path), `${name}: Claude's changes`);
       }),
-      // From an editor, Keep applies to every session that edited the file, Undo to the newest one.
-      vscode.commands.registerCommand('claudeEdits.keepFile', async arg => {
-        for (const file of arg?.kind === 'file' ? [arg.file] : listed(arg)) await keep(file);
-        refresh();
-      }),
-      vscode.commands.registerCommand('claudeEdits.undoFile', async arg => {
-        const file = arg?.kind === 'file' ? arg.file : listed(arg)[0];
-        if (file) await undo(file);
-        refresh();
-      }),
-      vscode.commands.registerCommand('claudeEdits.keepSession', async node => {
-        for (const file of node.session.shown.filter(isChanged)) await keep(file);
-        refresh();
-      }),
-      vscode.commands.registerCommand('claudeEdits.dismiss', async node => {
-        const {session} = node;
-        const answer = await vscode.window.showWarningMessage(
-            `Dismiss "${session.title}"?`,
-            {modal: true, detail: `Its record of ${session.files.length} files and their baselines is deleted. The files stay as they are.`},
-            'Dismiss');
-        if (answer !== 'Dismiss') return;
-        fs.rmSync(session.folder, {recursive: true, force: true});
-        refresh();
+      // On a session, its page; from the view's title, the newest session's.
+      vscode.commands.registerCommand('redpen.openReview', node => {
+        const session = node?.session || provider.sessions[0];
+        if (session) return openReview(session);
+        vscode.window.showInformationMessage('No Claude Code edits in this workspace yet.');
       }),
       vscode.workspace.onDidSaveTextDocument(refreshSoon),
       vscode.workspace.onDidChangeWorkspaceFolders(refreshSoon),
