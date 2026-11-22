@@ -34,13 +34,14 @@ first edit to it, which does not exist yet, and a way to hand the agent a commen
 
 | File | What |
 |---|---|
-| `recorder.py` | the hook that records a session's edits, and the files its shell commands delete or move: each file's baseline, in `~/.redpen/code/<session>/` |
+| `recorder.py` | the hook that records a session's edits, and what its shell commands change in a git work tree: each file's baseline, in `~/.redpen/code/<session>/` |
 | `review.py` | answers the review page's requests (`/code/…` on the server), hands the page's comments to Claude (`--wait`, the command Claude keeps waiting, and `--prompt-hook`, the hook), puts Claude's answer under a comment (`--answer`, with `--change` a link to the change made in answer), keeps the overview Claude writes when asked (`--outline`), and says which files their projects generate (`--generated`) |
 | `page/` | the review page |
 | `cursor.py` | writes the record into Cursor as its inline diffs |
 | `extension/` | redpen in Cursor: a status-bar item, "redpen · N to review", that opens the review |
 | `mod/` | redpen in Claude Code itself: a row above the prompt with Open review, and the edited files in a pane (`/edits`), a plugin read from this folder |
 | `vendor/fetch_monaco.py` | fetches the page's editor, Monaco, into `vendor/monaco/` (not kept in the repository) |
+| `tests/` | `review.py` on git reviews of scratch repositories and `recorder.py` through its hooks, in a scratch home: `python3 -m unittest discover -s code/tests` (a few seconds) |
 
 ## prose/
 

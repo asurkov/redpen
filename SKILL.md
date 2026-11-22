@@ -315,6 +315,13 @@ claude plugin install redpen@redpen --scope user
 `claude plugin uninstall redpen@redpen` removes it. Its tests: `claude plugin test
 ~/.claude/skills/redpen/code/mod`.
 
+## Tests
+
+`python3 -m unittest discover -s ~/.claude/skills/redpen/code/tests` runs `review.py` on git reviews of
+scratch repositories and `recorder.py` through its hooks, in a scratch home (the real records and the
+Trash are left alone), in a few seconds. Run them after a change to either; the Claude Code mod has
+its own (`claude plugin test`, above).
+
 ## The server
 
 `base/server.py` is one server for both parts, on `127.0.0.1:7878`: the review pages under `/code/`,

@@ -69,6 +69,8 @@ here = pathlib.Path(__file__).resolve().parent
 other_roots = (f'{home}/.claude/', '/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/')
 # A text past this is not sent to the page.
 shown_bytes = 16 << 20
+# What takes a file away: to the Trash, where it can be got back from.
+trash_command = ['/usr/bin/trash']
 # How a symbolic link is kept as a text, before where it points: no text the page reads starts with
 # it, so one that does is a link to make, not bytes to write. recorder.py keeps links the same way.
 link_mark = b'\0symlink\0'
@@ -205,7 +207,7 @@ def write_link_place(place, data):
     if os.path.islink(place):
         os.unlink(place)
     elif os.path.lexists(place) and (data is None or is_link):
-        ran = subprocess.run(['/usr/bin/trash', str(place)], capture_output=True, text=True)
+        ran = subprocess.run([*trash_command, str(place)], capture_output=True, text=True)
         if ran.returncode:
             raise Refusal(500, f'Could not move the file to the Trash: {ran.stderr.strip()}')
     if data is None:
@@ -1014,7 +1016,7 @@ class Review:
             return write_link_place(place, data)
         if data is None:
             # A file taken away goes to the Trash, not out of reach.
-            ran = subprocess.run(['/usr/bin/trash', str(place)], capture_output=True, text=True)
+            ran = subprocess.run([*trash_command, str(place)], capture_output=True, text=True)
             if ran.returncode:
                 raise Refusal(500, f'Could not move the file to the Trash: {ran.stderr.strip()}')
             return
