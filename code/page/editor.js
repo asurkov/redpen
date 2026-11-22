@@ -13,7 +13,7 @@ const languageByEnding = {
 const languageByName = { DEPS: 'python' };
 const barHeight = 24;
 // What stands in a thread for Claude's answer until it comes, by what became of the user's comment.
-const awaitedWords = {
+export const awaitedWords = {
   draft: 'Goes to Claude with your next message in the chat',
   sent: 'Waiting for Claude to take it…',
   taken: 'Claude is answering…',
@@ -740,7 +740,7 @@ function focusLaidOut(input, focused, triesLeft = 30) {
 
 // What was said, drawn from the little Markdown it may hold: fenced code, lists, `code`, **bold**
 // and links to the web. Everything else stays as typed.
-function marked(text) {
+export function marked(text) {
   const said = document.createElement('div');
   said.className = 'said';
   const lines = text.split('\n');

@@ -123,7 +123,10 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   to their own file bar). A block follows its lines when lines above them move, and is struck through
   as changed since when they are gone. **Not in the overview** lists the changes no block covers, so
   nothing hides behind it. **Describe** asks Claude for the overview, or for a new one, the way a
-  comment goes: at once while the waiting command runs, else with the next message.
+  comment goes: at once while the waiting command runs, else with the next message. **Comment** on an
+  item ("why this approach?") goes to Claude the same way, quoting the item; its thread stands under
+  the item, with Claude's answer, **Reply** and **Resolve**, and the strip at the bottom lists it as
+  "Overview: <title>", a click opening the drawer at it.
 - Keys: `n` and `p` (or `j` and `k`) step to the next and the previous change, past a file's last or
   first one into the neighbouring file. The current change is the one the cursor is in, with the
   tinted bar: `a` accepts it in Pending and unaccepts it in Accepted, `r` opens a comment on the

@@ -1030,10 +1030,12 @@ class Review:
         return comments if isinstance(comments, list) else []
 
     def comment(self, body):
-        file = self.file(body.get('key'))
         text = body.get('text')
         if not isinstance(text, str) or not text.strip():
             raise Refusal(400, 'The comment is empty.')
+        if body.get('item') is not None:
+            return self.kept_comment(self.item_comment(body, text.strip()[:4000]), body)
+        file = self.file(body.get('key'))
         try:
             start, end = int(body.get('start')), int(body.get('end'))
         except (TypeError, ValueError):
@@ -1055,6 +1057,30 @@ class Review:
         # A comment on the whole file, its lines all of the text it was made on.
         if body.get('isFile') is True:
             comment['isFile'] = True
+        return self.kept_comment(comment, body)
+
+    def item_comment(self, body, text):
+        """A comment on an item of the overview, as the page showed it: by its place and its title. It
+        quotes the item, its text and its blocks."""
+        outline = read_json(self.folder / 'outline.json', {})
+        items = outline.get('items') if isinstance(outline, dict) else None
+        index = body.get('item')
+        if not isinstance(items, list) or not isinstance(index, int) or not 0 <= index < len(items) \
+                or items[index].get('title') != body.get('title'):
+            raise Refusal(409, 'The overview changed since the page showed it.')
+        item = items[index]
+        blocks = []
+        for block in item.get('blocks') or []:
+            lines = '' if block.get('start') is None else ':%s-%s' % (block['start'], block['end'])
+            side = ' (as it was)' if block.get('side') == 'orig' else ''
+            note = ' — ' + block['note'] if block.get('note') else ''
+            blocks.append(block['path'] + lines + side + note)
+        return {'id': f'{time.time_ns():x}', 'time': now(), 'item': item['title'],
+                'quote': '\n'.join([item.get('text') or '', *blocks]).strip()[:4000], 'text': text}
+
+    def kept_comment(self, comment, body):
+        """Keeps a comment to be sent, in the thread it replies in if any; sends it at once while
+        Claude's command waits."""
         if body.get('thread'):
             if not any(thread['id'] == body['thread'] for thread in self.threads()):
                 raise Refusal(404, 'No such thread.')
@@ -1112,7 +1138,7 @@ class Review:
         for comment in said:
             first = comment.get('thread') if comment.get('thread') in threads else comment.get('id')
             firsts[comment.get('id')] = first
-            where = {name: comment.get(name) for name in ('key', 'path', 'side', 'start', 'end', 'quote', 'anchor', 'anchorSide', 'isFile')}
+            where = {name: comment.get(name) for name in ('key', 'path', 'side', 'start', 'end', 'quote', 'anchor', 'anchorSide', 'isFile', 'item')}
             thread = threads.setdefault(first, {**where, 'id': first, 'entries': []})
             thread['entries'].append({'id': comment.get('id'), 'by': 'user', 'time': comment.get('time'),
                                       'text': comment.get('text'), 'state': comment['state']})
@@ -1418,13 +1444,20 @@ def described(comments, git=None, name=None):
     out = [f'The user left these comments on {changes} on the redpen review page; each quotes the '
            'lines it is on as they saw them.']
     for comment in comments:
+        reply = f", a reply in the thread of comment {comment['thread']}" if comment.get('thread') else ''
+        if comment.get('item') is not None:
+            # On an item of the overview: it quotes the item, its text and its blocks.
+            out += ['', f"The overview's item \"{comment['item']}\" (comment {comment.get('id')}{reply}):"]
+            if comment.get('quote'):
+                out.append(fenced(comment['quote']))
+            out.append(f"Comment: {comment['text']}")
+            continue
         lines = f"line {comment['start']}" if comment['start'] == comment['end'] else f"lines {comment['start']}-{comment['end']}"
         if comment.get('isFile'):
             lines = 'the whole file'
         side = sides.get(comment.get('side'), '')
         if git and comment.get('side') == 'orig':
             side = ' (of the file as it was at the base commit)'
-        reply = f", a reply in the thread of comment {comment['thread']}" if comment.get('thread') else ''
         out += ['', f"{comment['path']}, {lines}{side} (comment {comment.get('id')}{reply}):"]
         if comment.get('quote'):
             out.append(fenced(comment['quote']))

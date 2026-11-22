@@ -920,6 +920,13 @@ body.listHidden #splitter {
   text-decoration: line-through;
 }
 
+/* An item's thread, as a line's, within the drawer's width. */
+#outline .thread {
+  width: auto;
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+
 #outline .uncovered .title {
   color: var(--accent);
   font-weight: 600;

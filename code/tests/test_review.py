@@ -1,6 +1,6 @@
 """review.py on git reviews of scratch repositories: what the page lists, what its actions do to the
 files and the journal, moves, generated files, and the overview."""
-import os, unittest
+import os, time, unittest
 
 import scratch
 from scratch import git, listed, repo, reviewed, write
@@ -204,6 +204,28 @@ class Overview(unittest.TestCase):
         self.outline(('three', [('a.py', 3, 3)]))
         self.assertIsNone(self.rv.asked_state())
         self.assertEqual(self.rv.comments(), [])
+
+    def test_a_comment_on_an_item_quotes_it_and_is_answered_under_it(self):
+        self.outline(('three', [('a.py', 3, 3)]), ('eight', [('a.py', 8, 8)]))
+        said = self.rv.comment({'item': 1, 'title': 'eight', 'text': 'Why this one?'})
+        thread = next(thread for thread in self.rv.threads() if thread['item'] == 'eight')
+        self.assertEqual((thread['key'], thread['entries'][0]['text']), (None, 'Why this one?'))
+        told = review.described(self.rv.comments(), self.rv.git, self.rv.session)
+        self.assertIn('The overview\'s item "eight"', told)
+        self.assertIn(f'{self.top}/a.py:8-8 — eight', told)
+        self.rv.post(review.shared('channel'))
+        self.assertTrue(self.rv.answer(said['id'], 'Because.'))
+        # A reply comes later than the answer it replies to: the thread is in the order of its times.
+        time.sleep(0.01)
+        self.rv.comment({'item': 1, 'title': 'eight', 'text': 'And?', 'thread': said['id']})
+        thread = next(thread for thread in self.rv.threads() if thread['item'] == 'eight')
+        self.assertEqual([entry['by'] for entry in thread['entries']], ['user', 'claude', 'user'])
+
+    def test_a_comment_on_an_item_the_overview_no_longer_has_is_refused(self):
+        self.outline(('three', [('a.py', 3, 3)]))
+        with self.assertRaises(review.Refusal) as refused:
+            self.rv.comment({'item': 0, 'title': 'eight', 'text': 'Why?'})
+        self.assertEqual(refused.exception.status, 409)
 
 
 if __name__ == '__main__':

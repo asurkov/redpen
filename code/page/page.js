@@ -1,5 +1,5 @@
 // The review page: the session's files, the one open in the diff editor, and what is done to them.
-import { DiffView, button, loaded } from './editor.js';
+import { DiffView, awaitedWords as waitingWords, button, loaded, marked } from './editor.js';
 
 const session = location.pathname.split('/').at(-2);
 const api = `../../api/${session}`;
@@ -91,6 +91,8 @@ const state = {
   // signatures), read again when that changes while the drawer is open; and the block stepped to, by
   // its place among all the blocks.
   outline: null,
+  // The comment or reply being written under an overview item: its title and the text so far.
+  itemReply: null,
   outlineRead: '',
   outlineStamp: '',
   block: -1,
@@ -309,7 +311,8 @@ async function refresh() {
   state.isWatched = listing.isWatched;
   diffView.isWatched = listing.isWatched;
   state.isScanning = listing.isScanning;
-  state.outlineStamp = JSON.stringify([listing.outline, listing.files.map(file => file.signature)]);
+  state.outlineStamp = JSON.stringify([listing.outline, listing.files.map(file => file.signature),
+    listing.threads.filter(thread => thread.item != null).map(thread => [thread.id, thread.entries.length, thread.entries.at(-1).state])]);
   if (!byId('overview').hidden && state.outlineStamp !== state.outlineRead) {
     await drawOverview();
   }
@@ -782,6 +785,14 @@ async function showThread(thread) {
   const file = state.files.find(candidate => candidate.key === thread.key);
   state.thread = thread.id;
   diffView.currentThread = thread.id;
+  // A thread on an overview item stands under it, in the drawer.
+  if (thread.item != null) {
+    byId('overview').hidden = false;
+    byId('overviewButton').classList.add('chosen');
+    await drawOverview();
+    const item = [...byId('outline').querySelectorAll('.item')].find(section => section.querySelector('.title')?.textContent === thread.item);
+    return item?.scrollIntoView({ block: 'nearest' });
+  }
   if (!file) {
     return toast('The page no longer lists the file of that thread.');
   }
@@ -1274,6 +1285,11 @@ async function drawOverview() {
     byId('outline').replaceChildren(Object.assign(document.createElement('p'), { className: 'none', textContent: error.message }));
     return;
   }
+  renderOverview();
+}
+
+// Draws the drawer from the overview as last read.
+function renderOverview() {
   const { items, uncovered, asked: askedState } = state.outline;
   byId('describeButton').textContent = items.length ? 'Describe again' : 'Describe';
   byId('describeButton').disabled = Boolean(askedState);
@@ -1299,6 +1315,9 @@ async function drawOverview() {
     if (item.pending) {
       button(head, 'Accept', () => acceptItem(index, item), 'quiet').title = 'Accept what is pending in these blocks, as one History line';
     }
+    if (!state.threads.some(thread => thread.item === item.title) && state.itemReply?.title !== item.title) {
+      button(head, 'Comment', () => openItemBox(item), 'quiet').title = 'Comment for Claude on this item';
+    }
     if (item.text) {
       section.append(Object.assign(document.createElement('p'), { textContent: item.text }));
     }
@@ -1313,6 +1332,7 @@ async function drawOverview() {
         row.append(span('note', block.note));
       }
     }
+    section.append(...itemThread(item, index));
     parts.push(section);
   });
   if (items.length && uncovered.length) {
@@ -1328,6 +1348,91 @@ async function drawOverview() {
     parts.push(section);
   }
   byId('outline').replaceChildren(...parts);
+}
+
+// What was said under an overview item, as a line's thread shows it, and the box to comment or reply
+// in; nothing while neither is.
+function itemThread(item, index) {
+  const thread = state.threads.find(candidate => candidate.item === item.title);
+  const isWriting = state.itemReply?.title === item.title;
+  if (!thread && !isWriting) {
+    return [];
+  }
+  const box = document.createElement('div');
+  box.className = `thread${thread?.entries.at(-1).by === 'claude' ? ' answered' : ''}${thread?.id === state.thread ? ' current' : ''}`;
+  for (const entry of thread?.entries || []) {
+    const row = box.appendChild(document.createElement('div'));
+    row.className = `entry ${entry.by} ${entry.state || ''}`;
+    const head = row.appendChild(document.createElement('div'));
+    head.className = 'head';
+    head.appendChild(document.createElement('b')).textContent = entry.by === 'claude' ? 'Claude' : 'You';
+    head.append(new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), span('spring', ''));
+    if (entry.state === 'draft') {
+      button(head, '✕', () => uncomment(entry.id), 'quiet').title = 'Delete the comment';
+    }
+    row.appendChild(marked(entry.text));
+  }
+  const last = thread?.entries.at(-1);
+  if (last?.by === 'user' && waitingWords[last.state]) {
+    const row = box.appendChild(document.createElement('div'));
+    row.className = `entry claude awaited ${last.state}`;
+    row.appendChild(document.createElement('div')).className = 'head';
+    row.lastChild.appendChild(document.createElement('b')).textContent = 'Claude';
+    row.appendChild(Object.assign(document.createElement('div'), { className: 'said', textContent: waitingWords[last.state] }));
+  }
+  const foot = document.createElement('div');
+  foot.className = 'foot';
+  if (isWriting) {
+    const input = box.appendChild(document.createElement('textarea'));
+    input.placeholder = thread ? 'Reply to Claude' : 'Comment for Claude on this item';
+    input.value = state.itemReply.text;
+    input.addEventListener('input', () => (state.itemReply.text = input.value));
+    const send = () => input.value.trim() && commentItem(index, item, input.value, thread?.id);
+    const cancel = () => {
+      state.itemReply = null;
+      renderOverview();
+    };
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        send();
+      } else if (event.key === 'Escape') {
+        cancel();
+      }
+    });
+    foot.append(state.isWatched ? 'Goes to Claude at once' : 'Goes to Claude with your next message in the chat', span('spring', ''));
+    button(foot, 'Cancel', cancel, 'quiet');
+    button(foot, thread ? 'Add reply' : 'Add comment', send, 'main');
+    requestAnimationFrame(() => input.focus());
+  } else {
+    foot.append(span('spring', ''));
+    if (thread.entries.some(entry => entry.state !== 'draft')) {
+      button(foot, 'Reply', () => openItemBox(item), 'quiet');
+    }
+    button(foot, 'Resolve', () => resolve(thread.id), 'quiet').title = 'Take the thread off the page';
+  }
+  box.append(foot);
+  return [box];
+}
+
+// Opens the box under an overview item, to comment on it or reply in its thread.
+function openItemBox(item) {
+  state.itemReply = { title: item.title, text: '' };
+  renderOverview();
+}
+
+// Sends a comment on an overview item, or a reply in its thread, the way a line's comment goes.
+function commentItem(index, item, text, thread) {
+  return queued(async () => {
+    try {
+      await asked('/comment', { item: index, title: item.title, text, thread });
+      state.itemReply = null;
+    } catch (error) {
+      toast(error.message);
+    }
+    await refresh();
+    await drawOverview();
+  });
 }
 
 // Opens a block of the overview, by its place among all of them: its file at its lines.
@@ -1403,7 +1508,7 @@ function drawWaiting() {
     const row = document.createElement('li');
     const last = thread.entries.at(-1);
     const lines = thread.start === thread.end ? thread.start : `${thread.start}–${thread.end}`;
-    row.append(span('where', thread.isFile ? nameOf(thread.path) : `${nameOf(thread.path)}:${lines}`));
+    row.append(span('where', thread.item != null ? `Overview: ${thread.item}` : thread.isFile ? nameOf(thread.path) : `${nameOf(thread.path)}:${lines}`));
     row.append(span(`state ${last.by}`, last.by === 'claude' ? 'Claude' : { draft: 'not sent', sent: 'sent', taken: 'Claude answers' }[last.state]));
     const text = button(row, last.text, () => queued(() => showThread(thread)));
     text.className = 'text';
