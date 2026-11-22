@@ -39,7 +39,7 @@ first edit to it, which does not exist yet, and a way to hand the agent a commen
 | `page/` | the review page |
 | `cursor.py` | writes the record into Cursor as its inline diffs |
 | `extension/` | the Claude Edits sidebar for Cursor |
-| `mod/` | the Claude Edits pane for Claude Code itself (`/edits`), a plugin read from this folder |
+| `mod/` | the Claude Edits pane for Claude Code itself (`/edits`): the edited files and Open in redpen, a plugin read from this folder |
 | `vendor/fetch_monaco.py` | fetches the page's editor, Monaco, into `vendor/monaco/` (not kept in the repository) |
 
 ## prose/

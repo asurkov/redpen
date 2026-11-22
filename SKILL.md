@@ -256,11 +256,12 @@ in editor windows. `install.py --uninstall` removes it.
 
 ## In Claude Code: the Claude Edits pane
 
-The mod in `code/mod/` (the plugin `edit-review`) shows the same record inside Claude Code, in the
-terminal and in the desktop app: `/edits` opens a pane listing the files this session edited, each
-opening as its changes, removed lines red and added lines green, with Keep and Undo per file or change.
-Comments on changes and on single lines go to the model with the next message, and the status line
-counts the files with pending changes.
+The mod in `code/mod/` (the plugin `edit-review`) is the review page's way in from Claude Code, in the
+terminal and in the desktop app. It opens a pane at the session's start (`/edits` opens it again) that
+lists the files this session edited with their lines added and removed, and only reads the record: the
+review itself is the page. Open in redpen opens this session's review page in the desktop app's Browser
+pane through its MCP server (`Claude Browser`), in the tab it opened before while that tab stays open,
+and brings the pane to the front (`ccd_view`'s `show_pane`); from the terminal, in the default browser.
 
 The folder is its own marketplace, `redpen`, and the plugin is read from it as it is on disk, so an edit
 there reaches a session with `/reload-plugins`. It loads in every session once the user has installed it

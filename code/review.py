@@ -921,7 +921,7 @@ class Review:
             if not self.git and (self.record / 'after' / key).exists():
                 write_atomic(self.record / 'after' / key, sha(self.read(file, 'disk', place)).encode())
         elif data is None:
-            # As the Claude Edits pane keeps a deleted file: no baseline, and new.
+            # A deleted file kept as deleted: no baseline, and new.
             place.unlink(missing_ok=True)
             kept = {'path': file['path'], 'new': True, **{name: file[name] for name in ('link', 'executable') if name in file}}
             write_atomic(self.record / 'files' / f'{key}.json', json.dumps(kept).encode())
@@ -946,7 +946,7 @@ class Review:
         if file.get('link'):
             return write_link_place(place, data)
         if data is None:
-            # As the Claude Edits pane undoes a file the session created.
+            # A file taken away goes to the Trash, not out of reach.
             ran = subprocess.run(['/usr/bin/trash', str(place)], capture_output=True, text=True)
             if ran.returncode:
                 raise Refusal(500, f'Could not move the file to the Trash: {ran.stderr.strip()}')
