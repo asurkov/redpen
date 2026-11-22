@@ -142,11 +142,21 @@ async function openRedpen($: EngineInterface, surface: string) {
   if (view?.isConnected) await $.mcp.call(view.server, 'show_pane', { pane: 'preview' }).catch(() => undefined)
 }
 
+// Claude's own files (its settings, skills, mods and memory) and temporary ones stand apart from the
+// work's: the pane folds them until asked for, and the row above the prompt leaves them out.
+const isOther = (file: EditedFile, home: string) =>
+  file.path.startsWith(`${home}/.claude/`) || /^\/(private\/)?(tmp|var\/folders)\//.test(file.path)
+
+// The work's files and those of them changed, as the pane's head and the row above the prompt count them.
+const sortedFiles = (list: EditedFile[], home: string) => {
+  const work = list.filter(file => !isOther(file, home))
+  return { work, changed: work.filter(file => file.kind === 'changed') }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.command.register({ name: 'edits', description: 'Show the files this session edited, and open their review in redpen' })
-    void $.ui.open({ id: paneId, title: 'redpen' })
     await scan($, true)
     $.clock.every(1500, () => void scan($))
     return started
@@ -158,6 +168,21 @@ export const register: Register = on => {
     return { text: 'redpen pane opened.' }
   })
 
+  // One row above the prompt while the session's work has changes: their count and the way to the
+  // review, which leaves the side of the window to the page. A phone has no page to open.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.surface === 'mobile' || e.props.hasSurvey) return next(e)
+    const { changed, work } = sortedFiles(await read($, files), (await places($)).home)
+    if (!changed.length) return next(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="row" gap={1} alignItems="center">
+        <Text dimColor>{`redpen · ${changed.length} of ${work.length} files changed`}</Text>
+        <Button key="redpen" label="Open review" onPress={press => void openRedpen($, press.surface)} />
+      </Box>
+    )
+  })
+
   on('ui.render', { component: 'Pane', requestId: paneId }, async ($, e) => {
     if (e.surface === 'mobile') {
       const { Text } = $.ui.resolve(e)
@@ -167,14 +192,9 @@ export const register: Register = on => {
     const { cwd, home } = await places($)
     const list = await read($, files)
     const showsOthers = await read($, areOthersOpen)
-    // Claude's own files (its settings, skills, mods and memory) and temporary ones stand apart from
-    // the work's, folded until asked for.
-    const isOther = (file: EditedFile) =>
-      file.path.startsWith(`${home}/.claude/`) || /^\/(private\/)?(tmp|var\/folders)\//.test(file.path)
     const isListed = (file: EditedFile) => file.kind !== 'same'
-    const work = list.filter(file => !isOther(file))
-    const others = list.filter(file => isOther(file) && isListed(file))
-    const changed = work.filter(file => file.kind === 'changed')
+    const { work, changed } = sortedFiles(list, home)
+    const others = list.filter(file => isOther(file, home) && isListed(file))
     const shown = (path: string) => path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) :
       path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path
 

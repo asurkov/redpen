@@ -254,14 +254,16 @@ installs it into every Cursor profile (each has its own extensions; `--profile <
 reload the window. Cursor's Agents Window runs only Cursor's built-in extensions, so the view shows only
 in editor windows. `install.py --uninstall` removes it.
 
-## In Claude Code: the redpen pane
+## In Claude Code: the row above the prompt and the pane
 
 The mod in `code/mod/` (the plugin `redpen`) is the review page's way in from Claude Code, in the
-terminal and in the desktop app. It opens a pane at the session's start (`/edits` opens it again) that
-lists the files this session edited with their lines added and removed, and only reads the record: the
-review itself is the page. Open review opens this session's review page in the desktop app's Browser
-pane through its MCP server (`Claude Browser`), in the tab it opened before while that tab stays open,
-and brings the pane to the front (`ccd_view`'s `show_pane`); from the terminal, in the default browser.
+terminal and in the desktop app. While the session's work has changes, a row above the prompt counts
+them beside Open review, leaving the side of the window to the page; Claude's own and temporary files
+are not counted there. `/edits` opens a pane that lists the files this session edited with their lines
+added and removed. The mod only reads the record: the review itself is the page. Open review opens
+this session's review page in the desktop app's Browser pane through its MCP server (`Claude Browser`),
+in the tab it opened before while that tab stays open, and brings the pane to the front (`ccd_view`'s
+`show_pane`); from the terminal, in the default browser.
 
 The folder is its own marketplace, `redpen`, and the plugin is read from it as it is on disk, so an edit
 there reaches a session with `/reload-plugins`. It loads in every session once the user has installed it

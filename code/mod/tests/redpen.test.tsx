@@ -21,6 +21,12 @@ const paneSite = {
   },
 } as const
 
+const bandSite = {
+  plugin: 'redpen',
+  component: 'AbovePrompt',
+  props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 5, bodyColumns: 80, scroll: { offset: 0, bodyRows: 5 }, view: {} },
+} as const
+
 // The session's record: each file's entry and, unless it is new, its baseline; and the files on disk.
 // `numstat` is what git counts for a file against its baseline.
 function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boolean; numstat: string }[]) {
@@ -35,12 +41,16 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
     counts.set(`${record}/base/k${i}`, numstat)
   })
   const ran: string[] = []
+  const opened: string[] = []
   on('env.get', () => ({ value: '/h' }))
   on('session.id', () => ({ value: 's1' }))
   on('session.cwd', () => ({ value: '/w' }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: { command: 'edits' } }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.open', (_, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
   on('ui.toast', () => ({ value: undefined }))
   on('clock.every', () => ({ value: undefined }))
   on('fs.list', (_, e) => ({
@@ -62,7 +72,7 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
     if (e.argv[1] === '/h/.claude/skills/redpen/code/review.py') return done(0, `${page}\n`)
     return done(0)
   })
-  return ran
+  return { ran, opened }
 }
 
 test('the pane lists the edited files with their counts', async ($, on) => {
@@ -120,7 +130,7 @@ test("Claude's own files and the temporary ones stay folded until asked for", as
 })
 
 test('Open review opens the page in the Browser pane, in the same tab while it is open', async ($, on) => {
-  const ran = session(on, [{ path: file, numstat: '2\t1' }])
+  const { ran } = session(on, [{ path: file, numstat: '2\t1' }])
   const calls: string[] = []
   let tabs: string[] = []
   let opened = 0
@@ -164,4 +174,49 @@ test('Open review opens the page in the Browser pane, in the same tab while it i
   expect(ran.at(-1)).toBe(`/usr/bin/open ${page}`)
   expect(opened).toBe(2)
   await terminal.unmount()
+})
+
+test('a row above the prompt counts the changed files and opens the review; the pane waits for /edits', async ($, on) => {
+  const { opened } = session(on, [
+    { path: file, numstat: '2\t1' },
+    { path: '/w/same.txt', numstat: '' },
+    { path: '/h/.claude/settings.json', numstat: '1\t0' },
+  ])
+  const calls: string[] = []
+  on('mcp.connect', (_, e) => ({ value: { isConnected: true as const, server: e.server } }))
+  on('mcp.call', (_, e) => {
+    calls.push(`${e.server} ${e.tool}`)
+    return { value: { content: [{ type: 'text', text: '{"tabs":[],"tabId":"tab-1"}' }], isError: false } }
+  })
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
+  expect(opened).toEqual([])
+  await $.command.run({ command: 'edits', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+  expect(opened).toEqual(['redpen'])
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const band = await $.ui.mount({ ...bandSite, surface })
+    // Claude's own files are not the work's: the row counts the work alone.
+    expect((await band.find({ type: 'Text', text: /^redpen/ }))?.text).toBe('redpen · 1 of 2 files changed')
+    expect((await band.find({ key: 'redpen' }))?.props.label).toBe('Open review')
+    await band.unmount()
+  }
+  const band = await $.ui.mount({ ...bandSite, surface: 'desktop' })
+  await band.press({ key: 'redpen' })
+  expect(calls).toContain('Claude Browser preview_start')
+  await band.unmount()
+
+  const phone = await $.ui.mount({ ...bandSite, surface: 'mobile' })
+  expect(await phone.find({ key: 'redpen' })).toBeUndefined()
+  await phone.unmount()
+  const survey = await $.ui.mount({ ...bandSite, surface: 'desktop', props: { ...bandSite.props, hasSurvey: true } })
+  expect(await survey.find({ key: 'redpen' })).toBeUndefined()
+  await survey.unmount()
+})
+
+test('with only Claude\'s own files changed there is no row above the prompt', async ($, on) => {
+  session(on, [{ path: '/h/.claude/settings.json', numstat: '1\t0' }])
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
+  const band = await $.ui.mount({ ...bandSite, surface: 'desktop' })
+  expect(await band.find({ key: 'redpen' })).toBeUndefined()
+  await band.unmount()
 })
