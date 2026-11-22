@@ -1,8 +1,8 @@
 // redpen in Cursor: the files Claude Code sessions edited, as redpen's recorder keeps them in
 // ~/.redpen/code/<session>/ (see ../recorder.py), with their lines added and removed against their
 // baselines: a file's text before the session's first edit to it, or as last accepted on redpen's page.
-// Clicking a file opens its changes side by side; Open Review opens the session's review page, where
-// changes are accepted and rejected. The view only reads the record: the page alone writes it.
+// Clicking a file opens it; Open Review opens the session's review page, where the changes are seen,
+// accepted and rejected. The view only reads the record: the page alone writes it.
 const vscode = require('vscode');
 const fs = require('fs');
 const os = require('os');
@@ -11,8 +11,6 @@ const {execFile} = require('child_process');
 
 const storeDir = path.join(os.homedir(), '.redpen', 'code');
 const reviewScript = path.join(os.homedir(), '.claude', 'skills', 'redpen', 'code', 'review.py');
-// Documents of this scheme hold a file's baseline: the path is the file's, the query the baseline's.
-const baseScheme = 'redpen-base';
 
 function readText(file) {
   try {
@@ -200,14 +198,12 @@ class EditsProvider {
     item.description = `${file.status.text}${file.isGenerated ? '  generated' : ''}  ${folder}`;
     item.tooltip = `${file.path}\n${file.status.text}`;
     item.contextValue = 'file';
-    item.command = {command: 'redpen.openDiff', title: 'Open Changes', arguments: [node]};
+    // A deleted file has nothing to open: its review is the page's.
+    item.command = fs.existsSync(file.path) ?
+      {command: 'vscode.open', title: 'Open File', arguments: [vscode.Uri.file(file.path)]} :
+      {command: 'redpen.openReview', title: 'Open Review', arguments: [{session}]};
     return item;
   }
-}
-
-function baseUri(file) {
-  // The file's own path keeps its language for the diff editor.
-  return vscode.Uri.from({scheme: baseScheme, path: file.path, query: file.base});
 }
 
 // The session's review page, its server started unless it runs.
@@ -238,17 +234,12 @@ async function openReview(session) {
 function activate(context) {
   const provider = new EditsProvider();
   const view = vscode.window.createTreeView('redpen.files', {treeDataProvider: provider, showCollapseAll: true});
-  const baseChanged = new vscode.EventEmitter();
 
   const refresh = () => {
     provider.refresh();
     const changed = provider.changedFiles();
     view.badge = changed.length ? {value: changed.length, tooltip: `${changed.length} files with changes`} : undefined;
     view.message = provider.sessions.length ? undefined : 'No Claude Code edits in this workspace yet.';
-    // An open diff follows its baseline when the page accepts or rejects.
-    for (const doc of vscode.workspace.textDocuments) {
-      if (doc.uri.scheme === baseScheme) baseChanged.fire(doc.uri);
-    }
   };
   let timer;
   const refreshSoon = () => {
@@ -263,23 +254,8 @@ function activate(context) {
 
   context.subscriptions.push(
       view,
-      baseChanged,
       {dispose: () => watcher.close()},
-      vscode.workspace.registerTextDocumentContentProvider(baseScheme, {
-        onDidChange: baseChanged.event,
-        provideTextDocumentContent: uri => readText(uri.query) || '',
-      }),
       vscode.commands.registerCommand('redpen.refresh', refresh),
-      vscode.commands.registerCommand('redpen.openFile', node =>
-        vscode.commands.executeCommand('vscode.open', vscode.Uri.file(node.file.path))),
-      vscode.commands.registerCommand('redpen.openDiff', node => {
-        const name = path.basename(node.file.path);
-        if (!fs.existsSync(node.file.path)) {
-          return vscode.commands.executeCommand('vscode.open', baseUri(node.file));
-        }
-        return vscode.commands.executeCommand('vscode.diff', baseUri(node.file),
-            vscode.Uri.file(node.file.path), `${name}: Claude's changes`);
-      }),
       // On a session, its page; from the view's title, the newest session's.
       vscode.commands.registerCommand('redpen.openReview', node => {
         const session = node?.session || provider.sessions[0];

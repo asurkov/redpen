@@ -1,9 +1,9 @@
 {
   "name": "redpen",
   "displayName": "redpen",
-  "description": "Lists the files Claude Code sessions edited, as redpen's recorder keeps them, with their changes side by side, and opens their review on redpen's page.",
+  "description": "Lists the files Claude Code sessions edited, as redpen's recorder keeps them, and opens their review on redpen's page.",
   "publisher": "local",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "license": "UNLICENSED",
   "engines": {
     "vscode": "^1.80.0"
@@ -38,18 +38,6 @@
         "icon": "$(refresh)"
       },
       {
-        "command": "redpen.openFile",
-        "title": "Open File",
-        "category": "redpen",
-        "icon": "$(go-to-file)"
-      },
-      {
-        "command": "redpen.openDiff",
-        "title": "Open Changes",
-        "category": "redpen",
-        "icon": "$(diff)"
-      },
-      {
         "command": "redpen.openReview",
         "title": "Open Review",
         "category": "redpen",
@@ -71,24 +59,9 @@
       ],
       "view/item/context": [
         {
-          "command": "redpen.openFile",
-          "when": "view == redpen.files && viewItem == file",
-          "group": "inline@1"
-        },
-        {
           "command": "redpen.openReview",
           "when": "view == redpen.files && viewItem == session",
           "group": "inline@1"
-        }
-      ],
-      "commandPalette": [
-        {
-          "command": "redpen.openFile",
-          "when": "false"
-        },
-        {
-          "command": "redpen.openDiff",
-          "when": "false"
         }
       ]
     }

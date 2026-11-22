@@ -272,8 +272,8 @@ another Cursor user data directory, such as a test profile started with `--user-
 The redpen extension in `code/extension/` shows the record in its own Activity Bar view, newest session
 first. It shows only the files inside the window's folders, each with its `+added −removed` line counts
 against its baseline, and updates as each edit lands, without a reload; the badge counts the files with
-changes, the generated ones aside (said "generated" in the list). Clicking a file opens its changes side by side, where the diff editor's arrows revert single
-changes in the file (saved like any edit). **Open Review** (on a session, or in the view's title bar for
+changes, the generated ones aside (said "generated" in the list). Clicking a file opens it, a
+deleted one its review. **Open Review** (on a session, or in the view's title bar for
 the newest session) opens the session's review page in Cursor's Simple Browser, beside the code, starting
 redpen's server unless it runs; Accept, Reject and comments are the page's. The view only reads the
 record. It can be dragged into the secondary sidebar next to Cursor's Agents.
