@@ -38,7 +38,7 @@ first edit to it, which does not exist yet, and a way to hand the agent a commen
 | `review.py` | answers the review page's requests (`/code/…` on the server), hands the page's comments to Claude (`--wait`, the command Claude keeps waiting, and `--prompt-hook`, the hook), puts Claude's answer under a comment (`--answer`, with `--change` a link to the change made in answer), keeps the overview Claude writes when asked (`--outline`), and says which files their projects generate (`--generated`) |
 | `page/` | the review page |
 | `cursor.py` | writes the record into Cursor as its inline diffs |
-| `extension/` | the redpen sidebar for Cursor: the edited files and Open Review |
+| `extension/` | redpen in Cursor: a status-bar item, "redpen · N to review", that opens the review |
 | `mod/` | redpen in Claude Code itself: a row above the prompt with Open review, and the edited files in a pane (`/edits`), a plugin read from this folder |
 | `vendor/fetch_monaco.py` | fetches the page's editor, Monaco, into `vendor/monaco/` (not kept in the repository) |
 
@@ -93,7 +93,7 @@ The hooks, in `~/.claude/settings.json`:
 }
 ```
 
-The redpen sidebar, for Cursor:
+The redpen status-bar item, for Cursor:
 
 ```bash
 python3 ~/.claude/skills/redpen/code/extension/install.py

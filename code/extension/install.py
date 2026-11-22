@@ -74,7 +74,7 @@ def main():
         remove_replaced(target)
     if args.uninstall:
         sys.exit(max(subprocess.call([cursor, '--uninstall-extension', extension_id, *t]) for t in targets))
-    files = ['package.json', 'extension.js', 'media/icon.svg']
+    files = ['package.json', 'extension.js']
     with tempfile.TemporaryDirectory() as tmp:
         vsix = pathlib.Path(tmp) / f"{manifest['name']}-{manifest['version']}.vsix"
         with zipfile.ZipFile(vsix, 'w', zipfile.ZIP_DEFLATED) as z:

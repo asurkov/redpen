@@ -90,7 +90,7 @@ What to tell the user when it matters:
   `yarn.lock`, `Cargo.lock`, `go.sum`, …) and files whose first five lines say `@generated` or
   `DO NOT EDIT`; `-linguist-generated` (or `=false`) keeps a file out. They open and reject as any file,
   but the view counts and the progress leave them out, `n` and `p` step past them, the overview does
-  not describe them, and the row above the prompt, the pane and the Cursor sidebar do not count them
+  not describe them, and the row above the prompt, the pane and the Cursor status-bar item do not count them
   (`review.py --generated PATH...` says which are).
 - **Overview** (header) opens a drawer with the changes by purpose, as Claude described them: items,
   each a title, a sentence or two, and its blocks, `file:lines` and a short note, each a way to its
@@ -267,21 +267,20 @@ The record format is Cursor's internal one, verified on Cursor 3.29.9; if a relo
 the window's dev tools console for `[inlineDiff]` lines. `REDPEN_CURSOR_USER_DIR` points the script at
 another Cursor user data directory, such as a test profile started with `--user-data-dir`.
 
-### The redpen sidebar
+### The redpen status-bar item
 
-The redpen extension in `code/extension/` shows the record in its own Activity Bar view, newest session
-first. It shows only the files inside the window's folders, each with its `+added −removed` line counts
-against its baseline, and updates as each edit lands, without a reload; the badge counts the files with
-changes, the generated ones aside (said "generated" in the list). Clicking a file opens it, a
-deleted one its review. **Open Review** (on a session, or in the view's title bar for
-the newest session) opens the session's review page in Cursor's Simple Browser, beside the code, starting
-redpen's server unless it runs; Accept, Reject and comments are the page's. The view only reads the
-record. It can be dragged into the secondary sidebar next to Cursor's Agents.
+The redpen extension in `code/extension/` is one item in Cursor's status bar, "redpen · N to review":
+the files in the window's folders that sessions of the last 12 hours changed and that differ from
+their baselines, generated ones aside. It updates as each edit lands, without a reload, and hides with
+nothing to review. A click opens the session's review page in Cursor's Simple Browser, beside the
+code, starting redpen's server unless it runs; with several sessions, it asks which (its tooltip lists
+them). Accept, Reject and comments are the page's; the item only reads the record. The command
+palette has it as "redpen: Open Review".
 
 Install or update the extension with `python3 ~/.claude/skills/redpen/code/extension/install.py`, which
 installs it into every Cursor profile (each has its own extensions; `--profile <name>` picks one) and
 takes out the Claude Edits extension it replaces (`local.claude-edits`), then reload the window.
-Cursor's Agents Window runs only Cursor's built-in extensions, so the view shows only in editor windows.
+Cursor's Agents Window runs only Cursor's built-in extensions, so the item shows only in editor windows.
 `install.py --uninstall` removes it.
 
 ## In Claude Code: the row above the prompt and the pane
@@ -346,4 +345,4 @@ folder; of the comments: `comments.json`, those waiting to be sent, `sent.jsonl`
 A git review's record, `~/.redpen/code/git-<…>/`, has the same files, made by `review.py --git` from a
 commit, and `git.json` (repository, base commit, branch, title, the session its comments reach, the
 last rebase it was carried over) in place of
-`session.json`, so the Cursor sidebar and the redpen pane do not list it.
+`session.json`, so the Cursor status-bar item and the redpen pane do not count it.

@@ -1,9 +1,9 @@
 {
   "name": "redpen",
   "displayName": "redpen",
-  "description": "Lists the files Claude Code sessions edited, as redpen's recorder keeps them, and opens their review on redpen's page.",
+  "description": "A status-bar item that counts the files Claude Code sessions changed, as redpen's recorder keeps them, and opens their review on redpen's page.",
   "publisher": "local",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "license": "UNLICENSED",
   "engines": {
     "vscode": "^1.80.0"
@@ -13,57 +13,12 @@
     "onStartupFinished"
   ],
   "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "redpen",
-          "title": "redpen",
-          "icon": "media/icon.svg"
-        }
-      ]
-    },
-    "views": {
-      "redpen": [
-        {
-          "id": "redpen.files",
-          "name": "Files"
-        }
-      ]
-    },
     "commands": [
-      {
-        "command": "redpen.refresh",
-        "title": "Refresh",
-        "category": "redpen",
-        "icon": "$(refresh)"
-      },
       {
         "command": "redpen.openReview",
         "title": "Open Review",
-        "category": "redpen",
-        "icon": "$(preview)"
+        "category": "redpen"
       }
-    ],
-    "menus": {
-      "view/title": [
-        {
-          "command": "redpen.openReview",
-          "when": "view == redpen.files",
-          "group": "navigation@1"
-        },
-        {
-          "command": "redpen.refresh",
-          "when": "view == redpen.files",
-          "group": "navigation@2"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "redpen.openReview",
-          "when": "view == redpen.files && viewItem == session",
-          "group": "inline@1"
-        }
-      ]
-    }
+    ]
   }
 }
