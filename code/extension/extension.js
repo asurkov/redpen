@@ -49,7 +49,7 @@ function isChanged(file) {
 }
 
 // Whether a file is one its project generates, as review.py says (its .gitattributes'
-// linguist-generated, lockfiles, a "DO NOT EDIT" head), by path, with when it said so: asked again
+// linguist-generated, lockfiles, a generator's banner), by path, with when it said so: asked again
 // after a minute, so an edited .gitattributes shows.
 const generatedVerdicts = new Map();
 const verdictMs = 60000;

@@ -47,7 +47,7 @@ async function counted($: EngineInterface, record: string, entry: Pick<EditedFil
 const savedEntries = new Map<string, { mtimeMs: number; saved: { path: string; new: boolean } }>()
 
 // Whether a file is one its project generates, as redpen's review.py says (its .gitattributes'
-// linguist-generated, lockfiles, a "DO NOT EDIT" head), by path, with when it said so: asked again
+// linguist-generated, lockfiles, a generator's banner), by path, with when it said so: asked again
 // after a minute, so an edited .gitattributes shows.
 const generatedVerdicts = new Map<string, { isGenerated: boolean; at: number }>()
 const verdictMs = 60_000
