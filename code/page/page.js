@@ -61,6 +61,8 @@ const state = {
   givenUpFiles: new Set(),
   forcedDiffs: new Set(),
   areOthersOpen: false,
+  // Whether the fold of the generated files is open.
+  areGeneratedOpen: false,
   // The list's folders folded by hand, by their paths with the closing slash; and of those with no
   // changed file in them, the ones opened by hand.
   closedFolders: new Set(),
@@ -117,7 +119,10 @@ async function asked(path, body) {
   return answer;
 }
 
-const listed = () => state.files.filter(file => file[state.view]);
+// The view's files, the generated ones too; and those the keys step through and the list opens one
+// after another, without them.
+const inView = () => state.files.filter(file => file[state.view]);
+const listed = () => inView().filter(file => !file.isGenerated);
 // A file reviewed in full: changed, and nothing of it pending.
 const isReviewed = file => !file.pending && Boolean(file.all);
 // What the list shows: the view's files, and in Pending, with Reviewed on, the reviewed ones too,
@@ -294,7 +299,7 @@ async function refresh() {
     return openPlain(state.plain, 'kept');
   }
   const files = listed();
-  const open = files.find(file => file.key === state.key);
+  const open = inView().find(file => file.key === state.key);
   if (open) {
     drawList();
     if (open.signature !== state.signature) {
@@ -645,10 +650,32 @@ function actFolder(action, folder, files) {
   });
 }
 
-// What a History entry was on, by name: a file, or a folder its files were in.
+// Accepts every generated file with something pending, as one History line with one Undo.
+function actGenerated(files) {
+  return queued(async () => {
+    try {
+      const entry = await asked('/apply-files', {
+        keys: files.map(file => file.key),
+        action: 'accept',
+        signatures: Object.fromEntries(files.map(file => [file.key, file.signature])),
+        generated: true,
+      });
+      toast(`Accepted ${entry.files} generated file${entry.files === 1 ? '' : 's'}`, 'Undo', () => flip(entry.id));
+    } catch (error) {
+      toast(error.message);
+    }
+    await refreshAll();
+  });
+}
+
+// What a History entry was on, by name: a file, a folder its files were in, an overview item, or the
+// generated files.
 function placeName(entry) {
   if (entry.item) {
     return `“${entry.item}”`;
+  }
+  if (entry.generated) {
+    return 'generated files';
   }
   return entry.folder ? `${nameOf(entry.path.slice(0, -1))}/` : nameOf(entry.path);
 }
@@ -913,7 +940,7 @@ function span(kind, text) {
 function drawViews() {
   for (const tab of document.querySelectorAll('#views button')) {
     tab.classList.toggle('chosen', tab.dataset.view === state.view);
-    tab.querySelector('.count').textContent = state.files.filter(file => file[tab.dataset.view]).length || '';
+    tab.querySelector('.count').textContent = state.files.filter(file => file[tab.dataset.view] && !file.isGenerated).length || '';
   }
   byId('reviewedButton').hidden = state.view !== 'pending';
 }
@@ -921,7 +948,7 @@ function drawViews() {
 // How far the review is, in the work's own files: how many have nothing pending, of those the
 // review has; and the threads, with how many Claude answered last and how many wait for its answer.
 function drawProgress() {
-  const files = state.files.filter(file => !file.isOther && (file.pending || file.accepted));
+  const files = state.files.filter(file => !file.isOther && !file.isGenerated && (file.pending || file.accepted));
   const done = files.filter(file => !file.pending).length;
   const counted = files.length ? `${done} of ${files.length} reviewed` : '';
   byId('progress').title = `${counted}: the files with nothing pending, of those the review has`;
@@ -940,7 +967,7 @@ const drawn = { list: '', waiting: '', chosen: null };
 function drawList() {
   const drawing = JSON.stringify([state.view, state.key, state.plain,
     state.areUnchangedShown, state.areReviewedShown, state.top, state.foldersRead, ...state.widenedFolders, '', ...state.narrowedFolders, '', ...state.closedFolders, '', ...state.goneFolders,
-    shownInList().map(file => [file.key, file.movedFrom, file[state.view], file.all, file.isNew, file.isGone, file.isUncarried, !file.pending, !file.accepted])]);
+    shownInList().map(file => [file.key, file.movedFrom, file[state.view], file.all, file.isNew, file.isGone, file.isUncarried, file.isGenerated, !file.pending, !file.accepted])]);
   if (drawing === drawn.list) {
     return;
   }
@@ -1109,7 +1136,8 @@ function drawList() {
   };
   const files = shownInList();
   const others = files.filter(file => file.isOther);
-  const work = files.filter(file => !file.isOther);
+  const generated = files.filter(file => !file.isOther && file.isGenerated);
+  const work = files.filter(file => !file.isOther && !file.isGenerated);
   const list = byId('list');
   // A folder shows all it holds once widened by hand, or, with the unchanged files shown, if it holds
   // a changed file, unless narrowed by hand.
@@ -1119,6 +1147,25 @@ function drawList() {
   list.replaceChildren(...!work.length ? [] : rowsOf(isFull ? treeOf(work, state.top, state.folders, isWide) : treeOf(work, workRoot()), 0, isFull));
   if (!listed().length) {
     list.append(span('none', views[state.view].none));
+  }
+  if (generated.length) {
+    const fold = list.appendChild(document.createElement('details'));
+    fold.className = 'others generated';
+    fold.open = state.areGeneratedOpen || generated.some(file => file.key === state.key);
+    fold.addEventListener('toggle', () => (state.areGeneratedOpen = fold.open));
+    const head = fold.appendChild(document.createElement('summary'));
+    head.append(span('name', `${generated.length} generated`));
+    head.title = "Files the project generates: marked linguist-generated in its .gitattributes, lockfiles, or saying @generated or DO NOT EDIT in their first lines. Not counted, and the keys step past them";
+    head.append(span('spring', ''));
+    const pending = generated.filter(file => file.pending);
+    if (state.view === 'pending' && pending.length) {
+      button(head, 'Accept generated', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        actGenerated(pending);
+      }, 'quiet').title = `Accept the ${pending.length} generated file${pending.length === 1 ? '' : 's'} with something pending, as one History line`;
+    }
+    fold.append(...rowsOf(treeOf(generated, isFull ? state.top : workRoot()), 0));
   }
   if (others.length) {
     const fold = list.appendChild(document.createElement('details'));
@@ -1148,9 +1195,9 @@ async function drawJournal() {
     }
     row.className = entry.isUndone ? 'undone' : '';
     const files = `${entry.files} file${entry.files === 1 ? '' : 's'}`;
-    const done = entry.item ? placeName(entry) : entry.folder ? `${files} in` : whatOf(entry.change);
+    const done = entry.item ? placeName(entry) : entry.generated ? `${entry.files} generated file${entry.files === 1 ? '' : 's'}` : entry.folder ? `${files} in` : whatOf(entry.change);
     const what = row.appendChild(span('what', `${doneWords[entry.action]} ${done}`));
-    const where = entry.item ? files : entry.movedFrom ? `${nameOf(entry.movedFrom)} → ${nameOf(entry.path)}` : placeName(entry);
+    const where = entry.item ? files : entry.generated ? '' : entry.movedFrom ? `${nameOf(entry.movedFrom)} → ${nameOf(entry.path)}` : placeName(entry);
     what.append(span('where', where), span('when', new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
     const flipButton = button(row, entry.isUndone ? 'Redo' : 'Undo', () => flip(entry.id));
     flipButton.disabled = !entry.canFlip;
@@ -1450,7 +1497,7 @@ async function main() {
       state.view = tab.dataset.view;
       drawViews();
       // The same file in the other view, if it has changes there.
-      await show(listed().some(file => file.key === state.key) ? state.key : listed()[0]?.key || null);
+      await show(inView().some(file => file.key === state.key) ? state.key : listed()[0]?.key || null);
     }));
   }
   byId('previousChange').addEventListener('click', () => step('previous'));

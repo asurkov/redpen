@@ -35,7 +35,7 @@ first edit to it, which does not exist yet, and a way to hand the agent a commen
 | File | What |
 |---|---|
 | `recorder.py` | the hook that records a session's edits, and the files its shell commands delete or move: each file's baseline, in `~/.redpen/code/<session>/` |
-| `review.py` | answers the review page's requests (`/code/…` on the server), hands the page's comments to Claude (`--wait`, the command Claude keeps waiting, and `--prompt-hook`, the hook), puts Claude's answer under a comment (`--answer`, with `--change` a link to the change made in answer), and keeps the overview Claude writes when asked (`--outline`) |
+| `review.py` | answers the review page's requests (`/code/…` on the server), hands the page's comments to Claude (`--wait`, the command Claude keeps waiting, and `--prompt-hook`, the hook), puts Claude's answer under a comment (`--answer`, with `--change` a link to the change made in answer), keeps the overview Claude writes when asked (`--outline`), and says which files their projects generate (`--generated`) |
 | `page/` | the review page |
 | `cursor.py` | writes the record into Cursor as its inline diffs |
 | `extension/` | the redpen sidebar for Cursor: the edited files, their changes side by side, and Open Review |

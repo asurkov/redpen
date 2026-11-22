@@ -111,6 +111,31 @@ function fileStatus(file) {
 }
 
 const isChanged = file => file.status.kind === 'changed';
+// A change of the work's: not of a file its project generates, which is listed and not counted.
+const isWorkChanged = file => isChanged(file) && !file.isGenerated;
+
+// Whether a file is one its project generates, as review.py says (its .gitattributes'
+// linguist-generated, lockfiles, a "DO NOT EDIT" head), by path, with when it said so: asked again
+// after a minute, so an edited .gitattributes shows.
+const generatedVerdicts = new Map();
+const verdictMs = 60000;
+let isAsking = false;
+
+// Asks review.py about the paths not asked lately; calls done when it said something new.
+function askGenerated(paths, done) {
+  const now = Date.now();
+  const asked = paths.filter(file => (generatedVerdicts.get(file)?.at ?? 0) < now - verdictMs);
+  if (!asked.length || isAsking) return;
+  isAsking = true;
+  execFile('python3', [reviewScript, '--generated', ...asked], (error, stdout) => {
+    isAsking = false;
+    // Unsaid, a file counts as the work's.
+    const said = new Set(error ? [] : stdout.split('\n').filter(Boolean));
+    const isNew = asked.some(file => said.has(file) !== (generatedVerdicts.get(file)?.isGenerated ?? false));
+    for (const file of asked) generatedVerdicts.set(file, {isGenerated: said.has(file), at: now});
+    if (isNew) done();
+  });
+}
 
 function ago(iso) {
   const minutes = Math.round((Date.now() - Date.parse(iso)) / 60000);
@@ -133,14 +158,18 @@ class EditsProvider {
         .map(session => ({...session, shown: session.files.filter(file => inWorkspace(file.path))}))
         .filter(session => session.shown.length);
     for (const session of this.sessions) {
-      for (const file of session.shown) file.status = fileStatus(file);
+      for (const file of session.shown) {
+        file.status = fileStatus(file);
+        file.isGenerated = generatedVerdicts.get(file.path)?.isGenerated ?? false;
+      }
     }
+    askGenerated([...new Set(this.sessions.flatMap(session => session.shown.map(file => file.path)))], () => this.onVerdicts?.());
     this.changed.fire();
   }
 
-  // The listed files with changes, newest session first.
+  // The listed files with changes of the work's, newest session first.
   changedFiles() {
-    return this.sessions.flatMap(session => session.shown.filter(isChanged));
+    return this.sessions.flatMap(session => session.shown.filter(isWorkChanged));
   }
 
   getChildren(node) {
@@ -157,8 +186,8 @@ class EditsProvider {
       const item = new vscode.TreeItem(session.title, node.newest ?
           vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
       item.id = session.session;
-      const changed = session.shown.filter(isChanged).length;
-      item.description = `${changed} of ${session.shown.length} changed, ${ago(session.updated)}`;
+      const work = session.shown.filter(file => !file.isGenerated);
+      item.description = `${work.filter(isChanged).length} of ${work.length} changed, ${ago(session.updated)}`;
       item.tooltip = `${session.title}\nSession ${session.session}\nLast edit ${new Date(session.updated).toLocaleString()}`;
       item.iconPath = new vscode.ThemeIcon('history');
       item.contextValue = 'session';
@@ -168,7 +197,7 @@ class EditsProvider {
     const item = new vscode.TreeItem(vscode.Uri.file(file.path), vscode.TreeItemCollapsibleState.None);
     item.id = `${session.session}:${file.path}`;
     const folder = vscode.workspace.asRelativePath(path.dirname(file.path), true);
-    item.description = `${file.status.text}  ${folder}`;
+    item.description = `${file.status.text}${file.isGenerated ? '  generated' : ''}  ${folder}`;
     item.tooltip = `${file.path}\n${file.status.text}`;
     item.contextValue = 'file';
     item.command = {command: 'redpen.openDiff', title: 'Open Changes', arguments: [node]};
@@ -226,6 +255,8 @@ function activate(context) {
     clearTimeout(timer);
     timer = setTimeout(refresh, 300);
   };
+  // review.py told which files are generated: the counts change.
+  provider.onVerdicts = refreshSoon;
 
   fs.mkdirSync(storeDir, {recursive: true});
   const watcher = fs.watch(storeDir, {recursive: true}, refreshSoon);

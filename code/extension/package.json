@@ -3,7 +3,7 @@
   "displayName": "redpen",
   "description": "Lists the files Claude Code sessions edited, as redpen's recorder keeps them, with their changes side by side, and opens their review on redpen's page.",
   "publisher": "local",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "license": "UNLICENSED",
   "engines": {
     "vscode": "^1.80.0"

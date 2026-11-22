@@ -14,6 +14,8 @@ export type EditedFile = {
   note: string
   added: number
   removed: number
+  // The project generates it (a lockfile, a file marked linguist-generated): listed, not counted.
+  isGenerated: boolean
 }
 
 declare module 'claude-code' {

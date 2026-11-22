@@ -29,7 +29,7 @@ const bandSite = {
 
 // The session's record: each file's entry and, unless it is new, its baseline; and the files on disk.
 // `numstat` is what git counts for a file against its baseline.
-function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boolean; numstat: string }[]) {
+function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boolean; isGenerated?: boolean; numstat: string }[]) {
   const disk = new Set<string>()
   const entries = new Map<string, string>()
   const counts = new Map<string, string>()
@@ -68,6 +68,10 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
       const [before = '', after = ''] = e.argv.slice(-2)
       const numstat = counts.get(after) ?? counts.get(before) ?? ''
       return numstat ? done(1, `${numstat}\t${before} => ${after}\n`) : done(0)
+    }
+    if (e.argv[2] === '--generated') {
+      const asked = e.argv.slice(3)
+      return done(0, edited.filter(file => file.isGenerated && asked.includes(file.path)).map(file => `${file.path}\n`).join(''))
     }
     if (e.argv[1] === '/h/.claude/skills/redpen/code/review.py') return done(0, `${page}\n`)
     return done(0)
@@ -218,5 +222,20 @@ test('with only Claude\'s own files changed there is no row above the prompt', a
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
   const band = await $.ui.mount({ ...bandSite, surface: 'desktop' })
   expect(await band.find({ key: 'redpen' })).toBeUndefined()
+  await band.unmount()
+})
+
+test('generated files are listed, said so, and counted neither in the pane nor in the row', async ($, on) => {
+  session(on, [
+    { path: file, numstat: '2\t1' },
+    { path: '/w/yarn.lock', isGenerated: true, numstat: '40\t12' },
+  ])
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...paneSite, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /files changed/ }))?.text).toBe('1 of 1 files changed')
+  expect((await ui.find({ key: 'file:/w/yarn.lock' }))?.text).toBe('yarn.lock+40−12generated')
+  await ui.unmount()
+  const band = await $.ui.mount({ ...bandSite, surface: 'desktop' })
+  expect((await band.find({ type: 'Text', text: /^redpen/ }))?.text).toBe('redpen · 1 of 1 files changed')
   await band.unmount()
 })

@@ -9,7 +9,7 @@ import type { EditedFile } from '../types'
 // itself (Accept and Reject, history, comments) is redpen's page, which Open review brings up.
 
 const paneId = 'redpen'
-const files = atom({ plugin: 'redpen', key: 'files' } as const, [], { shape: 'files-2' })
+const files = atom({ plugin: 'redpen', key: 'files' } as const, [], { shape: 'files-3' })
 const areOthersOpen = atom({ plugin: 'redpen', key: 'areOthersOpen' } as const, false)
 const redpenTab = atom({ plugin: 'redpen', key: 'redpenTab' } as const, { id: '', url: '' })
 
@@ -26,7 +26,7 @@ async function signatureOf($: EngineInterface, path: string) {
 }
 
 // Counts the file's lines added and removed against its baseline and says what the list shows for it.
-async function counted($: EngineInterface, record: string, entry: Pick<EditedFile, 'path' | 'key' | 'isNew' | 'signature'>): Promise<EditedFile> {
+async function counted($: EngineInterface, record: string, entry: Pick<EditedFile, 'path' | 'key' | 'isNew' | 'signature' | 'isGenerated'>): Promise<EditedFile> {
   const base = `${record}/base/${entry.key}`
   const hasBase = await $.fs.exists(base)
   const exists = await $.fs.exists(entry.path)
@@ -46,12 +46,31 @@ async function counted($: EngineInterface, record: string, entry: Pick<EditedFil
 // The record's entries as last read, by name, with their mtime then.
 const savedEntries = new Map<string, { mtimeMs: number; saved: { path: string; new: boolean } }>()
 
+// Whether a file is one its project generates, as redpen's review.py says (its .gitattributes'
+// linguist-generated, lockfiles, a "DO NOT EDIT" head), by path, with when it said so: asked again
+// after a minute, so an edited .gitattributes shows.
+const generatedVerdicts = new Map<string, { isGenerated: boolean; at: number }>()
+const verdictMs = 60_000
+
+async function markGenerated($: EngineInterface, paths: string[]) {
+  const now = Date.now()
+  const asked = paths.filter(path => (generatedVerdicts.get(path)?.at ?? 0) < now - verdictMs)
+  if (!asked.length) return
+  const { home } = await places($)
+  const ran = await $.process.run(['python3', `${home}/.claude/skills/redpen/code/review.py`, '--generated', ...asked])
+    .catch(() => undefined)
+  // Unsaid, a file counts as the work's.
+  const said = new Set(ran?.exitCode === 0 ? ran.stdout.split('\n').filter(Boolean) : [])
+  for (const path of asked) generatedVerdicts.set(path, { isGenerated: said.has(path), at: now })
+}
+
 // Reads the record and counts each file whose text or baseline changed since it was last counted.
 async function scanOnce($: EngineInterface, force: boolean) {
   const { record } = await places($)
   const entries = await $.fs.list(`${record}/files`).catch(() => [])
   const known = new Map((await read($, files)).map(file => [file.key, file]))
   const next: EditedFile[] = []
+  const saved: { key: string; path: string; isNew: boolean }[] = []
   for (const { name, mtimeMs } of entries) {
     // The hooks write each file whole under a dot name, then rename it.
     if (name.startsWith('.') || !name.endsWith('.json')) continue
@@ -61,11 +80,15 @@ async function scanOnce($: EngineInterface, force: boolean) {
       entry = { mtimeMs, saved: JSON.parse(await $.fs.read(`${record}/files/${name}`)) }
       savedEntries.set(name, entry)
     }
-    const { saved } = entry
-    const signature = `${await signatureOf($, saved.path)} ${await signatureOf($, `${record}/base/${key}`)}`
+    saved.push({ key, path: entry.saved.path, isNew: entry.saved.new })
+  }
+  await markGenerated($, saved.map(entry => entry.path)).catch(() => undefined)
+  for (const { key, path, isNew } of saved) {
+    const signature = `${await signatureOf($, path)} ${await signatureOf($, `${record}/base/${key}`)}`
+    const isGenerated = generatedVerdicts.get(path)?.isGenerated ?? false
     const old = known.get(key)
-    next.push(!force && old && old.signature === signature && old.isNew === saved.new ? old :
-      await counted($, record, { path: saved.path, key, isNew: saved.new, signature }))
+    next.push(!force && old && old.signature === signature && old.isNew === isNew && old.isGenerated === isGenerated ? old :
+      await counted($, record, { path, key, isNew, signature, isGenerated }))
   }
   next.sort((a, b) => a.path.localeCompare(b.path))
   const before = JSON.stringify(await read($, files))
@@ -147,9 +170,10 @@ async function openRedpen($: EngineInterface, surface: string) {
 const isOther = (file: EditedFile, home: string) =>
   file.path.startsWith(`${home}/.claude/`) || /^\/(private\/)?(tmp|var\/folders)\//.test(file.path)
 
-// The work's files and those of them changed, as the pane's head and the row above the prompt count them.
+// The work's files and those of them changed, as the pane's head and the row above the prompt count
+// them: not Claude's own, nor those the project generates.
 const sortedFiles = (list: EditedFile[], home: string) => {
-  const work = list.filter(file => !isOther(file, home))
+  const work = list.filter(file => !isOther(file, home) && !file.isGenerated)
   return { work, changed: work.filter(file => file.kind === 'changed') }
 }
 
@@ -194,6 +218,8 @@ export const register: Register = on => {
     const showsOthers = await read($, areOthersOpen)
     const isListed = (file: EditedFile) => file.kind !== 'same'
     const { work, changed } = sortedFiles(list, home)
+    // Generated files are listed after the work's, said so, and not counted.
+    const generated = list.filter(file => !isOther(file, home) && file.isGenerated && isListed(file))
     const others = list.filter(file => isOther(file, home) && isListed(file))
     const shown = (path: string) => path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) :
       path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path
@@ -208,6 +234,7 @@ export const register: Register = on => {
           <Text color="diffAdded">{`+${file.added}`}</Text>
           <Text color="diffRemoved">{`−${file.removed}`}</Text>
           {file.note ? <Text dimColor>{file.note}</Text> : undefined}
+          {file.isGenerated ? <Text dimColor>generated</Text> : undefined}
           {dir ? <Text dimColor>{dir}</Text> : undefined}
         </Box>
       )
@@ -224,6 +251,7 @@ export const register: Register = on => {
         </Box>
         <Box flexDirection="column">
           {work.filter(isListed).map(fileRow)}
+          {generated.map(fileRow)}
         </Box>
         {others.length > 0 &&
           <Button key="others" plain onPress={() => update($, areOthersOpen, now => !now)}

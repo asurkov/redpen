@@ -84,6 +84,14 @@ What to tell the user when it matters:
   next message in that session, through the `UserPromptSubmit` hook
   `python3 ~/.claude/skills/redpen/code/review.py --prompt-hook` in `~/.claude/settings.json`; without
   that hook they stay unsent.
+- **Generated files** fold into "N generated" at the end of the list, with **Accept generated** for
+  those with something pending, as one History line: the files the project's `.gitattributes` marks
+  `linguist-generated` (as GitHub reads it), and where it says nothing, lockfiles (`package-lock.json`,
+  `yarn.lock`, `Cargo.lock`, `go.sum`, …) and files whose first five lines say `@generated` or
+  `DO NOT EDIT`; `-linguist-generated` (or `=false`) keeps a file out. They open and reject as any file,
+  but the view counts and the progress leave them out, `n` and `p` step past them, the overview does
+  not describe them, and the row above the prompt, the pane and the Cursor sidebar do not count them
+  (`review.py --generated PATH...` says which are).
 - **Overview** (header) opens a drawer with the changes by purpose, as Claude described them: items,
   each a title, a sentence or two, and its blocks, `file:lines` and a short note, each a way to its
   lines; ↑ and ↓ step through the blocks in the overview's order. An item says how many of its blocks
@@ -264,7 +272,7 @@ another Cursor user data directory, such as a test profile started with `--user-
 The redpen extension in `code/extension/` shows the record in its own Activity Bar view, newest session
 first. It shows only the files inside the window's folders, each with its `+added −removed` line counts
 against its baseline, and updates as each edit lands, without a reload; the badge counts the files with
-changes. Clicking a file opens its changes side by side, where the diff editor's arrows revert single
+changes, the generated ones aside (said "generated" in the list). Clicking a file opens its changes side by side, where the diff editor's arrows revert single
 changes in the file (saved like any edit). **Open Review** (on a session, or in the view's title bar for
 the newest session) opens the session's review page in Cursor's Simple Browser, beside the code, starting
 redpen's server unless it runs; Accept, Reject and comments are the page's. The view only reads the
@@ -280,8 +288,8 @@ Cursor's Agents Window runs only Cursor's built-in extensions, so the view shows
 
 The mod in `code/mod/` (the plugin `redpen`) is the review page's way in from Claude Code, in the
 terminal and in the desktop app. While the session's work has changes, a row above the prompt counts
-them beside Open review, leaving the side of the window to the page; Claude's own and temporary files
-are not counted there. `/edits` opens a pane that lists the files this session edited with their lines
+them beside Open review, leaving the side of the window to the page; Claude's own and temporary files,
+and generated ones, are not counted there. `/edits` opens a pane that lists the files this session edited with their lines
 added and removed. The mod only reads the record: the review itself is the page. Open review opens
 this session's review page in the desktop app's Browser pane through its MCP server (`Claude Browser`),
 in the tab it opened before while that tab stays open, and brings the pane to the front (`ccd_view`'s

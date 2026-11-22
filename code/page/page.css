@@ -315,6 +315,27 @@ body.listHidden #splitter {
   cursor: pointer;
 }
 
+/* The generated files' fold: its name, then Accept generated at the row's end. */
+#list .generated > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-block: 3px;
+}
+
+#list .generated > summary::before {
+  content: '▸';
+}
+
+#list .generated[open] > summary::before {
+  content: '▾';
+}
+
+#list .generated > summary button {
+  padding: 0 7px;
+  font-size: 12px;
+}
+
 #list .none {
   padding: 8px 10px;
   color: var(--dim);

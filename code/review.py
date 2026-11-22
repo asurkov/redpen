@@ -11,6 +11,7 @@ Usage: review.py [--session ID] [--port N]   start the server unless it runs; pr
                                              the next ones; Claude keeps it running in the background
        review.py --answer ID                 put Claude's answer, read from stdin, under the comment
                                              on its page
+       review.py --generated PATH...         print those of the files their projects generate
        review.py --outline [REVIEW]          keep the overview of the changes, JSON read from stdin,
                                              for the page of REVIEW (the session's); say the changes
                                              it leaves out
@@ -83,6 +84,19 @@ listed_files = 2000
 # this many seconds, so an edited .gitignore shows.
 ignore_verdicts = {}
 ignore_seconds = 60
+# Files a project generates, which the page folds away: those its .gitattributes marks
+# linguist-generated, as GitHub reads it; where it says nothing, these lockfiles, and a file whose
+# first lines say so, as Go's "Code generated … DO NOT EDIT." and Facebook's @generated do.
+generated_names = {'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb',
+                   'Cargo.lock', 'poetry.lock', 'Pipfile.lock', 'uv.lock', 'Gemfile.lock', 'composer.lock',
+                   'go.sum', 'flake.lock'}
+generated_mark = re.compile(rb'@generated\b|DO NOT EDIT')
+generated_head_lines = 5
+# What a project's .gitattributes says of a path being generated, by repository: {path: (True, False
+# or None for nothing, when git said it)}, asked again after ignore_seconds, as ignore_verdicts.
+generated_verdicts = {}
+# Whether a file's first lines say it is generated, by its path: (its signature then, whether).
+generated_heads = {}
 # A git review nothing was done in for this many seconds is not one the model is told to wait on.
 active_seconds = 12 * 3600
 # The git reviews whose files are being found now, and the lock that set is read and written under.
@@ -381,7 +395,7 @@ def shown_entry(entry, members):
     """A journal entry as the page shows it: of an action on a folder's files, at the folder, saying
     how many; of one on a moved file, at its new place, saying the old one; of an overview item's
     Accept, by the item's title, saying how many files."""
-    if entry.get('item'):
+    if entry.get('item') or entry.get('generated'):
         return {**entry, 'change': None}
     if entry.get('folder'):
         return {**entry, 'path': entry['folder'], 'change': None}
@@ -701,6 +715,10 @@ class Review:
             # What was accepted in it was lost to a rebase, and something of it is to look at.
             is_uncarried = file.get('uncarried') or moved_from and moved_from[1].get('uncarried')
             files[-1]['isUncarried'] = bool(is_uncarried) and files[-1]['pending'] is not None
+        # Generated files, which the page folds away; Claude's own and temporary ones are folded already.
+        marked = generated_paths([listed['path'] for listed in files if not listed['isOther']])
+        for listed in files:
+            listed['isGenerated'] = listed['path'] in marked
         info = self.git or read_json(self.record / 'session.json', {})
         channel = shared('channel')
         # The folders a deleted file was in that are gone with it, its own and those up from it.
@@ -823,13 +841,13 @@ class Review:
                 entries.append(self.applied(member_key, member, action, None, member_left, member_right, group, marks))
         return entries
 
-    def apply_files(self, keys, action, signatures, folder):
-        """Carries out a whole-file action on each of the files, a folder's, that has something in
-        the action's view, as one entry of the journal, if each is still as the page listed it.
-        Returns that entry as the page shows it, its id the one Undo takes."""
+    def apply_files(self, keys, action, signatures, folder, is_generated=False):
+        """Carries out a whole-file action on each of the files, a folder's or the generated ones,
+        that has something in the action's view, as one entry of the journal, if each is still as the
+        page listed it. Returns that entry as the page shows it, its id the one Undo takes."""
         if action not in actions:
             raise Refusal(400, 'No such action.')
-        if not isinstance(keys, list) or not keys or not isinstance(signatures, dict) or not isinstance(folder, str):
+        if not isinstance(keys, list) or not keys or not isinstance(signatures, dict) or not (isinstance(folder, str) or is_generated):
             raise Refusal(400, 'No files named.')
         listed = {listed['key']: listed for listed in self.listing()['files']}
         if any(key not in listed or listed[key]['signature'] != signatures.get(key) for key in keys):
@@ -840,7 +858,7 @@ class Review:
             raise Refusal(409, 'Nothing to do.')
         left_name, right_name = actions[action][:2]
         group = f'folder-{time.time_ns():x}'
-        marks = {'folder': folder, 'files': len(todo)}
+        marks = {'generated': True, 'files': len(todo)} if is_generated else {'folder': folder, 'files': len(todo)}
         entries = []
         for key in todo:
             file = self.file(key)
@@ -1301,7 +1319,7 @@ class Review:
             shown['items'].append({'title': item.get('title') or '', 'text': item.get('text') or '', 'blocks': blocks,
                                    'pending': sum(block['state'] == 'pending' for block in blocks)})
         for file_key, file in listed.items():
-            if not file['all'] or file['isOther'] or len(shown['uncovered']) >= uncovered_shown:
+            if not file['all'] or file['isOther'] or file['isGenerated'] or len(shown['uncovered']) >= uncovered_shown:
                 continue
             marks = covers.get(file_key, [])
             if any(side == 'file' for side, _ in marks):
@@ -1423,7 +1441,8 @@ def outline_asked(changes, git, name):
         'Lines are counted from 1 in the file as it is now. For lines taken away, or a deleted file, add '
         f'"side": "orig" and count in the file as it was{before}. A block with no start and end is the whole '
         'file. Group the changes by purpose, not by file, in the order a reviewer should read them, and let '
-        'every change belong to an item: the command and the page list those no block covers. Each note says '
+        'every change belong to an item: the command and the page list those no block covers. Leave out the '
+        'files the project generates (lockfiles, those marked linguist-generated or "DO NOT EDIT"). Each note says '
         'what its block does, in a few words; say only what the code shows.'])
 
 
@@ -1596,6 +1615,70 @@ def ignored(repository, paths):
         known.update((path, (path in said, time.time())) for path in asked)
     # A path another read cleared meanwhile counts as ignored, till git is asked again.
     return {path for path in paths if known.get(path, (True, 0))[0]}
+
+
+def generated_paths(paths):
+    """The paths of the files generated, as their projects mark them (see generated_names)."""
+    verdicts = attribute_verdicts(paths)
+    return {path for path in paths
+            if verdicts.get(path) or verdicts.get(path) is None and (os.path.basename(path) in generated_names or is_marked_generated(path))}
+
+
+def attribute_verdicts(paths):
+    """What each path's .gitattributes says of linguist-generated: True, False, or None for nothing, as
+    for a path outside a git work tree."""
+    verdicts, by_top = {}, {}
+    for path in paths:
+        # A deleted file's repository, by the nearest folder still there.
+        folder = os.path.dirname(path)
+        while folder not in ('', '/') and not os.path.isdir(folder):
+            folder = os.path.dirname(folder)
+        top = repository_top(folder) if folder not in ('', '/') else None
+        if top:
+            by_top.setdefault(top, []).append(path)
+        else:
+            verdicts[path] = None
+    for top, members in by_top.items():
+        known = generated_verdicts.setdefault(top, {})
+        if len(known) > 100_000:
+            known.clear()
+        asked = {path: os.path.relpath(os.path.realpath(path), top) for path in members
+                 if known.get(path, (None, 0))[1] < time.time() - ignore_seconds}
+        if asked:
+            try:
+                ran = subprocess.run(['git', '-C', top, 'check-attr', '-z', '--stdin', 'linguist-generated'],
+                                     input=b'\0'.join(os.fsencode(name) for name in asked.values()), capture_output=True,
+                                     env={**os.environ, 'GIT_OPTIONAL_LOCKS': '0'})
+                said = ran.stdout.split(b'\0') if ran.returncode == 0 else []
+            except OSError:
+                said = []
+            # path NUL attribute NUL value NUL, for each.
+            values = {os.fsdecode(said[at]): said[at + 2].decode() for at in range(0, len(said) - 2, 3)}
+            for path, name in asked.items():
+                known[path] = ({'set': True, 'true': True, 'unset': False, 'false': False}.get(values.get(name)), time.time())
+        verdicts.update((path, known[path][0]) for path in members)
+    return verdicts
+
+
+def is_marked_generated(path):
+    """Whether the file's first lines say it is generated."""
+    place = pathlib.Path(path)
+    place_signature = signature(place)
+    if place_signature == '-':
+        return False
+    kept = generated_heads.get(path)
+    if kept and kept[0] == place_signature:
+        return kept[1]
+    try:
+        with open(place, 'rb') as f:
+            head = f.read(4096)
+    except OSError:
+        head = b''
+    is_marked = bool(generated_mark.search(b'\n'.join(head.split(b'\n')[:generated_head_lines])))
+    if len(generated_heads) > cached_answers:
+        generated_heads.clear()
+    generated_heads[path] = (place_signature, is_marked)
+    return is_marked
 
 
 def listed_folders(top, wanted):
@@ -2143,7 +2226,8 @@ def post(h, path, body):
     if found.group(2) == 'apply':
         return send_json(h, review.apply(body.get('key'), body.get('action'), body.get('change'), body.get('expected')))
     if found.group(2) == 'apply-files':
-        return send_json(h, review.apply_files(body.get('keys'), body.get('action'), body.get('signatures'), body.get('folder')))
+        return send_json(h, review.apply_files(body.get('keys'), body.get('action'), body.get('signatures'), body.get('folder'),
+                                               body.get('generated') is True))
     if found.group(2) == 'apply-item':
         return send_json(h, review.apply_item(body.get('index'), body.get('time'), body.get('signatures')))
     if found.group(2) == 'describe':
@@ -2169,6 +2253,7 @@ def main():
     parser.add_argument('--wait', action='store_true')
     parser.add_argument('--answer', metavar='ID')
     parser.add_argument('--outline', nargs='?', const='', metavar='REVIEW')
+    parser.add_argument('--generated', nargs='+', metavar='PATH')
     parser.add_argument('--change', metavar='PATH[:LINE]')
     parser.add_argument('--git', nargs='?', const='.', metavar='REPO')
     parser.add_argument('--base', metavar='REV', help="default: the branch's upstream, else HEAD")
@@ -2182,6 +2267,8 @@ def main():
         return answer(args.session, args.answer, args.change)
     if args.outline is not None:
         return outline(args.outline or args.session)
+    if args.generated:
+        return print('\n'.join(sorted(generated_paths([os.path.abspath(path) for path in args.generated]))))
     server = shared('server')
     port = args.port or server.default_port
     if not server.running(port):
