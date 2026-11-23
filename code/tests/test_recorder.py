@@ -104,6 +104,16 @@ class ShellCommands(unittest.TestCase):
                   for f in (store / who / 'files').glob('*.json')}
         self.assertEqual(agents, {'a.py': ['Explore'], 'b.py': None})
 
+    def test_a_command_that_edits_and_commits_a_file_keeps_it_the_sessions(self):
+        top, who = repo({'a.py': 'a\n'}), session()
+        hook('pre', who, top, 'Edit', {'file_path': str(top / 'a.py')})
+        write(top, {'a.py': 'b\n'})
+        hook('post', who, top, 'Edit', {'file_path': str(top / 'a.py')})
+        shell(who, top, "printf 'c\\n' >> a.py && git commit -qam c")
+        # git's status says nothing of a.py now; its mark is still the file as the session left it.
+        mark = (store / who / 'after' / recorder.key(str(top / 'a.py'))).read_text()
+        self.assertEqual(mark, recorder.sha(b'b\nc\n'))
+
     def test_what_a_long_command_changed_is_marked(self):
         top, who = repo({'a.py': 'a\n'}), session()
 

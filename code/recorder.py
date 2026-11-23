@@ -321,6 +321,17 @@ def commit_shell(session, name, agent=None):
             if kind != 'gone' and (path in was or is_long or os.path.basename(path) not in command):
                 write_atomic(store / session / 'outside' / key(path), b'')
             added = True
+    # A command that edits a file and commits it leaves it clean, so git's status says nothing of it: a file
+    # of the record it names whose text is now the committed one is the session's own edit, as it reads.
+    if committing.search(command):
+        for top in before.get('trees') or {}:
+            for entry in (store / session / 'files').glob('*.json'):
+                path = (read_json(entry) or {}).get('path') or ''
+                if path in touched or not path.startswith(top + os.sep) or os.path.basename(path) not in command:
+                    continue
+                text, old = disk_text(path), committed(top, path)
+                if text is not None and old is not None and old[0] == text:
+                    touched.add(path)
     for path in touched:
         keep_after(session, path)
         if agent:

@@ -357,7 +357,9 @@ running over 30 seconds changed (someone else may have), or one the command's te
 by its name (your editor's save while it ran, say), is marked as edited elsewhere; a file another
 session's own edit left as it is during the command is that session's, not recorded, and so is a file
 that changed while a shell command of another session was running in the tree, begun before the change,
-when this command names no path there: that command's post hook records it. A change by something no
+when this command names no path there: that command's post hook records it. A command that edits a file
+of the record and commits it, naming it, leaves it clean, which git's status cannot tell: its text, now
+the committed one, is kept as the session's own edit. A change by something no
 session records (your editor, a terminal) during a command still lands in the session's record, marked
 as edited elsewhere when the command ran long. A tree whose
 status took git over 1.5 seconds is watched, for a day, only around an `rm`, `mv`, `unlink`, `trash` or
