@@ -170,8 +170,17 @@ function openingJson(result: McpToolResult | undefined): Record<string, unknown>
 // in a new one. From the terminal, or with no Browser pane to reach, in the default browser. Given a
 // file, at that file: the page opens what a link into it names, #<path>.
 async function openRedpen($: EngineInterface, surface: string, path?: string) {
-  await showRedpen($, surface, path)
+  await showRedpen($, surface, path).catch(error => trace($, `the page did not open: ${error}`))
   void askOverview($)
+}
+
+// What the last asks for an overview did, a line for each step, in the record's review/ask.log: a failure
+// there says why, never silently.
+async function trace($: EngineInterface, line: string) {
+  const place = `${(await places($)).record}/review/ask.log`
+  const was = await $.fs.read(place).catch(() => '')
+  const lines = [...String(was).split('\n').filter(Boolean), `${new Date().toISOString()} ${line}`].slice(-40)
+  await $.fs.write(place, `${lines.join('\n')}\n`).catch(() => undefined)
 }
 
 // The review opened with changes no overview covers: Claude is asked for one, by a prompt of the
@@ -180,10 +189,22 @@ async function openRedpen($: EngineInterface, surface: string, path?: string) {
 // that Claude writes it and nothing hands it over again.
 async function askOverview($: EngineInterface) {
   const { home } = await places($)
+  await trace($, 'asking review.py --describe')
   const ran = await $.process.run(['python3', `${home}/.claude/skills/redpen/code/review.py`, '--describe',
-    '--session', await $.session.id()]).catch(() => undefined)
-  const text = ran?.exitCode === 0 ? ran.stdout.trim() : ''
-  if (text) await $.prompt.submit({ text }).catch(() => undefined)
+    '--session', await $.session.id()]).catch(async error => {
+    await trace($, `review.py did not run: ${error}`)
+    $.ui.toast(`redpen could not ask for the overview: ${error}`)
+    return undefined
+  })
+  if (!ran) return
+  const said = ran.stderr.trim().split('\n').pop()
+  await trace($, `review.py exited ${ran.exitCode}: ${ran.stdout.trim() ? 'an ask' : 'none needed'}${said ? ` (${said})` : ''}`)
+  const text = ran.exitCode === 0 ? ran.stdout.trim() : ''
+  if (!text) return
+  await $.prompt.submit({ text }).then(() => trace($, 'asked'), async error => {
+    await trace($, `not asked: ${error}`)
+    $.ui.toast(`redpen could not ask Claude for the overview: ${error}`)
+  })
 }
 
 async function showRedpen($: EngineInterface, surface: string, path?: string) {

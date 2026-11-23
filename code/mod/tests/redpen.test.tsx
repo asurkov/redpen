@@ -72,6 +72,10 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
       .map(p => ({ name: p.slice(e.path.length + 1), kind: 'file' as const, size: 1, mtimeMs: marks.get(p) ?? 1, isLink: false })),
   }))
   on('fs.read', (_, e) => ({ value: entries.get(e.path) ?? '' }))
+  on('fs.write', (_, e) => {
+    entries.set(e.path, e.text)
+    return { value: undefined }
+  })
   on('fs.exists', (_, e) => ({ value: disk.has(e.path) }))
   on('fs.stat', (_, e) => ({ value: { kind: 'file' as const, size: 1, mtimeMs: times.get(e.path) ?? 1, isLink: false } }))
   on('process.run', (_, e) => {
