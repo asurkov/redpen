@@ -402,7 +402,8 @@ class Refused(Exception):
 def push(run, cs, last, dry=False):
     """For other plugins (review.py): your comments cs as your pending review on the PR, never submitted:
     you submit it on GitHub. With dry, only what it would do, after reading your pending review.
-    cs [{id, body, path, line, side, where, quote, pushed}]: where it is in the PR's files (side L or R),
+    cs [{id, body, path, line, end, side, where, quote, pushed}]: where it is in the PR's files (side L or R),
+    from line to end where it spans several,
     or for one without a line where it is in the docs and its quote, and pushed what an earlier push made
     of it, {review, id, body}; last what it made the review, {review, body}.
 
@@ -457,7 +458,9 @@ def push(run, cs, last, dry=False):
     try:
         if not pending:
             pending = ask('POST', f'/repos/{slug}/pulls/{n}/reviews', {'commit_id': run['head'], **({'body': text} if writing else {}),
-                          'comments': [{'path': c['path'], 'line': c['line'], 'side': side[c['side']], 'body': c['body']} for c in adds]})
+                          'comments': [{'path': c['path'], 'line': c.get('end') or c['line'], 'side': side[c['side']], 'body': c['body'],
+                                        **({'start_line': c['line'], 'start_side': side[c['side']]} if c.get('end') else {})}
+                                       for c in adds]})
             out['review'] = {'review': pending['id'], 'body': text if writing else None}
             got = pages(f'/repos/{slug}/pulls/{n}/reviews/{pending["id"]}/comments')
             for c in adds:

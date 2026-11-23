@@ -201,7 +201,12 @@ The server writes both into the review's dir, `<out>`:
   <Markdown>}`. After answering a revisit in chat, append the answer here (the reply without the quoted
   request), and the page shows it under the request ([Review comments](#review-comments)); until then the
   request shows as pending. Put a comment drafted for the PR in the answer as a blockquote (`> …`, a blank
-  line between two), as the page offers each blockquote as a comment to make:
+  line between two), as the page offers each blockquote as a comment to make. The blockquote is what gets
+  posted, word for word: a note to the user (how to post it, why) goes outside it. A ```` ```suggestion ````
+  block in it replaces the lines its comment's quote spans in the file (the page shows them as
+  `path:start–end`, taking in the line after when the suggestion ends with it, a closing tag say): write
+  the suggestion for exactly those lines. In a thread only the newest draft is there to use; a new one
+  replaces the earlier ones not used:
 
   ```bash
   python3 -c 'import json,sys; print(json.dumps({"time": sys.argv[1], "answer": sys.stdin.read().strip()}, ensure_ascii=False))' "<time>" >> <out>/answers.jsonl <<'EOF'
@@ -593,8 +598,10 @@ click elsewhere) at the end of the first header's. A comment reads rendered, as 
 A button acts on the text right above it, never from a header: a comment of yours has its buttons under
 its text, the same in its card and, after its body, in its panel entry: **Accept** on one Claude
 suggested (it becomes yours as it reads), or else **Post** (with a token: ⇪ Push of it alone to your
-pending review; without one, **Post ↗** copies it and opens its line on GitHub, to paste it there; none
-on your own docs); then **Edit**, **✎ Ask Claude** and **Delete** (pressed twice). **Delete** only ever
+pending review; none without one, or on your own docs); then **Edit**, **✎ Ask Claude** and **Delete**
+(pressed twice). Its place, `path:line ↗` or `path:start–end ↗` where its quote spans lines (a push takes
+the range too), opens it on GitHub, and **Copy** beside it copies its text as it will be posted, to paste
+there by hand. **Delete** only ever
 removes something of yours; a draft of Claude's has **Dismiss**. The editor's box is as tall as the
 comment, up to near half the window. Then threads from elsewhere, then
 questions, the resolved ones last. A card that holds several shows
@@ -621,9 +628,13 @@ the counts of reviewed changes with comments or open questions step through thos
 · Monetization status"), and stays armed, underlined with an `n p` chip: `n` and `p` (`j` and `k`) then step
 through its marks instead of the changes, until Esc (with no card open) or another of the header's controls,
 such as next change, hands them back. The Review panel: the comments and revisits in the order they
-come in the doc, each a click from its place, drafts with a draft's buttons (above). Post ↗ puts one comment's
-text on the clipboard, to paste in GitHub's comment box at its line, which it opens, as its `path:line ↗` (in its
-panel entry and its card's header) does.
+come in the doc, each a click from its place, drafts with a draft's buttons (above).
+A question's thread keeps what would be posted apart from the talk it came of: under the text asked about,
+a box **To post on GitHub** (**Your comment** on your own docs) holds Claude's newest draft, to accept, or,
+once accepted, your comment made of it, with its place, Copy and buttons; that comment shows there alone,
+not as an entry of its own. Under it, **Private · with Claude** folds the requests, answers and earlier
+drafts: nothing of it is posted. A ```` ```suggestion ```` block reads as GitHub shows it, **Suggested
+change**: the lines it replaces struck, where its place knows them, and its own added.
 **Copy drafts (N)**, shown while you have comments not posted yet (**Copy comments (N)** on your own docs),
 puts all of those on the clipboard as one Markdown post, each with its `path:line` (linked to the line on
 GitHub; without `--pr`, the file and section), the quote and the comment, whatever the

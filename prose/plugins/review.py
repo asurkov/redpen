@@ -54,6 +54,13 @@ STYLE = '''
 .rvb-new,.rvb-new:hover{background:var(--insb);color:var(--bg);font-weight:700} #rvt.rvt-new{font-weight:700;border-color:var(--insb)}
 .rvb-done{width:7px;height:7px;padding:0;border:4px solid transparent;border-radius:50%;background:var(--muted) content-box;opacity:.35;vertical-align:middle} .rvb-done::before{content:none} .rvb-done:hover{background:var(--muted) content-box;opacity:.8}
 #cp{z-index:5} #rvp[hidden],#rvc[hidden]{display:none}
+/* What would be posted: a box of its own, on top of the thread; the talk under it is private. */
+.rvpost{margin:8px 0;padding:8px 10px;border:1px solid var(--link);border-radius:6px;background:var(--bg)}
+.rvposth{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin-bottom:4px;font-size:12px} .rvposth .n{flex:1}
+.rvpostl{padding:1px 7px;border-radius:4px;background:color-mix(in srgb,var(--link) 14%,var(--bg));color:var(--link)}
+.rvsugg{margin:6px 0;border:1px solid var(--line);border-radius:4px;overflow:hidden;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap}
+.rvsugh{padding:2px 8px;border-bottom:1px solid var(--line);color:var(--muted);font-family:-apple-system,BlinkMacSystemFont,sans-serif}
+.rvsdel{padding:0 8px;background:var(--del);color:var(--delb)} .rvsdel::before{content:'− '} .rvsins{padding:0 8px;background:var(--ins);color:var(--insb)} .rvsins::before{content:'+ '}
 /* An open card is the one popup: the selected change's own buttons (#pop) wait until it closes. */
 body:has(#rvc:not([hidden])) #pop{display:none}
 @media (min-width:840px){.rv-open main{margin-right:420px}}
@@ -271,9 +278,13 @@ done:ms.every(m=>m.resolved),wait:!l.answers.length,unread:ms.some(m=>m.answers.
 function proposal(m,d,ms){const id=m.time+'#'+d.hash,st=data.proposals[id]||{},by=ms.filter(x=>x.revises===id),c=st.state==='used'&&data.comments.find(c=>c.id===st.comment),
 last=m.comment&&Object.entries(data.proposals).filter(([,s])=>s.state==='used'&&s.comment===m.comment).sort((a,b)=>a[1].time<b[1].time?-1:1).pop(),
 [lt,lh]=last?last[0].split('#'):[],nth=(t,h)=>data.revisits.find(r=>r.time===t)?.answers.findIndex(a=>a.drafts.some(e=>e.hash===h)),
-stale=last&&last[0]!==id&&(c||!st.state&&(m.time<lt||m.time===lt&&nth(m.time,d.hash)<nth(lt,lh)));
+stale=last&&last[0]!==id&&(c||!st.state&&(m.time<lt||m.time===lt&&nth(m.time,d.hash)<nth(lt,lh))),
+// In a question's thread, or a drafted reply's, a later answer with another draft replaces it: only the
+// newest draft is there to use, whether it came of ✎ Revise or of Ask more.
+at=ms.indexOf(m),of=m.answers.findIndex(a=>a.drafts.some(e=>e.hash===d.hash)),
+newer=!m.comment&&ms.some((x,k)=>x.answers.some((a,l)=>(k>at||k===at&&l>of)&&a.drafts.length&&!a.drafts.some(e=>e.hash===d.hash)));
 return{id,text:d.text,comment:stale?null:c||null,was:st.was,revising:by.length>0&&!by[by.length-1].answers.length,
-state:stale?'replaced':c?'used':by.some(x=>x.answers.some(a=>a.drafts.some(e=>e.hash!==d.hash)))?'replaced':st.state==='dismissed'?'dismissed':'proposed'};}
+state:stale?'replaced':c?'used':newer||by.some(x=>x.answers.some(a=>a.drafts.some(e=>e.hash!==d.hash)))?'replaced':st.state==='dismissed'?'dismissed':'proposed'};}
 // A comment of yours with what you asked Claude about it (cts: the threads of revisits naming it as their
 // comment), and ask, for its mark and the header's counts: whether Claude is on one, and an answer unread.
 function withAsks(c){const ts=threads(data.revisits.filter(r=>r.comment===c.id)).map(t=>({...t,draftOf:c.id}));
@@ -317,6 +328,10 @@ function paint(){document.querySelectorAll('.rvb,.rvok').forEach(b=>{const p=b.p
 const texts=new Map(),text=(v,side)=>{let m=texts.get(v);if(!m)texts.set(v,m={});return m[side]||(m[side]=textOf(v,side));},put=[];
 const cx=it=>it.before||it.after?it:it.ctx,near1=(it,v,b)=>{const at=cx(it)&&near(v,cx(it),it.section,text);if(at){at(b);it.on[v.dataset.view]=new Set();}return!!at;},late=[];
 const gts=ghThreads();items=[...data.comments.map(x=>withAsks({...x,kind:'c',done:!!x.thread?.done})),...threads(data.revisits.filter(r=>!r.remote&&!r.comment)),...gts];
+// A question's thread whose newest draft you accepted leads with the comment made of it (lead), which
+// then shows there alone, not as an entry of its own: what will be posted, and the talk it came of.
+for(const t of items)if(t.kind==='r'){const p=[...t.proposals.values()].filter(p=>p.state!=='replaced'&&p.state!=='dismissed').pop(),
+c=p?.state==='used'&&p.comment&&items.find(i=>i.kind==='c'&&i.id===p.comment.id&&!i.thread);if(c){t.lead=c;c.inThread=t;}}
 for(const it of items){it.at={};it.on={};if(it.hidden)continue;for(const s of document.querySelectorAll('section'))if(s.dataset.file===it.file)for(const v of s.querySelectorAll('.v')){
 // Made on a change, it is looked for in change markup first where its change has another key.
 const w=v.dataset.view,b=badge(it),on=it.key&&onChange(v,it.key),x=!on&&text(v,it.side),
@@ -601,7 +616,12 @@ heldPart=box&&!s.isCollapsed&&s.rangeCount&&box.contains(s.anchorNode)&&box.cont
 document.addEventListener('click',()=>setTimeout(()=>heldPart=null),true);
 const askDraft=c=>act('✎ Ask Claude',ca.title,()=>askAbout(c));
 // A comment's text as it will read (rendered: html), or as typed while that is not back yet.
-const bodyOf=c=>{const t=mk('div',{className:'rvt rvmd'});if(c.html)t.innerHTML=c.html;else t.textContent=c.body;return t;};
+const bodyOf=c=>{const t=mk('div',{className:'rvt rvmd'});if(c.html)t.innerHTML=c.html;else t.textContent=c.body;suggested(t,c.github?.old);return t;};
+// Each suggestion block (```suggestion) in rendered text as a suggested change: the lines it replaces,
+// where the comment's place knows them (old), and its own.
+function suggested(root,old){for(const pre of root.querySelectorAll('pre.suggestion')){const b=mk('div',{className:'rvsugg'}),now=pre.textContent.replace(/\\n$/,'').split('\\n');
+b.append(mk('div',{className:'rvsugh',textContent:'Suggested change'+(old?'':' (the lines it replaces are where it is posted)')}),
+...(old||[]).map(l=>mk('div',{className:'rvsdel',textContent:l})),...now.map(l=>mk('div',{className:'rvsins',textContent:l})));pre.replaceWith(b);}}
 // A draft's buttons, the same in its card and its panel entry: Accept, on one Claude suggested (it becomes
 // yours as it reads), or else Post; then Edit, ✎ Ask Claude and Delete (pressed twice). They stand under
 // its text (ownRow), as a draft of Claude's has its own under it, never in a header: a button acts on the
@@ -610,19 +630,14 @@ const draftButtons=it=>{const x=act('Delete','Delete this comment',()=>{if(x.tex
 lead=it.by==='claude'?act('Accept','Make it your draft, as it reads',()=>save({id:it.id,accept:true})):postButton(it);
 x.classList.add('rvdel');lead?.classList.add('primary');
 return[...(lead?[lead]:[]),act('Edit','Edit this comment',()=>{card.hidden=true;openCm(it);}),askDraft(it),x];};
-// Post: with a token, a push of this one alone to your pending review (you submit it there); without one,
-// its text copied and its line on GitHub opened (in the default browser, as the doc's links), to paste it
-// there. None where nothing is posted to (your own docs).
+// Post: with a token, a push of this one alone to your pending review (you submit it there). Without one,
+// nothing posts it: its place's link and Copy beside it (ghLine) are the way, by hand.
 const ownRow=it=>{const r=mk('div',{className:'rvpr rvown'});r.append(...draftButtons(it));return r;};
-const postButton=it=>{const p=posting(),href=it.github?.href;if(!p)return null;
-if(p.push)return act('Post','Add it to your pending review on '+p.source+', which you submit there',()=>{card.hidden=true;openPush([it.id]);});
-const b=act('Post ↗',(href?'Copy it and open its line on '+p.source:'Copy it')+', to paste in the comment box there (with no token, the page cannot post it)',async()=>{
-const ok=await copy(it.body);if(href)fetch('open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:href})})
-.then(r=>{if(!r.ok)throw new Error(r.status);}).catch(()=>window.open(href,'_blank','noopener'));
-b.textContent=ok?'copied: paste it there':'copying failed';setTimeout(()=>b.textContent='Post ↗',2500);});return b;};
+const postButton=it=>{const p=posting();if(!p?.push)return null;
+return act('Post','Add it to your pending review on '+p.source+', which you submit there',()=>{card.hidden=true;openPush([it.id]);});};
 // What is between you and Claude sits in a box of its own, apart from the text that is posted; a rework
 // of your comment, proposed, stays out of it, in the comment's place.
-const privateBox=(label,title,els)=>{const w=mk('div',{className:'rvpriv'}),lead=els[0]?.matches('.rva:has(>blockquote.rvredo)')?[els.shift()]:[];
+const privateBox=(label,title,els)=>{const w=mk('div',{className:'rvpriv'}),lead=els[0]?.matches('.rva:has(>blockquote.rvredo),.rvpost')?[els.shift()]:[];
 w.append(mk('div',{className:'rvm rvdh rvaud rvaud-r',textContent:label,title}),...els);return[...lead,w];};
 const draftAsks=c=>c.cts.length?privateBox('✎ Asked Claude · private','Between you and Claude',discussion('c'+c.id,c.cts)):[];
 const drafts=(it,incard)=>it.rts.length?privateBox('✎ Drafted replies · private','Between you and Claude, until you post one on '+it.src.source,discussion(it.rid,it.rts,{it,incard})):[];
@@ -633,16 +648,16 @@ const drafts=(it,incard)=>it.rts.length?privateBox('✎ Drafted replies · priva
 // and its drafts: the question joins the requests, and its answer shows under it; one not read yet opens
 // the discussion and says so.
 const discOpen=new Set();
-function discussion(key,ts,g){const els=ts.flatMap(t=>asks(t)),w=mk('div');w.append(...els);const q=[...w.querySelectorAll('blockquote.rvcur')].pop(),
+function discussion(key,ts,g,lead,led){const els=ts.flatMap(t=>asks(t,undefined,led)),w=mk('div');w.append(...els);const q=[...w.querySelectorAll('blockquote.rvcur')].pop(),
 ask=g?[box(askKey(key,g.incard),{it:g.it,ask:true})]:[];
-if(!q)return[...els,...ask];
+if(!q&&!lead)return[...els,...ask];
 // The draft goes up with its name and Changes · Final above it, and its buttons and box under it.
-const before=q.previousElementSibling,keep=before?.matches('.rvsug,.rvview')?[before,q]:[q];for(let n=q.nextElementSibling;n&&n.matches('.rvpr,.rvbox');n=n.nextElementSibling)keep.push(n);
-const top=mk('div',{className:'rva'}),f=mk('details',{className:'rvdisc'}),ms=ts.flatMap(t=>t.members),n=ms.length,wait=ts.some(t=>t.wait),
+const before=q?.previousElementSibling,keep=!q?[]:before?.matches('.rvsug,.rvview')?[before,q]:[q];for(let n=q?.nextElementSibling;n&&n.matches('.rvpr,.rvbox');n=n.nextElementSibling)keep.push(n);
+const top=q?mk('div',{className:'rva'}):lead,f=mk('details',{className:'rvdisc'}),ms=ts.flatMap(t=>t.members),n=ms.length,wait=ts.some(t=>t.wait),
 fresh=ms.some(m=>m.mode==='ask'&&m.answers.length>(m.seen||0)),
 s=mk('summary',{textContent:'Discussion with Claude · '+n+(n>1?' requests':' request')+(wait?' · one being answered':'')});
 if(fresh)s.append(mk('span',{className:'rvaud-new',textContent:' · new answer'}));
-top.append(...keep);f.open=discOpen.has(key)||fresh;f.ontoggle=()=>f.open?discOpen.add(key):discOpen.delete(key);
+if(q)top.append(...keep);f.open=discOpen.has(key)||fresh;f.ontoggle=()=>f.open?discOpen.add(key):discOpen.delete(key);
 f.append(s,...w.childNodes,...ask);return[top,f];}
 // When each source was last read, and why not since; ↻ asks that source again where it can be asked
 // (refresh). A source being read in the background (busy) says so until its new copy comes in.
@@ -714,7 +729,7 @@ for(const[f,t,tt]of[[false,'Changes','Its changes against your text'],[true,'Fin
 b.setAttribute('aria-pressed',draftsFinal===f);b.onclick=e=>{e.stopPropagation();draftsFinal=f;try{localStorage.setItem(sk('docdiff-drafts-final'),f?'1':'');}catch(e){}
 document.querySelectorAll('blockquote.rvmarked').forEach(x=>x.rvShow?.());document.querySelectorAll('.rvview .rvx').forEach(x=>x.setAttribute('aria-pressed',(x.textContent==='Final')===draftsFinal));};v.append(b);}
 return v;}
-function decorate(q,p,it,m,i){const r=mk('div',{className:'rvpr'});let view;
+function decorate(q,p,it,m,i){const r=mk('div',{className:'rvpr'});let view;suggested(q);
 if(it.reply&&m?.mode==='polish'&&i===0&&p.state==='proposed')view=marked(q,m.prompt,p.text,'Your reply, with the edits marked');
 // In its place, the comment's own text hides while the rework is proposed (rvredo).
 const own=it.draftOf&&p.state==='proposed'&&data.comments.find(c=>c.id===it.draftOf);
@@ -789,10 +804,22 @@ function more(it,focus=takeHeldPart()){card.hidden=true;openRev({quote:it.sent,e
 let carded=null,cardIds=null;
 const idOf=it=>it.kind==='r'?'r'+it.time:it.kind==='g'?it.rid:'c'+it.id;
 const inCard=it=>!card.hidden&&!!cardIds?.includes(idOf(it));
+// A question's thread under the text asked about: what would be posted, on top (Claude's newest draft, to
+// accept, or your comment made of it, with its place, Copy and buttons), and what you and Claude said under
+// it, folded, in a box of its own: nothing of that is posted. With no draft, the talk alone, as it reads.
+function threadBody(it){const parts=discussion('r'+it.time,[it],null,it.lead&&leadBox(it.lead),true);
+if(!(parts.length===2&&parts[1].matches('details.rvdisc')))return parts;
+const[top,f]=parts;if(!it.lead){top.classList.add('rvpost');top.prepend(postHead());}
+return[top,...privateBox('Private · with Claude','Between you and Claude: nothing of it is posted',[f])];}
+// The box of what would be posted: a draft of Claude's, or your comment, under a head naming where it goes.
+function postHead(c){const h=mk('div',{className:'rvposth'}),to=posting()?.source;
+h.append(mk('span',{className:'rvpostl',textContent:to?'To post on '+to:'Your comment'}),mk('span',{className:'rvm',textContent:c?'your draft':'suggested by Claude'}),
+mk('span',{className:'n'}),...(c?ghLine(c).slice(1):[]));return h;}
+function leadBox(c){const b=mk('div',{className:'rva rvpost'});b.append(postHead(c),bodyOf(c),ownRow(c));return b;}
 function part(it){const h=mk('div',{className:'rvch'}),bd=mk('div',{className:'rvcb'}),d=mk('div',{className:'rvpart'+(it.done?' rvdone':'')});
 if(it.kind==='g')ghPart(it,h,bd);
 else if(it.kind==='r'){const m=mk('span',{className:'rvm'});m.append(...line(tag(it),[it.section,it.time.replace('T',' '),state(it)]));h.append(titled(it),grouped(actions(it,toAccept(it))),m);
-bd.append(mk('blockquote',{textContent:it.sent}),...asks(it,undefined,true));}
+bd.append(mk('blockquote',{textContent:it.sent}),...threadBody(it));}
 else{const hm=mk('span',{className:'rvm'});hm.append(...line(tag(it),[it.section||it.file]),...ghLine(it),...twinLink(it));
 h.append(hm);
 bd.append(...(it.quote?[mk('blockquote',{textContent:it.quote})]:[]),bodyOf(it),ownRow(it),...draftAsks(it));}
@@ -803,7 +830,7 @@ d.append(h,bd);return d;}
 // comes under the pointer.
 const rank=it=>it.done?3:it.kind==='c'?0:it.kind==='g'?1:2;
 function showCard(its,b,again){const was=again&&cardIds||[],seat=it=>{const i=was.indexOf(idOf(it));return i<0?was.length+rank(it):i;};
-its=[...new Set(its.map(i=>i.kind==='c'&&i.thread||i))].sort((x,y)=>seat(x)-seat(y));const f=keepFocus(),y=card.scrollTop;
+its=[...new Set(its.map(i=>i.kind==='c'&&(i.thread||i.inThread)||i))].sort((x,y)=>seat(x)-seat(y));const f=keepFocus(),y=card.scrollTop;
 cardIds=its.map(idOf);carded=(its.find(i=>i.kind==='r'&&!i.done)||its.find(i=>i.kind==='r'))?.time||null;card.replaceChildren(...its.map(part));
 // × closes it (as esc and a click elsewhere do), at the end of its first header's buttons.
 {const h=card.querySelector('.rvch'),x=act('×','Close (esc)',()=>{card.hidden=true;});x.classList.add('rvclose');(h?.querySelector('.rvas')||h)?.append(x);}
@@ -820,9 +847,13 @@ const r=b.getBoundingClientRect(),below=innerHeight-r.bottom-12,above=r.top-docu
 card.style.maxHeight=Math.max(120,down?below:above)+'px';card.style.left=Math.max(v.offsetLeft+8,Math.min(r.left,right-card.offsetWidth-8))+scrollX+'px';
 card.style.top=(down?r.bottom+4:r.top-4-card.offsetHeight)+scrollY+'px';}
 // The Review panel: comments and revisits in the order they come in the doc, each one going to its mark.
-const where=it=>{const g=it.github;return g&&g.path?g.path+(g.line?':'+g.line+(g.side==='L'?' (old)':''):''):'';};
+const where=it=>{const g=it.github;return g&&g.path?g.path+(g.line?':'+g.line+(g.end?'–'+g.end:'')+(g.side==='L'?' (old)':''):''):'';};
 // A comment's file and line on GitHub, linked to it there, in its panel entry and its card's header.
-const ghLine=it=>{const w=where(it);return w&&it.github.href?[' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗',title:'Its line on GitHub: '+w})]:[];};
+// A comment of yours not posted has Copy beside it: its text as it will be posted, to paste at those lines.
+const ghLine=it=>{const w=where(it);if(!w||!it.github.href)return[];
+const c=it.kind==='c'&&!it.thread&&act('Copy','Copy it as it will be posted, to paste at '+w+' on GitHub',async()=>{c.textContent=await copy(it.body)?'copied':'copying failed';setTimeout(()=>c.textContent='Copy',1500);});
+if(c)c.classList.add('rvsec');
+return[' · ',mk('a',{href:it.github.href,target:'_blank',rel:'noopener',textContent:w.split('/').pop()+' ↗',title:'Its line'+(it.github.end?'s':'')+' on GitHub: '+w}),...(c?[' ',c]:[])];};
 function order(){const secs=[...document.querySelectorAll('section')].map(s=>s.dataset.file);
 const at=it=>{const v=it.at[cur]?cur:vorder.find(x=>it.at[x]);if(!v)return 2;const b=it.at[v],w=b.closest('.v'),r=document.createRange();
 r.setStart(w,0);r.setEndBefore(b);return r.toString().length/Math.max(1,w.textContent.length);};
@@ -846,7 +877,7 @@ d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);looked(it);for(con
 const t=it.kind==='c'&&it.thread;m.append(...(t?postedAs(it,t):[...line(tag(it),[files>1&&it.file,it.section,r&&state(it)]),Object.keys(it.at).length?'':' · not in the page now']));
 m.append(...ghLine(it));if(!r&&!t)m.append(...twinLink(it));
 if(it.quote)bd.append(mk('blockquote',{textContent:r?it.sent:it.quote}));
-if(r)h.append(titled(it),grouped(actions(it)),m),bd.append(...asks(it,undefined,true));else{
+if(r)h.append(titled(it),grouped(actions(it)),m),bd.append(...threadBody(it));else{
 // Posted, it shows as its thread on GitHub does, with its local copy's edit and delete under it.
 if(t){h.append(m,...(t.file&&!t.done?[reply(t)]:[]),...ghSettle(t),ghOpen(t));bd.append(...ghBodies(t,it),...drafts(t),...sentLine(t),...(opened.has(t.rid)&&!t.done&&!inCard(t)?[box(t.rid,{it:t})]:[]));
 d.append(h,bd,local(it));d.onclick=e=>{if(e.target.closest('a,button'))return;jump(it);looked(t);for(const x of t.rts)if(x.unread)setThread(x,{seen:true});};return d;}
@@ -904,7 +935,7 @@ const bySource=new Map();for(const it of loose)bySource.set(it.src.source,[...(b
 const ghs=[...bySource].map(([n,l])=>{const gh=mk('details',{className:'rvg',open:!ghFolded});gh.ontoggle=()=>{ghFolded=!gh.open;if(gh.open)gh.querySelectorAll('.rvib').forEach(fold);};
 gh.append(mk('summary',{textContent:'On '+n+' ('+l.length+')'}),...l.map(it=>row(it,files)));return gh;});
 const fs=mk('div',{className:'rvfs'});fs.append(f,fa);
-lp.dataset.f=filter;lp.replaceChildren(h,...ghStatus(),fs,...(filter==='resolved'?done:its.filter(i=>!listedDone(i))).map(it=>row(it,files)),
+lp.dataset.f=filter;lp.replaceChildren(h,...ghStatus(),fs,...(filter==='resolved'?done:its.filter(i=>!listedDone(i))).filter(i=>!i.inThread).map(it=>row(it,files)),
 ...(filter!=='resolved'?ghs:[]),...(filter==='all'&&done.length?[g]:[]));
 lp.querySelectorAll('.rvib').forEach(fold);refocus();}
 // Paste-ready: per comment, its file:line (linked to it on GitHub) or else its file and section, the
@@ -1069,9 +1100,11 @@ def state(run, refresh=None, source=None):
     out = pathlib.Path(run['out'])
     with lock:
         doc = load(out)
-        # Another PR or head (the PR moved on): find the comments in its files again.
+        # Another PR or head (the PR moved on): find the comments in its files again; and those found before
+        # a quote's range was (no ranged), once.
         moved = [c for c in doc['comments']
-                 if [(c.get('github') or {}).get(k) for k in ('pr', 'head')] != [run.get('pr'), run.get('head')]]
+                 if [(c.get('github') or {}).get(k) for k in ('pr', 'head')] != [run.get('pr'), run.get('head')]
+                 or run.get('pr') and not (c.get('github') or {}).get('ranged')]
         if moved:
             locate(run, moved)
             save(out, doc)
@@ -1113,7 +1146,7 @@ def push(run, out, req):
     cs = sorted((c for c in doc['comments'] if c['id'] in ids), key=lambda c: ids[c['id']])
     got = m.push(run, [{'id': c['id'], 'body': c['body'], 'pushed': c.get('pushed'), 'quote': c.get('quote'),
                         'where': ' · '.join(filter(None, [(c.get('github') or {}).get('path') or c['file'], c.get('section')])),
-                        **{k: (c.get('github') or {}).get(k) for k in ('path', 'line', 'side')}} for c in cs],
+                        **{k: (c.get('github') or {}).get(k) for k in ('path', 'line', 'end', 'side')}} for c in cs],
                  doc.get('push'), bool(req.get('dry')))
     if not req.get('dry') and (got['pushed'] or got['review']):
         with lock:
@@ -1205,7 +1238,9 @@ def answer_records(run):
 
 def locate(run, cs):
     """Sets each comment's github to where a plugin's place() finds its text in the PR's files: {pr,
-    head, path, line, side, href}, with no path, line or href where none does."""
+    head, path, line, side, href}, with no path, line or href where none does; with end and old, for a
+    quote over several lines: the line its last word is on, the link taking the range, and the file's
+    text of those lines, which a suggestion in the comment replaces."""
     finder = next((m for m in docdiff.PLUGINS if hasattr(m, 'place')), None)
     files = {}
     if finder and run.get('pr'):
@@ -1214,8 +1249,28 @@ def locate(run, cs):
     for c in cs:
         got = c['file'] in files and finder.place(run, *files[c['file']], c['side'], c['before'] or '',
                                                   f"{c['quote'] or ''} {c['after'] or ''}")
-        c['github'] = {'pr': run.get('pr'), 'head': run.get('head'), 'side': c['side'],
+        c['github'] = {'pr': run.get('pr'), 'head': run.get('head'), 'side': c['side'], 'ranged': True,
                        **(dict(zip(('path', 'line', 'href'), got)) if got else {})}
+        words = (c['quote'] or '').split()
+        if got and got[1] and len(words) > 1:
+            last = finder.place(run, *files[c['file']], c['side'], f"{c['before'] or ''} {' '.join(words[:-1])}",
+                                f"{words[-1]} {c['after'] or ''}")
+            if last and last[0] == got[0] and last[1] and last[1] > got[1]:
+                text, end = file_text(run['repo'], run['base'] if c['side'] == 'L' else run['head'], got[0]), last[1]
+                # A suggestion that ends with the line after the quote's own (a closing tag, say) replaces it too.
+                sug = re.search(r'```suggestion\n(.*?)\n```', c.get('body') or '', re.S)
+                tail = sug and sug.group(1).split('\n')[-1].strip()
+                if text and tail and end < len(text) and text[end].strip() == tail and text[end - 1].strip() != tail:
+                    end += 1
+                c['github'].update(end=end, href=f"{got[2]}-{c['side']}{end}", old=text[got[1] - 1:end] if text else None)
+
+
+def file_text(repo, rev, path, kept={}):
+    """The file's lines at the revision, kept by both; None where git has no such file."""
+    if (rev, path) not in kept:
+        r = subprocess.run(['git', '-C', str(repo), 'show', f'{rev}:{path}'], capture_output=True, text=True)
+        kept[(rev, path)] = r.stdout.split('\n') if not r.returncode else None
+    return kept[(rev, path)]
 
 
 def load(out):
