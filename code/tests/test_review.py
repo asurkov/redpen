@@ -371,6 +371,17 @@ class Overview(unittest.TestCase):
         self.assertTrue(self.rv.needs_overview())
         self.assertIn('"three"; "eight"; "b"', self.rv.describe_by_fork())
 
+    def test_the_pages_describe_waiting_for_the_next_message_is_the_forks_to_answer(self):
+        self.outline(('three', [('a.py', 3, 3)]), ('eight', [('a.py', 8, 8)]), ('b', [('b.py', 2, 2)]))
+        self.rv.describe()
+        self.assertEqual(self.rv.asked_state(), 'draft')
+        asked = self.rv.describe_by_fork()
+        # The user's ask, the items written before named, and gone from what waits for the next message.
+        self.assertIn('The user asked on the redpen review page', asked)
+        self.assertIn('"three"; "eight"; "b"', asked)
+        self.assertEqual(self.rv.comments(), [])
+        self.assertEqual(self.rv.asked_state(), 'taken')
+
     def test_an_ask_the_fork_brought_no_overview_for_is_asked_again(self):
         self.rv.describe_by_fork()
         self.assertEqual(self.rv.asked_state(), 'taken')

@@ -119,6 +119,23 @@ async function scanOnce($: EngineInterface, force: boolean) {
   if (JSON.stringify(marked) !== JSON.stringify(await read($, marks))) await update($, marks, () => marked)
   const written = await readOverview($, record)
   if (written !== undefined && JSON.stringify(written) !== JSON.stringify(await read($, overview))) await update($, overview, () => written)
+  if (await isDescribeWaiting($, record)) void askOverview($)
+}
+
+// Whether the page's Describe waits among its comments, read again when their file changed: it would go to
+// Claude with the next message, and the question Review asks answers it now instead.
+let commentsSignature = ''
+async function isDescribeWaiting($: EngineInterface, record: string) {
+  const place = `${record}/review/comments.json`
+  const signature = await signatureOf($, place)
+  if (signature === commentsSignature) return false
+  commentsSignature = signature
+  try {
+    const comments: unknown = JSON.parse(await $.fs.read(place))
+    return Array.isArray(comments) && comments.some(comment => comment?.describe === true)
+  } catch {
+    return false
+  }
 }
 
 // The record's overview (review/outline.json) as the row uses it, read again when its file changed;

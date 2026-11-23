@@ -1325,17 +1325,25 @@ class Review:
 
     def describe_by_fork(self):
         """Asks for the overview by a question over the session's own conversation, which the Claude Code
-        mod asks as a fork with no tools: the ask is logged as sent and handed over at once, so the page
-        says Claude writes it and nothing hands it over again. Returns the question: how to write it, the
-        items of the one written before, to keep those that still hold, and the changes, numbered."""
+        mod asks as a fork with no tools: the ask, the page's Describe where one waits, is logged as sent and
+        handed over at once, so the page says Claude writes it and nothing hands it over again. Returns the
+        question: how to write it, the items of the one written before, to keep those that still hold, and
+        the changes, numbered."""
         channel = shared('channel')
         with channel.locked(self.sent):
-            ask = channel.append(self.sent, {'comments': [{'id': f'{time.time_ns():x}', 'time': now(), 'describe': True}]})
+            # The page's Describe, waiting to go with the next message: the fork answers it now.
+            comments = self.comments()
+            drafted = [comment for comment in comments if comment.get('describe')]
+            if drafted:
+                write_atomic(self.folder / 'comments.json',
+                             json.dumps([comment for comment in comments if not comment.get('describe')], indent=1).encode())
+            ask = channel.append(self.sent, {'comments': drafted or [{'id': f'{time.time_ns():x}', 'time': now(), 'describe': True}]})
             channel.mark(self.sent, [ask], 'fork')
         outline = read_json(self.folder / 'outline.json', {})
         titles = [item.get('title') for item in outline.get('items') or []] if isinstance(outline, dict) else []
         changes = f"the changes in {self.git['repo']} against {self.git['spec']}" if self.git else 'your changes'
-        return outline_asked(changes, self.git, self.session, titles, is_forked=True) + '\n\n' + self.changes_shown()
+        return (outline_asked(changes, self.git, self.session, titles, is_forked=True, is_users=bool(drafted)) + '\n\n' +
+                self.changes_shown())
 
     def drop_ask(self):
         """The last ask for an overview, taken by a fork that brought none: it waits no more."""
@@ -1668,13 +1676,14 @@ def described(comments, git=None, name=None):
     return '\n'.join(out + ['', *told] if told else out)
 
 
-def outline_asked(changes, git, name, titles=None, is_forked=False):
+def outline_asked(changes, git, name, titles=None, is_forked=False, is_users=False):
     """What tells the model to write the overview the user asked for; with titles, the items of the one
-    written before, the ask the page's own, made when the review opened with changes it does not cover;
-    is_forked, asked of a fork with no tools, which answers with the overview and is shown the changes."""
+    written before, the ask the page's own, made when the review opened with changes it does not cover,
+    unless is_users, the user's Describe; is_forked, asked of a fork with no tools, which answers with the
+    overview and is shown the changes."""
     diffed = f" (`git -C {git['repo']} diff {git['base']}`, and its untracked files)" if git and not is_forked else ''
     before = ' at the base commit' if git else ' before your edits'
-    asker = 'The user asked on the redpen review page' if titles is None else \
+    asker = 'The user asked on the redpen review page' if titles is None or is_users else \
         'The redpen review page opened with changes no overview covers, and asks'
     again = [] if not titles else [
         'It replaces the one written before, whose items were: ' + '; '.join(f'"{title}"' for title in titles) +
@@ -1834,10 +1843,11 @@ def accepted_all(session, port=None):
 
 
 def describe_if_needed(session):
-    """Prints the question that asks for the session's overview, if its review needs one; else nothing."""
+    """Prints the question that asks for the session's overview, if the page's Describe waits for it or its
+    review needs one; else nothing."""
     try:
         review = Review(session)
-        if (store / session / 'files').is_dir() and review.needs_overview():
+        if (store / session / 'files').is_dir() and (review.asked_state() == 'draft' or review.needs_overview()):
             print(review.describe_by_fork())
     except Refusal as e:
         sys.exit(str(e))

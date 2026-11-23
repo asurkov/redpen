@@ -137,7 +137,9 @@ export class DiffView {
     // would then act on. With text selected, it still takes the selection to the click.
     const plainTargets = new Set(['CONTENT_TEXT', 'CONTENT_EMPTY', 'GUTTER_LINE_NUMBERS', 'GUTTER_LINE_DECORATIONS']
       .map(name => monaco.editor.MouseTargetType[name]));
-    element.addEventListener('mousedown', event => {
+    // The editor's own handling starts at pointerdown, and a press held then drags a selection: it is
+    // kept from both the pointer's and the mouse's down.
+    const plainClick = event => {
       if (!event.shiftKey || event.button !== 0 || !this.shown.getModel() || !this.shown.getSelection()?.isEmpty()) {
         return;
       }
@@ -149,7 +151,10 @@ export class DiffView {
       event.stopPropagation();
       this.shown.focus();
       this.shown.setPosition(target.position);
-    }, true);
+    };
+    for (const name of ['pointerdown', 'mousedown']) {
+      element.addEventListener(name, plainClick, true);
+    }
   }
 
   // Shows the two texts of the file at path. changeActions: [action, label, key] for each change's

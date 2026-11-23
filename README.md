@@ -141,7 +141,9 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   to their own file bar). A block follows its lines when lines above them move, and is struck through
   as changed since when they are gone. **Not in the overview** lists the changes no block covers, so
   nothing hides behind it. **Describe** asks Claude for the overview, or for a new one, the way a
-  comment goes: at once while the waiting command runs, else with the next message. **Comment** on an
+  comment goes: at once while the waiting command runs, else with the next message; but in a session
+  with the Claude Code mod, the mod sees it waiting within two seconds and asks it of a fork of the
+  session at once, as Review's own ask, nothing in the chat. **Comment** on an
   item ("why this approach?") goes to Claude the same way, quoting the item; its thread stands under
   the item, with Claude's answer, **Reply** and **Resolve**, and the strip at the bottom lists it as
   "Overview: <title>", a click opening the drawer at it.
@@ -151,8 +153,9 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   selected text, or else on it. `a` leaves the view where it is, for a careful review; `Shift+A`, or
   Shift with a click on a change's Accept, Reject or Unaccept, then goes on to the next change as `n`
   does, for a quick one. While Shift is held those buttons say so ("Accept + next", the key `⇧a`). Reject has no key.
-  A Shift+click on the text with nothing selected only moves the cursor there, so a hand kept on Shift
-  selects nothing for `Shift+A` to take; with text selected, it still takes the selection to the click. With lines selected, `a` and the Accept and
+  A Shift+click on the text with nothing selected only moves the cursor there, a long one too, so a hand
+  kept on Shift selects nothing for `Shift+A` to take; with text selected, it still takes the selection
+  to the click. With lines selected, `a` and the Accept and
   Reject buttons at the selection, beside Comment, take only the selected lines of the
   changes, whole lines; removed lines go with the lines on both sides of them. While those buttons,
   or a comment box, are open, the bars of the changes they stand over are hidden, their room kept.

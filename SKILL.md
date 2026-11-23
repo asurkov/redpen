@@ -69,7 +69,8 @@ is now, or the file alone): the answer then links to the change, and the user go
 and resolves the thread.
 
 **Writing the overview.** When the user presses Describe, the waiting command (or the hook) prints an
-ask for an overview, naming the review. Write it as JSON on stdin of
+ask for an overview, naming the review, unless the Claude Code mod took it first for a fork of the
+session (below). Write it as JSON on stdin of
 
 ```bash
 python3 ~/.claude/skills/redpen/code/review.py --outline <review> <<'EOF'

@@ -115,13 +115,15 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
     if (e.argv[1] === '/h/.claude/skills/redpen/code/review.py') return done(0, `${page}\n`)
     return done(0)
   })
-  // Writes the record's overview, as review.py --outline does.
-  const writeOverview = (written: unknown) => {
-    const place = `${record}/review/outline.json`
-    entries.set(place, JSON.stringify(written))
+  // Writes the record's overview, as review.py --outline does, and the page's comments waiting for the
+  // next message, as the page's server does.
+  const written = (place: string, data: unknown) => {
+    entries.set(place, JSON.stringify(data))
     times.set(place, (times.get(place) ?? 1) + 1)
   }
-  return { ran, opened, marks, surfaces, clock, asking, forked, replies, outlines, refusals, writeOverview }
+  const writeOverview = (data: unknown) => written(`${record}/review/outline.json`, data)
+  const writeComments = (data: unknown) => written(`${record}/review/comments.json`, data)
+  return { ran, opened, marks, surfaces, clock, asking, forked, replies, outlines, refusals, writeOverview, writeComments }
 }
 
 test('the pane lists the edited files with their counts', async ($, on) => {
@@ -148,6 +150,24 @@ test('the pane lists the edited files with their counts', async ($, on) => {
     expect((await ui.find({ key: 'redpen' }))?.props.label).toBe('Open review')
     await ui.unmount()
   }
+})
+
+test("the page's Describe, waiting for the next message, is answered by a fork at once", async ($, on) => {
+  const { clock, asking, forked, outlines, writeComments } = session(on, [{ path: file, numstat: '2\t1' }])
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
+  asking.text = 'The user asked for an overview.\n'
+  // Comments with no Describe among them: nothing is asked.
+  writeComments([{ id: 'c1', text: 'Why?' }])
+  await clock.advance(1500)
+  expect(forked).toEqual([])
+  writeComments([{ id: 'c1', text: 'Why?' }, { id: 'd1', describe: true }])
+  await clock.advance(1500)
+  await clock.settle()
+  expect(forked).toEqual(['The user asked for an overview.'])
+  expect(outlines).toEqual(['{"items": []}'])
+  // Read again only once the file changes: no second ask meanwhile.
+  await clock.advance(1500)
+  expect(forked.length).toBe(1)
 })
 
 test("a file someone else changed since all of the session's changes to it were accepted is not counted", async ($, on) => {
