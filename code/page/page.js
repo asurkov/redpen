@@ -351,10 +351,14 @@ async function refresh() {
   if (!byId('overview').hidden && state.outlineStamp !== state.outlineRead) {
     await drawOverview();
   }
-  if (state.page && listing.page && listing.page !== state.page && loadAgain()) {
+  // The page's code changed, and held still for two looks, so no edit of more than one of its files is
+  // under way: the page loads itself again. What it is made of, the server said as it sent it.
+  const isCodeStill = listing.page === state.pageSeen;
+  state.pageSeen = listing.page;
+  state.page = state.page || document.querySelector('meta[name="redpen-code"]')?.content || listing.page;
+  if (listing.page && listing.page !== state.page && isCodeStill && loadAgain()) {
     return;
   }
-  state.page = state.page || listing.page;
   tellRebase(listing.rebased);
   byId('title').textContent = listing.title;
   document.title = `${listing.title} · redpen`;
@@ -1933,4 +1937,5 @@ async function main() {
   }, 2000);
 }
 
-main().catch(error => (byId('note').textContent = `The page did not start: ${error.message}`));
+// Started, the page's own looks follow its code; until then the watchdog in page.html does.
+main().then(() => (window.redpenStarted = true), error => (byId('note').textContent = `The page did not start: ${error.message}`));

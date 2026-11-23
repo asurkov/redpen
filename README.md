@@ -189,6 +189,11 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   git repository of their own under `~/.claude`, such as a skill's: they are the work, in its tree.
 - The page follows the files: an edit by Claude or the user shows up within two seconds. An action
   on a text that changed since the page showed it is refused, and the page shows it anew.
+- The page follows its own code too: the server stamps the page with its code's version as it sends it,
+  and once that code changes and holds still for two looks (about four seconds; an edit of several of
+  its files is not caught halfway), an open page loads itself again, unless a comment is being typed. A
+  page that did not start (its code broken, or not loaded) keeps watching, and loads again once the code
+  changes, so it heals when the code is fixed.
 - A session's diff is against the file before the session's first edit to it, so a change made
   since by someone or something else (another session, the user, a formatter, a shell command the
   recorder does not follow) shows as the session's. Such a file says **edited elsewhere**, in the

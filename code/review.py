@@ -786,8 +786,7 @@ class Review:
                 # Where the page's full tree starts.
                 'top': self.top(),
                 # What the page's own code is now: a page made of other code loads itself again.
-                'page': ' '.join(signature(here / 'page' / name)
-                                 for name in ('page.html', 'page.js', 'editor.js', 'page.css')),
+                'page': page_code(),
                 'untaken': sum(len(ask.get('comments') or []) for ask in channel.waiting(self.sent))}
 
     def opened(self, key, is_bare=False):
@@ -2431,6 +2430,11 @@ def send_json(h, value, status=200):
     send(h, status, json.dumps(value).encode(), 'application/json')
 
 
+def page_code():
+    """What the review page's own code is now, by its files' signatures."""
+    return ' '.join(signature(here / 'page' / name) for name in ('page.html', 'page.js', 'editor.js', 'page.css'))
+
+
 def send_file(h, root, name, cache='no-store'):
     target = (root / name).resolve()
     if root.resolve() not in target.parents or not target.is_file():
@@ -2482,7 +2486,10 @@ def get(h, path):
             # A git review's files are found anew as its page loads: the page shows those it has
             # at once, and the others as they are found.
             rescan(review, kept_lock(h))
-        return send_file(h, here / 'page', 'page.html')
+        # The page says what code it is made of: it knows its code changed even when it did not start.
+        page = (here / 'page' / 'page.html').read_bytes().replace(
+            b'<meta name="redpen-code" content="">', f'<meta name="redpen-code" content="{page_code()}">'.encode())
+        return send(h, 200, page, types['.html'])
     found = re.fullmatch(r'/api/([\w-]+)/plain', path)
     if found:
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(h.path).query)

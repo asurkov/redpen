@@ -4,7 +4,31 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>redpen</title>
+<meta name="redpen-code" content="">
 <link rel="stylesheet" href="../../page/page.css">
+<script>
+  // Until the page has started, it watches its own code: a page whose code failed, or did not load (an
+  // edit of it under way), loads again once that code changed and held still for two looks.
+  (() => {
+    const made = document.querySelector('meta[name="redpen-code"]').content;
+    const files = `../../api/${location.pathname.split('/').at(-2)}/files`;
+    let seen = null;
+    const timer = setInterval(async () => {
+      if (window.redpenStarted) {
+        clearInterval(timer);
+        return;
+      }
+      if (document.hidden) {
+        return;
+      }
+      const now = await fetch(files).then(response => response.json()).then(listing => listing.page, () => null);
+      if (made && now && now !== made && now === seen) {
+        location.reload();
+      }
+      seen = now;
+    }, 2000);
+  })();
+</script>
 </head>
 <body>
 <header id="top">
