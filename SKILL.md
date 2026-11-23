@@ -116,7 +116,9 @@ many files, and any skips. `--workspace <id>` picks the workspace, `--session <i
 
 - `python3 -m unittest discover -s ~/.claude/skills/redpen/code/tests` tests `review.py` and
   `recorder.py`, in a scratch home, in a few seconds; `claude plugin test ~/.claude/skills/redpen/code/mod`
-  tests the Claude Code mod. Run them after a change to either.
+  tests the Claude Code mod; `python3 -m unittest discover -s ~/.claude/skills/redpen/prose/tests` tests
+  docdiff's plugins (where a comment's quote is in a PR's files, what a push sends, GitHub faked). Run them
+  after a change to any of them.
 - The server runs `code/` and `prose/` as they are on disk; only a change to `base/server.py` needs
   `python3 -I ~/.claude/skills/redpen/base/server.py --restart`. Its log is `~/.redpen/server.log`.
 - The mod reaches an open session with `/reload-plugins`, the Cursor extension with `install.py` and a
