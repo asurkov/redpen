@@ -53,15 +53,20 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
   const opened: string[] = []
   const marks = new Map<string, number>()
   const surfaces: ('terminal' | 'desktop')[] = ['desktop']
-  // What review.py --describe prints (the ask for an overview, or nothing), the prompts the mod submitted,
-  // and the files' times, by path, for those a test rewrites.
+  // What review.py --ask-overview prints (the question for an overview, or nothing); the questions the mod asked
+  // a fork of the session, and the fork's replies, in turn; what review.py --outline was given, and its
+  // refusals, in turn; and the files' times, by path, for those a test rewrites.
   const asking = { text: '' }
-  const submitted: string[] = []
+  const forked: string[] = []
+  const replies: string[] = []
+  const outlines: string[] = []
+  const refusals: string[] = []
 
   const times = new Map<string, number>()
-  on('prompt.submit', (_, e) => {
-    submitted.push(e.text)
-    return { text: e.text }
+  on('model.fork', (_, e) => {
+    forked.push(e.prompt)
+    const usage = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+    return { value: { isAnswered: true as const, text: replies.shift() ?? '{"items": []}', usage } }
   })
   on('env.get', () => ({ value: '/h' }))
   on('session.surfaces', () => ({ value: [...surfaces] }))
@@ -101,7 +106,12 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
       const asked = e.argv.slice(3)
       return done(0, edited.filter(file => file.isGenerated && asked.includes(file.path)).map(file => `${file.path}\n`).join(''))
     }
-    if (e.argv[2] === '--describe') return done(0, asking.text)
+    if (e.argv[2] === '--ask-overview') return done(0, asking.text)
+    if (e.argv[2] === '--outline') {
+      outlines.push(e.init?.stdin ?? '')
+      const refusal = refusals.shift()
+      return refusal ? { value: { exitCode: 1, stdout: '', stderr: `${refusal}\n`, isStdoutTruncated: false, isStderrTruncated: false } } : done(0)
+    }
     if (e.argv[1] === '/h/.claude/skills/redpen/code/review.py') return done(0, `${page}\n`)
     return done(0)
   })
@@ -111,7 +121,7 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
     entries.set(place, JSON.stringify(written))
     times.set(place, (times.get(place) ?? 1) + 1)
   }
-  return { ran, opened, marks, surfaces, clock, asking, submitted, writeOverview }
+  return { ran, opened, marks, surfaces, clock, asking, forked, replies, outlines, refusals, writeOverview }
 }
 
 test('the pane lists the edited files with their counts', async ($, on) => {
@@ -319,7 +329,7 @@ test('a file in the pane opens the review at that file, in the tab open already'
 })
 
 test('a turn that edited the work opens the review as it ends', async ($, on) => {
-  const { marks, surfaces, clock, asking, submitted } = session(on, [
+  const { marks, surfaces, clock, asking, forked } = session(on, [
     { path: file, numstat: '2\t1' },
     { path: '/h/.claude/settings.json', numstat: '1\t0' },
   ])
@@ -351,7 +361,7 @@ test('a turn that edited the work opens the review as it ends', async ($, on) =>
 
   await turn(['k0'])
   expect(opens()).toBe(1)
-  expect(submitted).toEqual([])
+  expect(forked).toEqual([])
   // No edit, or only one to Claude's own files: nothing opens.
   await turn([])
   await turn(['k1'])
@@ -426,7 +436,7 @@ test('Accept all in the row has review.py accept everything pending', async ($, 
 })
 
 test('opening the review asks Claude for the overview it lacks, and the row names what is new by it', async ($, on) => {
-  const { marks, clock, asking, submitted, ran, writeOverview } = session(on, [
+  const { marks, clock, asking, forked, replies, outlines, refusals, ran, writeOverview } = session(on, [
     { path: file, numstat: '2\t1' },
     { path: '/w/src/b.txt', numstat: '1\t0' },
   ])
@@ -445,13 +455,23 @@ test('opening the review asks Claude for the overview it lacks, and the row name
 
   // review.py says no overview is needed: nothing is asked.
   await row('redpen')
-  expect(ran).toContain('python3 /h/.claude/skills/redpen/code/review.py --describe --session s1')
-  expect(submitted).toEqual([])
-  // It says one is: its ask goes to Claude as a prompt of the session's own.
-  asking.text = 'Write the overview: review.py --outline-how says how.\n'
+  expect(ran).toContain('python3 /h/.claude/skills/redpen/code/review.py --ask-overview --session s1')
+  expect(forked).toEqual([])
+  // It says one is: a fork of the session answers its question, and review.py keeps the JSON in the reply.
+  asking.text = 'Write the overview as JSON.\n'
+  replies.push('Here it is:\n```json\n{"items": [{"title": "A"}]}\n```')
   await row('redpen')
   await clock.settle()
-  expect(submitted).toEqual(['Write the overview: review.py --outline-how says how.'])
+  expect(forked).toEqual(['Write the overview as JSON.'])
+  expect(outlines).toEqual(['{"items": [{"title": "A"}]}'])
+  // One refused is asked again once, with the refusal and the answer; refused again, the ask is dropped.
+  refusals.push('x.txt is not among the files', 'still not')
+  await row('redpen')
+  await clock.settle()
+  expect(forked.length).toBe(3)
+  expect(forked[2]).toContain('Your answer was refused: x.txt is not among the files')
+  expect(forked[2]).toContain('{"items": []}')
+  expect(ran).toContain('python3 /h/.claude/skills/redpen/code/review.py --drop-ask --session s1')
 
   // Edits, then the overview Claude wrote after them: the row names them by its item.
   marks.set(`${record}/after/k1`, 5)

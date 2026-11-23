@@ -200,15 +200,17 @@ async function trace($: EngineInterface, line: string) {
   await $.fs.write(place, `${lines.join('\n')}\n`).catch(() => undefined)
 }
 
-// The review opened with changes no overview covers: Claude is asked for one, by a prompt of the
-// session's own, which starts a turn of its own once the session is idle. review.py says whether one is
-// needed (none while an ask waits for its answer) and logs the ask as handed over, so the page shows
-// that Claude writes it and nothing hands it over again.
+// The review opened with changes no overview covers: Claude is asked for one by a question over the
+// session's own conversation (a fork with no tools), so nothing shows in the chat and no turn starts.
+// review.py says whether one is needed (none while an ask waits for its answer), logs the ask as handed
+// over, so the page shows that Claude writes it, and prints the question, the changes numbered in it. The
+// answer goes to review.py --outline; one it refuses is asked again once, with the refusal.
 async function askOverview($: EngineInterface) {
   const { home } = await places($)
-  await trace($, 'asking review.py --describe')
-  const ran = await $.process.run(['python3', `${home}/.claude/skills/redpen/code/review.py`, '--describe',
-    '--session', await $.session.id()]).catch(async error => {
+  const script = `${home}/.claude/skills/redpen/code/review.py`
+  const session = await $.session.id()
+  await trace($, 'asking review.py --ask-overview')
+  const ran = await $.process.run(['python3', script, '--ask-overview', '--session', session]).catch(async error => {
     await trace($, `review.py did not run: ${error}`)
     $.ui.toast(`redpen could not ask for the overview: ${error}`)
     return undefined
@@ -216,12 +218,33 @@ async function askOverview($: EngineInterface) {
   if (!ran) return
   const said = ran.stderr.trim().split('\n').pop()
   await trace($, `review.py exited ${ran.exitCode}: ${ran.stdout.trim() ? 'an ask' : 'none needed'}${said ? ` (${said})` : ''}`)
-  const text = ran.exitCode === 0 ? ran.stdout.trim() : ''
-  if (!text) return
-  await $.prompt.submit({ text }).then(() => trace($, 'asked'), async error => {
-    await trace($, `not asked: ${error}`)
-    $.ui.toast(`redpen could not ask Claude for the overview: ${error}`)
-  })
+  const question = ran.exitCode === 0 ? ran.stdout.trim() : ''
+  if (!question) return
+  let prompt = question
+  for (const isLast of [false, true]) {
+    const reply = await $.model.fork({ prompt }).catch(error => String(error))
+    if (typeof reply === 'string' || !reply.isAnswered) return failedOverview($, script, session, typeof reply === 'string' ? reply : reply.reason)
+    // The JSON, whatever words or fence came around it.
+    const answer = reply.text.slice(reply.text.indexOf('{'), reply.text.lastIndexOf('}') + 1)
+    const kept = await $.process.run(['python3', script, '--outline', session], { stdin: answer })
+      .catch(error => ({ exitCode: -1, stdout: '', stderr: String(error) }))
+    if (kept.exitCode === 0) {
+      await trace($, 'overview written')
+      $.ui.toast('redpen: the overview is written.')
+      return
+    }
+    const refusal = kept.stderr.trim() || 'review.py --outline failed'
+    if (isLast) return failedOverview($, script, session, refusal)
+    await trace($, `overview refused, asked again: ${refusal}`)
+    prompt = `${question}\n\nYour answer was refused: ${refusal}\nIt was:\n${answer}\nAnswer again, with the JSON alone.`
+  }
+}
+
+// The question brought no overview: the ask waits no more, so Review or Describe can ask again.
+async function failedOverview($: EngineInterface, script: string, session: string, why: string) {
+  await trace($, `no overview: ${why}`)
+  await $.process.run(['python3', script, '--drop-ask', '--session', session]).catch(() => undefined)
+  $.ui.toast(`redpen could not get the overview: ${why}`)
 }
 
 async function showRedpen($: EngineInterface, surface: string, path?: string) {

@@ -305,6 +305,10 @@ uncovered_shown = 300
 # An ask for an overview Claude took this long ago with none written was dropped (its turn cut short by
 # Esc or an error): it waits no more, so it can be asked again.
 taken_minutes = 20
+# The most of the changes, in characters, the question for an overview shows a model with no tools, and
+# of each line of them.
+shown_change_chars = 200_000
+shown_line_chars = 400
 # How alike a file gone from its place and a new file must be to be one file moved, as git's rename
 # threshold has it.
 moved_likeness = 0.5
@@ -451,6 +455,11 @@ def changes_between(a, b):
     """The changes from lines a to lines b, as difflib's opcodes, the equal stretches left out:
     (tag, a_start, a_end, b_start, b_end), each span counted from 0, its end left out."""
     return [op for op in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes() if op[0] != 'equal']
+
+
+def shown_line(line):
+    """A line of the changes as the question for an overview shows it: cut past shown_line_chars."""
+    return line if len(line) <= shown_line_chars else line[:shown_line_chars] + '…'
 
 
 def touches(span, start, end):
@@ -1315,25 +1324,60 @@ class Review:
             return any(file['all'] and not file['isOther'] and not file['isGenerated'] for file in self.listing()['files'])
         return bool(shown['uncovered'])
 
-    def describe_by_prompt(self):
-        """Asks for the overview by a prompt of the session's own, which the Claude Code mod submits: the ask
-        is logged as sent and handed over at once, so the page says Claude writes it and nothing hands it
-        over again. Returns the prompt."""
+    def describe_by_fork(self):
+        """Asks for the overview by a question over the session's own conversation, which the Claude Code
+        mod asks as a fork with no tools: the ask is logged as sent and handed over at once, so the page
+        says Claude writes it and nothing hands it over again. Returns the question: how to write it, the
+        items of the one written before, to keep those that still hold, and the changes, numbered."""
         channel = shared('channel')
         with channel.locked(self.sent):
             ask = channel.append(self.sent, {'comments': [{'id': f'{time.time_ns():x}', 'time': now(), 'describe': True}]})
-            channel.mark(self.sent, [ask], 'prompt')
-        # One line in the transcript: the command it names prints what to write (outline_how()).
-        return (f"Write the overview of {'the' if self.git else 'your'} changes for the redpen review: "
-                f"`python3 {here / 'review.py'} --outline-how {self.session}` says how.")
-
-    def outline_how(self):
-        """What the page's own ask for an overview tells the model: how to write it, and the items of the
-        one written before, to keep those that still hold."""
+            channel.mark(self.sent, [ask], 'fork')
         outline = read_json(self.folder / 'outline.json', {})
         titles = [item.get('title') for item in outline.get('items') or []] if isinstance(outline, dict) else []
         changes = f"the changes in {self.git['repo']} against {self.git['spec']}" if self.git else 'your changes'
-        return outline_asked(changes, self.git, self.session, titles)
+        return outline_asked(changes, self.git, self.session, titles, is_forked=True) + '\n\n' + self.changes_shown()
+
+    def drop_ask(self):
+        """The last ask for an overview, taken by a fork that brought none: it waits no more."""
+        channel = shared('channel')
+        asks = [ask for ask in channel.records(self.sent) for comment in ask.get('comments') or []
+                if isinstance(comment, dict) and comment.get('describe')]
+        if asks:
+            channel.add_line(self.folder / 'handed.jsonl', {'ask': asks[-1].get('id'), 'time': channel.stamp(), 'dropped': True})
+
+    def changes_shown(self):
+        """The work's changes as a model with no tools reads them: by file, each changed stretch with the
+        lines around it, each line marked + (added), - (taken away) or neither, and numbered in the file as
+        it is now, or, in brackets, as it was; past shown_change_chars, the files left are only named."""
+        out, left = [], []
+        size = 0
+        for file in self.listing()['files']:
+            if not file['all'] or file['isOther'] or file['isGenerated']:
+                continue
+            if size > shown_change_chars:
+                left.append(file['path'])
+                continue
+            moved = f" (moved from {file['movedFrom']})" if file.get('movedFrom') else ''
+            lines = self.lines_of(file['key'])
+            if lines['orig'] is None or lines['disk'] is None:
+                part = [f"=== {file['path']}{moved}: no text to show by lines (a link, binary, or too long)"]
+            else:
+                part = [f"=== {file['path']}{moved}" + (' (new)' if file['isNew'] else ' (deleted)' if file['isGone'] else '')]
+                matcher = difflib.SequenceMatcher(None, lines['orig'], lines['disk'], autojunk=False)
+                for group in matcher.get_grouped_opcodes(3):
+                    part.append('@@')
+                    for tag, a1, a2, b1, b2 in group:
+                        if tag == 'equal':
+                            part += [f'  {b + 1} | {shown_line(lines["disk"][b])}' for b in range(b1, b2)]
+                            continue
+                        part += [f'- ({a + 1}) | {shown_line(lines["orig"][a])}' for a in range(a1, a2)]
+                        part += [f'+ {b + 1} | {shown_line(lines["disk"][b])}' for b in range(b1, b2)]
+            size += sum(len(line) + 1 for line in part)
+            out += part
+        if left:
+            out.append('=== Not shown, past what the question holds: ' + ', '.join(left))
+        return '\n'.join(out)
 
     def asked_state(self):
         """Where the last ask for an overview is: 'draft', to go with the next message; 'sent', not
@@ -1350,7 +1394,10 @@ class Review:
         outline = read_json(self.folder / 'outline.json', {})
         if isinstance(outline, dict) and str(outline.get('time') or '') >= str(asked.get('time') or ''):
             return None
-        taken = next((line for line in channel.records(self.folder / 'handed.jsonl') if line.get('ask') == last.get('id')), None)
+        handed = [line for line in channel.records(self.folder / 'handed.jsonl') if line.get('ask') == last.get('id')]
+        if any(line.get('dropped') for line in handed):
+            return None
+        taken = handed[0] if handed else None
         if not taken:
             return 'sent'
         try:
@@ -1622,20 +1669,26 @@ def described(comments, git=None, name=None):
     return '\n'.join(out + ['', *told] if told else out)
 
 
-def outline_asked(changes, git, name, titles=None):
+def outline_asked(changes, git, name, titles=None, is_forked=False):
     """What tells the model to write the overview the user asked for; with titles, the items of the one
-    written before, the ask the page's own, made when the review opened with changes it does not cover."""
-    diffed = f" (`git -C {git['repo']} diff {git['base']}`, and its untracked files)" if git else ''
+    written before, the ask the page's own, made when the review opened with changes it does not cover;
+    is_forked, asked of a fork with no tools, which answers with the overview and is shown the changes."""
+    diffed = f" (`git -C {git['repo']} diff {git['base']}`, and its untracked files)" if git and not is_forked else ''
     before = ' at the base commit' if git else ' before your edits'
     asker = 'The user asked on the redpen review page' if titles is None else \
         'The redpen review page opened with changes no overview covers, and asks'
     again = [] if not titles else [
         'It replaces the one written before, whose items were: ' + '; '.join(f'"{title}"' for title in titles) +
         '. Keep those that still hold, and give the changes they do not cover items of their own.']
+    write = ('Answer with it as JSON alone, no words and no fence around it:' if is_forked else
+             f"Write it as JSON and run `python3 {here / 'review.py'} --outline {name}` with it on stdin:")
+    shown = [] if not is_forked else [
+        'You have no tools here: the changes are below, by file, each changed stretch with the lines around it. '
+        'A line starts with + (added), - (taken away) or neither (unchanged), then its number in the file as it is '
+        f'now, or, in brackets, as it was{before}.']
     return '\n'.join([
-        f'{asker} for an overview of {changes}{diffed}: what they do, by '
-        'purpose, each part pointing at its code. Write it as JSON and run '
-        f"`python3 {here / 'review.py'} --outline {name}` with it on stdin:",
+        f'{asker} for an overview of {changes}{diffed}: what they do, by purpose, each part pointing at its '
+        f'code. {write}',
         '```json',
         '{"items": [{"title": "<a few words>", "text": "<one or two sentences: what it does and why>",',
         '  "blocks": [{"path": "<absolute path>", "start": <first line>, "end": <last line>, "note": "<a short line>"}]}]}',
@@ -1643,9 +1696,10 @@ def outline_asked(changes, git, name, titles=None):
         'Lines are counted from 1 in the file as it is now. For lines taken away, or a deleted file, add '
         f'"side": "orig" and count in the file as it was{before}. A block with no start and end is the whole '
         'file. Group the changes by purpose, not by file, in the order a reviewer should read them, and let '
-        'every change belong to an item: the command and the page list those no block covers. Leave out the '
+        f'every change belong to an item: {"the page lists" if is_forked else "the command and the page list"} '
+        'those no block covers. Leave out the '
         'files the project generates (lockfiles, those marked linguist-generated or by a generator\'s banner). Each note says '
-        'what its block does, in a few words; say only what the code shows.', *again])
+        'what its block does, in a few words; say only what the code shows.', *again, *shown])
 
 
 def prompt_hook():
@@ -1781,11 +1835,11 @@ def accepted_all(session, port=None):
 
 
 def describe_if_needed(session):
-    """Prints the prompt that asks for the session's overview, if its review needs one; else nothing."""
+    """Prints the question that asks for the session's overview, if its review needs one; else nothing."""
     try:
         review = Review(session)
         if (store / session / 'files').is_dir() and review.needs_overview():
-            print(review.describe_by_prompt())
+            print(review.describe_by_fork())
     except Refusal as e:
         sys.exit(str(e))
 
@@ -2498,10 +2552,12 @@ def main():
     parser.add_argument('--outline', nargs='?', const='', metavar='REVIEW')
     parser.add_argument('--generated', nargs='+', metavar='PATH')
     parser.add_argument('--accept-all', action='store_true', help="accept what is pending of every file of the session's review")
-    parser.add_argument('--outline-how', nargs='?', const='', metavar='REVIEW',
-                        help='print how to write the overview the review page asked for')
-    parser.add_argument('--describe', action='store_true',
-                        help="print the ask for an overview, logged as handed over, if the session's review needs one")
+    # Not --describe, the flag of the mod that asked by a prompt in the chat: that mod, loaded until a
+    # session reloads its plugins, now fails to ask, as it should, not posting this question there.
+    parser.add_argument('--ask-overview', action='store_true',
+                        help="print the question for an overview, logged as handed over, if the session's review needs one")
+    parser.add_argument('--drop-ask', action='store_true',
+                        help='the question for an overview brought none: the ask waits no more')
     parser.add_argument('--change', metavar='PATH[:LINE]')
     parser.add_argument('--git', nargs='?', const='.', metavar='REPO')
     parser.add_argument('--base', metavar='REV', help="default: the branch's upstream, else HEAD")
@@ -2517,13 +2573,13 @@ def main():
         return outline(args.outline or args.session)
     if args.generated:
         return print('\n'.join(sorted(generated_paths([os.path.abspath(path) for path in args.generated]))))
-    if args.describe:
+    if args.ask_overview:
         return describe_if_needed(args.session)
     if args.accept_all:
         entry = accepted_all(args.session, args.port)
         return print(f"Accepted {entry['files']} file{'s' if entry['files'] != 1 else ''}.")
-    if args.outline_how is not None:
-        return print(Review(args.outline_how or args.session).outline_how())
+    if args.drop_ask:
+        return Review(args.session).drop_ask()
     server = shared('server')
     port = args.port or server.default_port
     if not server.running(port):

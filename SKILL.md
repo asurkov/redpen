@@ -82,9 +82,9 @@ Items by purpose, in the order to read them; lines from 1 in the file as it is n
 file. The command keeps each block's lines to find them again, refuses a path the review does not have
 or lines its file does not have, saying which, and lists the changes no block covers: add each to an
 item, unless it needs no word. Leave out the files the project generates. Writing one answers the ask
-still waiting. The redpen plugin asks the same by a one-line prompt of its own when the user opens the review
-with changes no overview covers; `review.py --outline-how <review>`, which it names, prints what to write and
-the items written before: write it anew, keeping those that still hold.
+still waiting. The redpen plugin asks the same, when the user opens the review with changes no overview
+covers, of a fork of the session with no tools (`$.model.fork`): nothing shows in the chat, and the fork's
+answer, the JSON alone, goes to `--outline` by the plugin, not by you.
 
 ### A git review
 

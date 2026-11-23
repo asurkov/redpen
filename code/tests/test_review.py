@@ -352,13 +352,14 @@ class Overview(unittest.TestCase):
 
     def test_the_page_asks_for_an_overview_while_changes_have_none(self):
         self.assertTrue(self.rv.needs_overview())
-        asked = self.rv.describe_by_prompt()
-        # One line, naming the command that says how.
-        self.assertNotIn('\n', asked)
-        self.assertIn(f'--outline-how {self.rv.session}', asked)
-        self.assertIn('opened with changes no overview covers', self.rv.outline_how())
-        self.assertIn(f'--outline {self.rv.session}', self.rv.outline_how())
-        # Handed over with the prompt: Claude writes it, and nothing asks again meanwhile.
+        asked = self.rv.describe_by_fork()
+        # A question a fork with no tools answers: the JSON alone, the changes numbered in it.
+        self.assertIn('opened with changes no overview covers', asked)
+        self.assertIn('Answer with it as JSON alone', asked)
+        self.assertNotIn(' --outline', asked)
+        self.assertIn(f'=== {self.top}/a.py\n@@\n  1 | a1\n  2 | a2\n- (3) | a3\n+ 3 | A3\n', asked)
+        self.assertIn(f'=== {self.top}/b.py\n@@\n  1 | b1\n- (2) | b2\n+ 2 | B2', asked)
+        # Handed over with the question: Claude writes it, and nothing asks again meanwhile.
         self.assertEqual(self.rv.asked_state(), 'taken')
         self.assertFalse(self.rv.needs_overview())
         self.assertEqual(review.shared('channel').waiting(self.rv.sent), [])
@@ -368,11 +369,17 @@ class Overview(unittest.TestCase):
         # A change since that no block covers: asked again, naming the items written before.
         write(self.top, {'a.py': (self.top / 'a.py').read_text().replace('a1\n', 'A1\n')})
         self.assertTrue(self.rv.needs_overview())
-        self.rv.describe_by_prompt()
-        self.assertIn('"three"; "eight"; "b"', self.rv.outline_how())
+        self.assertIn('"three"; "eight"; "b"', self.rv.describe_by_fork())
+
+    def test_an_ask_the_fork_brought_no_overview_for_is_asked_again(self):
+        self.rv.describe_by_fork()
+        self.assertEqual(self.rv.asked_state(), 'taken')
+        self.rv.drop_ask()
+        self.assertIsNone(self.rv.asked_state())
+        self.assertTrue(self.rv.needs_overview())
 
     def test_an_ask_taken_long_ago_with_no_overview_is_asked_again(self):
-        self.rv.describe_by_prompt()
+        self.rv.describe_by_fork()
         self.assertEqual(self.rv.asked_state(), 'taken')
         # Its turn was cut short: Claude took it taken_minutes and more ago and wrote none.
         handed = self.rv.folder / 'handed.jsonl'
