@@ -328,12 +328,12 @@ test('a file in the pane opens the review at that file, in the tab open already'
   await ui.unmount()
 })
 
-test('a turn that edited the work opens the review as it ends', async ($, on) => {
+test('a turn that edited the work asks for its overview and opens the review as it ends', async ($, on) => {
   const { marks, surfaces, clock, asking, forked } = session(on, [
     { path: file, numstat: '2\t1' },
     { path: '/h/.claude/settings.json', numstat: '1\t0' },
   ])
-  // review.py would ask; the page opening by itself asks nothing.
+  // review.py asks: the turn's end asks a fork of the session, whether the page opens or not.
   asking.text = 'Write the overview as JSON.\n'
   const calls: string[] = []
   on('mcp.connect', (_, e) => ({ value: { isConnected: true as const, server: e.server } }))
@@ -360,28 +360,27 @@ test('a turn that edited the work opens the review as it ends', async ($, on) =>
   }
 
   await turn(['k0'])
-  expect(opens()).toBe(1)
-  expect(forked).toEqual([])
-  // No edit, or only one to Claude's own files: nothing opens.
+  expect([opens(), forked.length]).toEqual([1, 1])
+  // No edit, or only one to Claude's own files: nothing opens, nothing is asked.
   await turn([])
   await turn(['k1'])
-  expect(opens()).toBe(1)
-  // A turn that showed something in the Browser pane keeps it there.
+  expect([opens(), forked.length]).toEqual([1, 1])
+  // A turn that showed something in the Browser pane keeps it there; its overview is asked for.
   await turn(['k0'], {}, () => $.tool.call({ tool: 'mcp__Claude_Browser__navigate', url: 'http://localhost:3000/' }))
-  expect(opens()).toBe(1)
-  // An interrupted turn opens nothing.
+  expect([opens(), forked.length]).toEqual([1, 2])
+  // An interrupted turn opens nothing and asks nothing.
   await turn(['k0'], { reason: 'aborted' })
-  expect(opens()).toBe(1)
+  expect([opens(), forked.length]).toEqual([1, 2])
   // A subagent's edits open the review as the main turn that ran it ends, not as its own turn does.
   await turn([], {}, async () => {
     await turn(['k0'], { agentId: 'a1' })
-    expect(opens()).toBe(1)
+    expect([opens(), forked.length]).toEqual([1, 2])
   })
-  expect(opens()).toBe(2)
-  // In the terminal, the row above the prompt says so; nothing opens.
+  expect([opens(), forked.length]).toEqual([2, 3])
+  // In the terminal, the row above the prompt says so; nothing opens, and the overview is asked for.
   surfaces.splice(0, 1, 'terminal')
   await turn(['k0'])
-  expect(opens()).toBe(2)
+  expect([opens(), forked.length]).toEqual([2, 4])
 })
 
 test('the row says what is new, closes with ×, and comes back when the session edits again', async ($, on) => {

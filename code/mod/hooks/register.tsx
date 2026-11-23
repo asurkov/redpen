@@ -337,15 +337,17 @@ async function look($: EngineInterface, isClosing: boolean) {
 let marksAtStart: Map<string, number> | undefined
 let isBrowserUsed = false
 
-// Opens the review, in the desktop app, when the turn edited a file of the work that still differs
-// from its baseline.
-async function openIfEdited($: EngineInterface, before: Map<string, number>) {
-  if (!(await $.session.surfaces()).includes('desktop')) return
+// The turn edited a file of the work that still differs from its baseline: Claude is asked for the
+// overview, by the question Review asks (nothing in the chat), and the review opens in the desktop app,
+// unless the turn used the Browser pane itself.
+async function endedEditing($: EngineInterface, before: Map<string, number>, isPaneUsed: boolean) {
   const edited = new Set([...await editMarks($)].filter(([key, mtimeMs]) => before.get(key) !== mtimeMs).map(([key]) => key))
   if (!edited.size) return
   await scan($)
   const { changed } = sortedFiles(await read($, files), (await places($)).home)
-  if (changed.some(file => edited.has(file.key))) await openRedpen($, 'desktop', undefined, false)
+  if (!changed.some(file => edited.has(file.key))) return
+  void askOverview($)
+  if (!isPaneUsed && (await $.session.surfaces()).includes('desktop')) await openRedpen($, 'desktop', undefined, false)
 }
 
 export const register: Register = on => {
@@ -389,7 +391,7 @@ export const register: Register = on => {
     const before = e.agentId === undefined ? marksAtStart : undefined
     if (!before) return ended
     marksAtStart = undefined
-    if (e.reason === 'answer' && !isBrowserUsed) void openIfEdited($, before).catch(() => undefined)
+    if (e.reason === 'answer') void endedEditing($, before, isBrowserUsed).catch(() => undefined)
     return ended
   })
 

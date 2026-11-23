@@ -295,7 +295,7 @@ changed. Only that title gives way, cut at its end. Claude's own and temporary f
 are not counted. **×** closes the row until the session edits a file of the work again: its recorder's
 `after/` mark of the file rewritten. What the session edited before it started (a resume) is not new.
 
-Opening the review yourself (from the row or the pane; not its opening by itself at a turn's end) asks
+Opening the review yourself (from the row or the pane), and the end of a turn that edited the work (below), asks
 Claude for an overview when the review has none yet or has changes no block of it covers: `review.py
 --ask-overview` says whether one is needed, none while an ask waits (an ask Claude took 20 minutes ago
 with no overview written waits no more: its turn was cut short), and prints the question, logged as
@@ -316,7 +316,9 @@ In the desktop app the review also opens by itself, the same way, as a turn ends
 a file of the work, not Claude's own, temporary or generated, that the session edited in the turn (its
 recorder's `after/` mark rewritten, a subagent's edit included) and that still differs from its
 baseline. A turn that used the Browser pane itself leaves it as the turn left it, and an interrupted or
-failed turn, or one in the terminal, leaves it to the row.
+failed turn, or one in the terminal, leaves it to the row. Such a turn's end, but an interrupted or failed
+one's, also asks for the overview, in the terminal too and whether the page opens or not, so it is there
+when you look: one fork of the session per such turn, mostly read from the prompt cache.
 
 The folder is its own marketplace, `redpen`, and the plugin is read from it as it is on disk, so an edit
 there reaches a session with `/reload-plugins`. It loads in every session once the user has installed it
