@@ -162,6 +162,33 @@ class Commits(unittest.TestCase):
         self.assertEqual(counts(listed(rv)['a.py']), (1, 1))
 
 
+class AcceptAll(unittest.TestCase):
+    def test_everything_pending_is_accepted_as_one_entry_and_undone_at_once(self):
+        top = repo({'a.py': 'a\n', 'src/b.py': 'b\n'})
+        write(top, {'a.py': 'A\n', 'src/b.py': 'B\n', 'new.py': 'n\n'})
+        rv = reviewed(top)
+        shown = {file['key']: file['signature'] for file in rv.listing()['files'] if file['pending']}
+        entry = rv.accept_all(shown)
+        self.assertEqual((entry['all'], entry['files']), (True, 3))
+        self.assertTrue(all(file['pending'] is None for file in listed(rv).values()))
+        self.assertEqual([e['id'] for e in rv.journal_shown()], [entry['id']])
+        rv.flip(entry['id'])
+        self.assertTrue(all(file['pending'] for file in listed(rv).values()))
+
+    def test_a_file_changed_since_the_page_showed_it_or_nothing_pending_is_refused(self):
+        top = repo({'a.py': 'a\n'})
+        write(top, {'a.py': 'A\n'})
+        rv = reviewed(top)
+        shown = {file['key']: file['signature'] for file in rv.listing()['files'] if file['pending']}
+        write(top, {'a.py': 'AA\n'})
+        with self.assertRaises(review.Refusal) as refused:
+            rv.accept_all(shown)
+        self.assertEqual(refused.exception.status, 409)
+        rv.accept_all()
+        with self.assertRaises(review.Refusal):
+            rv.accept_all()
+
+
 class Moves(unittest.TestCase):
     def test_a_renamed_file_is_one_row_and_reject_puts_it_back(self):
         top = repo({'a.py': 'one\ntwo\nthree\n'})

@@ -58,7 +58,7 @@ against HEAD keeps its base through commits made on top, and is carried over to 
 a rebase rewrote the branch (is_rewritten()).
 """
 import argparse, base64, datetime, difflib, functools, hashlib, importlib.util, json, os, pathlib, re, subprocess, sys
-import tempfile, threading, time, urllib.parse
+import tempfile, threading, time, urllib.error, urllib.parse, urllib.request
 
 home = pathlib.Path.home()
 store = home / '.redpen/code'
@@ -405,7 +405,7 @@ def shown_entry(entry, members):
     """A journal entry as the page shows it: of an action on a folder's files, at the folder, saying
     how many; of one on a moved file, at its new place, saying the old one; of an overview item's
     Accept, by the item's title, saying how many files."""
-    if entry.get('item') or entry.get('generated') or entry.get('commit'):
+    if entry.get('item') or entry.get('generated') or entry.get('commit') or entry.get('all'):
         return {**entry, 'change': None}
     if entry.get('folder'):
         return {**entry, 'path': entry['folder'], 'change': None}
@@ -853,13 +853,25 @@ class Review:
                 entries.append(self.applied(member_key, member, action, None, member_left, member_right, group, marks))
         return entries
 
-    def apply_files(self, keys, action, signatures, folder, is_generated=False):
+    def accept_all(self, signatures=None):
+        """Accepts what is pending of every file of the review, as one entry of History, which one Undo takes
+        back: a rubber stamp. With signatures (the page's), only while each file is as the page listed it.
+        Returns that entry as the page shows it."""
+        pending = {file['key']: file for file in self.listing()['files'] if file['pending']}
+        if not pending:
+            raise Refusal(409, 'Nothing is pending.')
+        if signatures is not None and any((signatures or {}).get(key) != file['signature'] for key, file in pending.items()):
+            raise Refusal(409, 'A file changed since the page showed it.')
+        return self.apply_files(list(pending), 'accept', {key: file['signature'] for key, file in pending.items()},
+                                None, is_all=True)
+
+    def apply_files(self, keys, action, signatures, folder, is_generated=False, is_all=False):
         """Carries out a whole-file action on each of the files, a folder's or the generated ones,
         that has something in the action's view, as one entry of the journal, if each is still as the
         page listed it. Returns that entry as the page shows it, its id the one Undo takes."""
         if action not in actions:
             raise Refusal(400, 'No such action.')
-        if not isinstance(keys, list) or not keys or not isinstance(signatures, dict) or not (isinstance(folder, str) or is_generated):
+        if not isinstance(keys, list) or not keys or not isinstance(signatures, dict) or not (isinstance(folder, str) or is_generated or is_all):
             raise Refusal(400, 'No files named.')
         listed = {listed['key']: listed for listed in self.listing()['files']}
         if any(key not in listed or listed[key]['signature'] != signatures.get(key) for key in keys):
@@ -870,7 +882,8 @@ class Review:
             raise Refusal(409, 'Nothing to do.')
         left_name, right_name = actions[action][:2]
         group = f'folder-{time.time_ns():x}'
-        marks = {'generated': True, 'files': len(todo)} if is_generated else {'folder': folder, 'files': len(todo)}
+        marks = {'generated': True, 'files': len(todo)} if is_generated else {'all': True, 'files': len(todo)} if is_all \
+            else {'folder': folder, 'files': len(todo)}
         entries = []
         for key in todo:
             file = self.file(key)
@@ -1718,6 +1731,27 @@ def answer(session, comment_id, where=None):
     sys.exit(f'No comment {comment_id!r} was sent from a review page.')
 
 
+def accepted_all(session, port=None):
+    """Accept all from outside the page (the Claude Code mod's row): through the running server, under its
+    lock as the page's actions are, else, with none running, here. Returns the History entry."""
+    server = shared('server')
+    port = port or server.default_port
+    url = f"http://127.0.0.1:{port}{server.mounts['code']}/api/{session}/accept-all"
+    request = urllib.request.Request(url, data=b'{}', method='POST',
+                                     headers={'Content-Type': 'application/json', 'Origin': f'http://127.0.0.1:{port}'})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as answer:
+            return json.load(answer)
+    except urllib.error.HTTPError as e:
+        sys.exit(json.load(e).get('error') or str(e))
+    except OSError:
+        pass
+    try:
+        return Review(session).accept_all()
+    except Refusal as e:
+        sys.exit(str(e))
+
+
 def describe_if_needed(session):
     """Prints the prompt that asks for the session's overview, if its review needs one; else nothing."""
     try:
@@ -2397,7 +2431,7 @@ def top_of(h, session):
 
 
 def post(h, path, body):
-    found = re.fullmatch(r'/api/([\w-]+)/(apply-files|apply-item|apply|flip|comment|uncomment|send|resolve|describe)', path)
+    found = re.fullmatch(r'/api/([\w-]+)/(apply-files|apply-item|accept-all|apply|flip|comment|uncomment|send|resolve|describe)', path)
     if not found:
         raise Refusal(404, 'Not found.')
     review = Review(found.group(1))
@@ -2406,6 +2440,8 @@ def post(h, path, body):
     if found.group(2) == 'apply-files':
         return send_json(h, review.apply_files(body.get('keys'), body.get('action'), body.get('signatures'), body.get('folder'),
                                                body.get('generated') is True))
+    if found.group(2) == 'accept-all':
+        return send_json(h, review.accept_all(body.get('signatures')))
     if found.group(2) == 'apply-item':
         return send_json(h, review.apply_item(body.get('index'), body.get('time'), body.get('signatures')))
     if found.group(2) == 'describe':
@@ -2432,6 +2468,7 @@ def main():
     parser.add_argument('--answer', metavar='ID')
     parser.add_argument('--outline', nargs='?', const='', metavar='REVIEW')
     parser.add_argument('--generated', nargs='+', metavar='PATH')
+    parser.add_argument('--accept-all', action='store_true', help="accept what is pending of every file of the session's review")
     parser.add_argument('--outline-how', nargs='?', const='', metavar='REVIEW',
                         help='print how to write the overview the review page asked for')
     parser.add_argument('--describe', action='store_true',
@@ -2453,6 +2490,9 @@ def main():
         return print('\n'.join(sorted(generated_paths([os.path.abspath(path) for path in args.generated]))))
     if args.describe:
         return describe_if_needed(args.session)
+    if args.accept_all:
+        entry = accepted_all(args.session, args.port)
+        return print(f"Accepted {entry['files']} file{'s' if entry['files'] != 1 else ''}.")
     if args.outline_how is not None:
         return print(Review(args.outline_how or args.session).outline_how())
     server = shared('server')

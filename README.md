@@ -56,6 +56,10 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   in it.
 - **Accepted** is what was accepted (the text before the session → accepted text). **Unaccept** makes
   a change pending again; the file is not touched.
+- **Accept all · N**, in Pending's header while anything is pending, is a rubber stamp: everything pending,
+  accepted at once as one History line ("Accepted all · N files"), which one Undo or Cmd+Z takes back. The
+  row above the prompt has it too (`review.py --accept-all`, through the server, under its lock); the
+  files are never touched.
 - A commit is a checkpoint: what it took of the session's changes counts as accepted, as one History
   line, "Committed in <sha> · N files", with Undo, and a toast says so on the open page. So after a
   commit Pending holds only what came after it, and All still everything since the session began.

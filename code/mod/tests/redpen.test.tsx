@@ -390,6 +390,16 @@ test('the row says what is new, closes with ×, and comes back when the session 
   expect(await row()).toBe('2 files changed')
 })
 
+test('Accept all in the row has review.py accept everything pending', async ($, on) => {
+  const { ran } = session(on, [{ path: file, numstat: '2\t1' }])
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
+  const band = await $.ui.mount({ ...bandSite, surface: 'desktop' })
+  expect((await band.find({ key: 'acceptAll' }))?.props.label).toBe('Accept all')
+  await band.press({ key: 'acceptAll' })
+  expect(ran).toContain('python3 /h/.claude/skills/redpen/code/review.py --accept-all --session s1')
+  await band.unmount()
+})
+
 test('opening the review asks Claude for the overview it lacks, and the row names what is new by it', async ($, on) => {
   const { marks, clock, asking, submitted, ran, writeOverview } = session(on, [
     { path: file, numstat: '2\t1' },

@@ -279,6 +279,17 @@ function newest(fresh: EditedFile[], changed: EditedFile[], now: Record<string, 
   return { title: item.title, rest: fresh.filter(file => !describes(file, item.keys)).length }
 }
 
+// The row's rubber stamp: everything pending accepted at once, by review.py, through the server, as one
+// History line; its Undo is on the page.
+async function acceptAll($: EngineInterface) {
+  const { home } = await places($)
+  const ran = await $.process.run(['python3', `${home}/.claude/skills/redpen/code/review.py`, '--accept-all',
+    '--session', await $.session.id()]).catch(() => undefined)
+  const said = (ran?.exitCode === 0 ? ran.stdout : ran?.stderr ?? '').trim().split('\n').pop() || 'review.py did not run'
+  $.ui.toast(ran?.exitCode === 0 ? `redpen: ${said} Undo is in the page's History.` : `redpen: not accepted: ${said}`)
+  await scan($, true)
+}
+
 // You looked: what the session edited so far is no longer new, and the row is closed or open.
 async function look($: EngineInterface, isClosing: boolean) {
   const now = await read($, marks)
@@ -368,6 +379,7 @@ export const register: Register = on => {
         </Box>
         {rest > 0 && <Box key="more"><Text dimColor>{`+${rest}`}</Text></Box>}
         <Button key="redpen" label="Review" onPress={press => void look($, false).then(() => openRedpen($, press.surface))} />
+        <Button key="acceptAll" label="Accept all" dimColor onPress={() => void acceptAll($)} />
         <Button key="close" label="×" plain role="dismiss" onPress={() => void look($, true)} />
       </Box>
     )

@@ -134,7 +134,7 @@ async function asked(path, body) {
     throw new Error(answer.error || `The server answered ${response.status}.`);
   }
   // An action done leaves nothing for Cmd+Shift+Z to redo.
-  if (['/apply', '/apply-files', '/apply-item'].includes(path)) {
+  if (['/apply', '/apply-files', '/apply-item', '/accept-all'].includes(path)) {
     state.redoable = [];
   }
   return answer;
@@ -765,6 +765,9 @@ function placeName(entry) {
   if (entry.commit) {
     return `commit ${entry.commit}`;
   }
+  if (entry.all) {
+    return 'all files';
+  }
   if (entry.generated) {
     return 'generated files';
   }
@@ -1103,6 +1106,25 @@ function drawViews() {
     tab.querySelector('.count').textContent = state.files.filter(file => file[tab.dataset.view] && !file.isGenerated).length || '';
   }
   byId('reviewedButton').hidden = state.view !== 'pending';
+  // A rubber stamp: everything pending, accepted at once.
+  const pending = state.files.filter(file => file.pending).length;
+  byId('acceptAllButton').hidden = state.view !== 'pending' || !pending;
+  byId('acceptAllButton').textContent = `Accept all · ${pending}`;
+}
+
+// Accepts what is pending of every file, as one History line with one Undo.
+function acceptAll() {
+  return queued(async () => {
+    try {
+      const entry = await asked('/accept-all', {
+        signatures: Object.fromEntries(state.files.filter(file => file.pending).map(file => [file.key, file.signature])),
+      });
+      toast(`Accepted all · ${entry.files} file${entry.files === 1 ? '' : 's'}`, 'Undo', () => flip(entry.id));
+    } catch (error) {
+      toast(error.message);
+    }
+    await refreshAll();
+  });
 }
 
 // How far the review is, in the work's own files: how many have nothing pending, of those the
@@ -1385,8 +1407,8 @@ async function drawJournal() {
     const files = `${entry.files} file${entry.files === 1 ? '' : 's'}`;
     const done = entry.item ? placeName(entry) : entry.generated ? `${entry.files} generated file${entry.files === 1 ? '' : 's'}` : entry.folder ? `${files} in` : whatOf(entry.change);
     // A commit's: what it took of the session's changes, accepted.
-    const what = row.appendChild(span('what', entry.commit ? `Committed in ${entry.commit}` : `${doneWords[entry.action]} ${done}`));
-    const where = entry.item || entry.commit ? files : entry.generated ? '' : entry.movedFrom ? `${nameOf(entry.movedFrom)} → ${nameOf(entry.path)}` : placeName(entry);
+    const what = row.appendChild(span('what', entry.commit ? `Committed in ${entry.commit}` : entry.all ? 'Accepted all' : `${doneWords[entry.action]} ${done}`));
+    const where = entry.item || entry.commit || entry.all ? files : entry.generated ? '' : entry.movedFrom ? `${nameOf(entry.movedFrom)} → ${nameOf(entry.path)}` : placeName(entry);
     what.append(span('where', where), span('when', new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
     const flipButton = button(row, entry.isUndone ? 'Redo' : 'Undo', () => flip(entry.id));
     flipButton.disabled = !entry.canFlip;
@@ -1846,6 +1868,7 @@ async function main() {
   }
   window.addEventListener('blur', () => document.body.classList.remove('shifted'));
   byId('listButton').addEventListener('click', () => document.body.classList.toggle('listHidden'));
+  byId('acceptAllButton').addEventListener('click', acceptAll);
   try {
     state.areUnchangedShown = localStorage.getItem(keptUnchangedShown) === 'yes';
   } catch {
