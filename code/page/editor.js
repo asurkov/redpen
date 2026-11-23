@@ -132,6 +132,24 @@ export class DiffView {
       this.dropWidget('offer');
       this.offerTimer = setTimeout(() => this.offerComment(), 250);
     });
+    // Shift here means "and on to the next change": a Shift+click on the text with nothing selected
+    // puts the cursor there, as a plain click, and selects nothing from the cursor to it, which a key
+    // would then act on. With text selected, it still takes the selection to the click.
+    const plainTargets = new Set(['CONTENT_TEXT', 'CONTENT_EMPTY', 'GUTTER_LINE_NUMBERS', 'GUTTER_LINE_DECORATIONS']
+      .map(name => monaco.editor.MouseTargetType[name]));
+    element.addEventListener('mousedown', event => {
+      if (!event.shiftKey || event.button !== 0 || !this.shown.getModel() || !this.shown.getSelection()?.isEmpty()) {
+        return;
+      }
+      const target = this.shown.getTargetAtClientPoint(event.clientX, event.clientY);
+      if (!target?.position || !plainTargets.has(target.type)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      this.shown.focus();
+      this.shown.setPosition(target.position);
+    }, true);
   }
 
   // Shows the two texts of the file at path. changeActions: [action, label, key] for each change's

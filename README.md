@@ -150,7 +150,9 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   tinted bar: `a` accepts it in Pending and unaccepts it in Accepted, `r` opens a comment on the
   selected text, or else on it. `a` leaves the view where it is, for a careful review; `Shift+A`, or
   Shift with a click on a change's Accept, Reject or Unaccept, then goes on to the next change as `n`
-  does, for a quick one. While Shift is held those buttons say so ("Accept + next", the key `⇧a`). Reject has no key. With lines selected, `a` and the Accept and
+  does, for a quick one. While Shift is held those buttons say so ("Accept + next", the key `⇧a`). Reject has no key.
+  A Shift+click on the text with nothing selected only moves the cursor there, so a hand kept on Shift
+  selects nothing for `Shift+A` to take; with text selected, it still takes the selection to the click. With lines selected, `a` and the Accept and
   Reject buttons at the selection, beside Comment, take only the selected lines of the
   changes, whole lines; removed lines go with the lines on both sides of them. While those buttons,
   or a comment box, are open, the bars of the changes they stand over are hidden, their room kept.
