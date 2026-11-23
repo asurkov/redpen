@@ -1,6 +1,6 @@
 """review.py on git reviews of scratch repositories: what the page lists, what its actions do to the
 files and the journal, moves, generated files, and the overview."""
-import os, time, unittest
+import json, os, time, unittest
 
 import scratch
 from scratch import git, listed, repo, reviewed, write
@@ -344,6 +344,17 @@ class Overview(unittest.TestCase):
         self.assertTrue(self.rv.needs_overview())
         self.rv.describe_by_prompt()
         self.assertIn('"three"; "eight"; "b"', self.rv.outline_how())
+
+    def test_an_ask_taken_long_ago_with_no_overview_is_asked_again(self):
+        self.rv.describe_by_prompt()
+        self.assertEqual(self.rv.asked_state(), 'taken')
+        # Its turn was cut short: Claude took it taken_minutes and more ago and wrote none.
+        handed = self.rv.folder / 'handed.jsonl'
+        then = time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(time.time() - review.taken_minutes * 60 - 5))
+        handed.write_text(''.join(json.dumps({**json.loads(line), 'time': then}) + '\n'
+                                  for line in handed.read_text().splitlines()))
+        self.assertIsNone(self.rv.asked_state())
+        self.assertTrue(self.rv.needs_overview())
 
     def test_a_comment_on_an_item_the_overview_no_longer_has_is_refused(self):
         self.outline(('three', [('a.py', 3, 3)]))

@@ -294,7 +294,8 @@ are not counted. **×** closes the row until the session edits a file of the wor
 
 Opening the review yourself (from the row or the pane; not its opening by itself at a turn's end) asks
 Claude for an overview when the review has none yet or has changes no block of it covers: `review.py
---describe` says whether one is needed, none while an ask waits, and prints the ask, logged as handed
+--describe` says whether one is needed, none while an ask waits (an ask Claude took 20 minutes ago
+with no overview written waits no more: its turn was cut short), and prints the ask, logged as handed
 over; the mod submits it as a prompt of the session's own, one line ("The redpen plugin sent a message:
 Write the overview of your changes … `review.py --outline-how <review>` says how"), which starts a turn
 once the session is idle, and the command it names prints what to write. Each step leaves a line in the
@@ -361,7 +362,8 @@ running over 30 seconds changed (someone else may have), or one the command's te
 by its name (your editor's save while it ran, say), is marked as edited elsewhere; a file another
 session's own edit left as it is during the command is that session's, not recorded, and so is a file
 that changed while a shell command of another session was running in the tree, begun before the change,
-when this command names no path there: that command's post hook records it. A command that edits a file
+when this command names no path there: that command's post hook records it. A command of another
+session begun over an hour ago is not running (cut short, its post hook never came): its snapshot goes. A command that edits a file
 of the record and commits it, naming it, leaves it clean, which git's status cannot tell: its text, now
 the committed one, is kept as the session's own edit. A change by something no
 session records (your editor, a terminal) during a command still lands in the session's record, marked

@@ -77,6 +77,20 @@ class ShellCommands(unittest.TestCase):
         # Theirs, and marked: their command does not name it either.
         self.assertEqual(recorded(theirs), {'b.py': (False, 'b\n', True)})
 
+    def test_a_command_cut_short_in_another_session_runs_no_more(self):
+        top, mine, theirs = repo({'a.py': 'a\n'}), session(), session()
+        # Their command was cut short an hour and more ago: its post hook never came.
+        hook('pre', theirs, top, 'Bash', {'command': 'npx prettier --write .'}, 't1')
+        snapshot = next((store / theirs / 'pending').glob('shell-*.json'))
+        kept = json.loads(snapshot.read_text())
+        kept['time'] -= recorder.stale_hours * 3600 + 5
+        snapshot.write_text(json.dumps(kept))
+        hook('pre', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')
+        write(top, {'a.py': 'mine\n'})
+        hook('post', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')
+        self.assertEqual(recorded(mine), {'a.py': (False, 'a\n', True)})
+        self.assertFalse(snapshot.exists())
+
     def test_a_change_made_before_another_sessions_command_began_stays_mine(self):
         top, mine, theirs = repo({'a.py': 'a\n'}), session(), session()
         hook('pre', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')

@@ -302,6 +302,9 @@ moved_pairs = 100_000
 outline_items = 40
 outline_blocks = 400
 uncovered_shown = 300
+# An ask for an overview Claude took this long ago with none written was dropped (its turn cut short by
+# Esc or an error): it waits no more, so it can be asked again.
+taken_minutes = 20
 # How alike a file gone from its place and a new file must be to be one file moved, as git's rename
 # threshold has it.
 moved_likeness = 0.5
@@ -1315,7 +1318,7 @@ class Review:
 
     def asked_state(self):
         """Where the last ask for an overview is: 'draft', to go with the next message; 'sent', not
-        taken yet; 'taken', Claude writes it; None, answered or never asked."""
+        taken yet; 'taken', Claude writes it; None, answered, dropped or never asked."""
         if any(comment.get('describe') for comment in self.comments()):
             return 'draft'
         channel = shared('channel')
@@ -1328,8 +1331,14 @@ class Review:
         outline = read_json(self.folder / 'outline.json', {})
         if isinstance(outline, dict) and str(outline.get('time') or '') >= str(asked.get('time') or ''):
             return None
-        handed = {line.get('ask') for line in channel.records(self.folder / 'handed.jsonl')}
-        return 'taken' if last.get('id') in handed else 'sent'
+        taken = next((line for line in channel.records(self.folder / 'handed.jsonl') if line.get('ask') == last.get('id')), None)
+        if not taken:
+            return 'sent'
+        try:
+            taken_at = time.mktime(time.strptime(str(taken.get('time')), '%Y-%m-%dT%H:%M:%S'))
+        except ValueError:
+            return 'taken'
+        return 'taken' if time.time() - taken_at < taken_minutes * 60 else None
 
     def lines_of(self, key):
         """The file's three texts as lines, split as spliced() splits them: a missing text has none of

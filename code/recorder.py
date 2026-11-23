@@ -72,6 +72,9 @@ long_seconds = 30
 # files, for slow_hours: {top: when it was found slow}.
 slow_seconds = 1.5
 slow_hours = 24
+# Another session's shell snapshot this old is of a command cut short, whose post hook never came: the
+# Bash tool stops a command it waits on after 10 minutes, and one in the background returns at once.
+stale_hours = 1
 slow_trees = store / 'slow-trees.json'
 # A record nothing was done in for this many days goes, looked for once a day; the stamp says when.
 idle_days = 30
@@ -373,12 +376,16 @@ def file_signature(path):
 
 
 def others_running(session):
-    """The shell commands of other sessions running now: [(when each began, the work trees it watches)]."""
+    """The shell commands of other sessions running now: [(when each began, the work trees it watches)].
+    A stale snapshot goes: its command ended long ago."""
     found = []
     for staged in store.glob('*/pending/shell-*.json'):
         if staged.parent.parent.name == session:
             continue
         kept = read_json(staged) or {}
+        if time.time() - (kept.get('time') or 0) > stale_hours * 3600:
+            staged.unlink(missing_ok=True)
+            continue
         if kept.get('trees'):
             found.append((kept.get('time') or 0, set(kept['trees'])))
     return found
