@@ -240,21 +240,18 @@ async function editMarks($: EngineInterface) {
   return new Map(listed.filter(({ name }) => !name.startsWith('.')).map(({ name, mtimeMs }) => [name, mtimeMs]))
 }
 
-// What the row names of the files edited since you looked: an overview item's title with the files of
-// it whose latest edit it was written after, in the overview's order; the rest by their names.
-function freshParts(fresh: EditedFile[], now: Record<string, number>, written: Overview | null) {
+// What the row says is new since you looked: the overview's item that covers the newest edit, where it was
+// written after that file's latest edit, else that file's name; and how many of the new files it leaves
+// out. Nothing new: the count of the files changed.
+function newest(fresh: EditedFile[], changed: EditedFile[], now: Record<string, number>, written: Overview | null) {
   const nameOf = (file: EditedFile) => file.path.split('/').pop() ?? file.path
+  if (!fresh.length) return { title: `${changed.length} file${changed.length === 1 ? '' : 's'} changed`, rest: 0 }
+  const latest = [...fresh].sort((a, b) => (now[b.key] ?? 0) - (now[a.key] ?? 0))[0]!
   const writtenMs = written ? Date.parse(written.time) || 0 : 0
-  const told = new Set<string>()
-  const parts: string[] = []
-  for (const item of written?.items ?? []) {
-    const its = fresh.filter(file => !told.has(file.key) && item.keys.includes(file.key) && (now[file.key] ?? Infinity) <= writtenMs)
-    if (!its.length) continue
-    its.forEach(file => told.add(file.key))
-    const title = item.title.length > 48 ? `${item.title.slice(0, 47)}…` : item.title
-    parts.push(`${title} (${its.map(nameOf).join(', ')})`)
-  }
-  return [...parts, ...fresh.filter(file => !told.has(file.key)).map(nameOf)]
+  const describes = (file: EditedFile, keys: string[]) => keys.includes(file.key) && (now[file.key] ?? Infinity) <= writtenMs
+  const item = written?.items.find(candidate => describes(latest, candidate.keys))
+  if (!item) return { title: nameOf(latest), rest: fresh.length - 1 }
+  return { title: item.title, rest: fresh.filter(file => !describes(file, item.keys)).length }
 }
 
 // You looked: what the session edited so far is no longer new, and the row is closed or open.
@@ -324,25 +321,28 @@ export const register: Register = on => {
     return ended
   })
 
-  // One row above the prompt while the session's work has changes: the files the session edited since
-  // you last looked, their count, the way to the review, which leaves the side of the window to the page,
-  // and ×. Closed, it stays away until the session edits a file of the work again. A phone has no page to
-  // open.
+  // One row above the prompt while the session's work has changes, always one line: redpen, what is new
+  // since you last looked (or the count of the files changed), the way to the review, which leaves the side
+  // of the window to the page, and ×. Only the title gives way, cut at its end; Review and × stay put.
+  // Closed, it stays away until the session edits a file of the work again. A phone has no page to open.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.surface === 'mobile' || e.props.hasSurvey) return next(e)
-    const { changed, work } = sortedFiles(await read($, files), (await places($)).home)
+    const { changed } = sortedFiles(await read($, files), (await places($)).home)
     if (!changed.length) return next(e)
     const now: Record<string, number> = await read($, marks)
     const looked: Record<string, number> = (await read($, lookedMarks)) ?? now
     const fresh = changed.filter(file => now[file.key] !== undefined && now[file.key] !== looked[file.key])
     if ((await read($, isRowClosed)) && !fresh.length) return next(e)
-    const parts = freshParts(fresh, now, await read($, overview))
-    const freshWords = parts.length ? ` · new: ${parts.slice(0, 3).join(', ')}${parts.length > 3 ? ` +${parts.length - 3}` : ''}` : ''
+    const { title, rest } = newest(fresh, changed, now, await read($, overview))
     const { Box, Text, Button } = $.ui.resolve(e)
     return (
       <Box flexDirection="row" gap={1} alignItems="center">
-        <Text dimColor>{`redpen${freshWords} · ${changed.length} of ${work.length} files changed`}</Text>
-        <Button key="redpen" label="Open review" onPress={press => void look($, false).then(() => openRedpen($, press.surface))} />
+        <Text dimColor>redpen ·</Text>
+        <Box key="title" flexShrink={1} minWidth={0}>
+          <Text wrap="truncate-end">{title}</Text>
+        </Box>
+        {rest > 0 && <Box key="more"><Text dimColor>{`+${rest}`}</Text></Box>}
+        <Button key="redpen" label="Review" onPress={press => void look($, false).then(() => openRedpen($, press.surface))} />
         <Button key="close" label="×" plain role="dismiss" onPress={() => void look($, true)} />
       </Box>
     )

@@ -221,8 +221,8 @@ test('a row above the prompt counts the changed files and opens the review; the 
   for (const surface of ['terminal', 'desktop'] as const) {
     const band = await $.ui.mount({ ...bandSite, surface })
     // Claude's own files are not the work's: the row counts the work alone.
-    expect((await band.find({ type: 'Text', text: /^redpen/ }))?.text).toBe('redpen · 1 of 2 files changed')
-    expect((await band.find({ key: 'redpen' }))?.props.label).toBe('Open review')
+    expect((await band.find({ key: 'title' }))?.text).toBe('1 file changed')
+    expect((await band.find({ key: 'redpen' }))?.props.label).toBe('Review')
     await band.unmount()
   }
   const band = await $.ui.mount({ ...bandSite, surface: 'desktop' })
@@ -257,7 +257,7 @@ test('generated files are listed, said so, and counted neither in the pane nor i
   expect((await ui.find({ key: 'file:/w/yarn.lock' }))?.text).toBe('yarn.lock+40−12generated')
   await ui.unmount()
   const band = await $.ui.mount({ ...bandSite, surface: 'desktop' })
-  expect((await band.find({ type: 'Text', text: /^redpen/ }))?.text).toBe('redpen · 1 of 1 files changed')
+  expect((await band.find({ key: 'title' }))?.text).toBe('1 file changed')
   await band.unmount()
 })
 
@@ -354,7 +354,9 @@ test('the row says what is new, closes with ×, and comes back when the session 
   const row = async (act?: string) => {
     const band = await $.ui.mount({ ...bandSite, surface: 'desktop' })
     if (act) await band.press({ key: act })
-    const text = (await band.find({ type: 'Text', text: /^redpen/ }))?.text
+    const title = (await band.find({ key: 'title' }))?.text
+    const more = (await band.find({ key: 'more' }))?.text
+    const text = title && [title, more].filter(Boolean).join(' ')
     await band.unmount()
     return text
   }
@@ -364,9 +366,9 @@ test('the row says what is new, closes with ×, and comes back when the session 
     await clock.advance(1500)
   }
 
-  expect(await row()).toBe('redpen · 2 of 2 files changed')
+  expect(await row()).toBe('2 files changed')
   await edit('k1', 5)
-  expect(await row()).toBe('redpen · new: b.txt · 2 of 2 files changed')
+  expect(await row()).toBe('b.txt')
   // × closes it, and it stays closed while nothing new is edited.
   await row('close')
   expect(await row()).toBeUndefined()
@@ -374,10 +376,10 @@ test('the row says what is new, closes with ×, and comes back when the session 
   expect(await row()).toBeUndefined()
   // A new edit brings it back, saying what is new since it was closed.
   await edit('k0', 9)
-  expect(await row()).toBe('redpen · new: a.txt · 2 of 2 files changed')
+  expect(await row()).toBe('a.txt')
   // Opening the review is looking: nothing is new, and the row stays.
   await row('redpen')
-  expect(await row()).toBe('redpen · 2 of 2 files changed')
+  expect(await row()).toBe('2 files changed')
 })
 
 test('opening the review asks Claude for the overview it lacks, and the row names what is new by it', async ($, on) => {
@@ -391,7 +393,9 @@ test('opening the review asks Claude for the overview it lacks, and the row name
   const row = async (act?: string) => {
     const band = await $.ui.mount({ ...bandSite, surface: 'desktop' })
     if (act) await band.press({ key: act })
-    const text = (await band.find({ type: 'Text', text: /^redpen/ }))?.text
+    const title = (await band.find({ key: 'title' }))?.text
+    const more = (await band.find({ key: 'more' }))?.text
+    const text = title && [title, more].filter(Boolean).join(' ')
     await band.unmount()
     return text
   }
@@ -407,13 +411,13 @@ test('opening the review asks Claude for the overview it lacks, and the row name
   expect(submitted).toEqual(['Write the overview.'])
 
   // Edits, then the overview Claude wrote after them: the row names them by its item.
-  marks.set(`${record}/after/k0`, 5)
-  marks.set(`${record}/after/k1`, 6)
+  marks.set(`${record}/after/k1`, 5)
+  marks.set(`${record}/after/k0`, 6)
   writeOverview({ time: new Date(10).toISOString(), items: [{ title: 'Prev and next fixed', blocks: [{ key: 'k0', path: file }] }] })
   await clock.advance(1500)
-  expect(await row()).toBe('redpen · new: Prev and next fixed (a.txt), b.txt · 2 of 2 files changed')
+  expect(await row()).toBe('Prev and next fixed +1')
   // a.txt edited after the overview was written: by its name until a new one says what it is.
   marks.set(`${record}/after/k0`, 20)
   await clock.advance(1500)
-  expect(await row()).toBe('redpen · new: a.txt, b.txt · 2 of 2 files changed')
+  expect(await row()).toBe('a.txt +1')
 })
