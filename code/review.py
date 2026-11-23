@@ -1035,6 +1035,8 @@ class Review:
             raise Refusal(400, 'The comment is empty.')
         if body.get('item') is not None:
             return self.kept_comment(self.item_comment(body, text.strip()[:4000]), body)
+        if body.get('folder') is not None:
+            return self.kept_comment(self.folder_comment(body, text.strip()[:4000]), body)
         file = self.file(body.get('key'))
         try:
             start, end = int(body.get('start')), int(body.get('end'))
@@ -1077,6 +1079,26 @@ class Review:
             blocks.append(block['path'] + lines + side + note)
         return {'id': f'{time.time_ns():x}', 'time': now(), 'item': item['title'],
                 'quote': '\n'.join([item.get('text') or '', *blocks]).strip()[:4000], 'text': text}
+
+    def folder_comment(self, body, text):
+        """A comment on a folder of the list, by its path with the closing slash. It quotes the
+        review's changed files under it as they were then, each by its path from the folder, said new,
+        deleted or moved."""
+        folder = body.get('folder')
+        if not isinstance(folder, str) or not folder.startswith('/') or not folder.endswith('/'):
+            raise Refusal(400, 'The comment names no folder.')
+        lines = []
+        for listed in sorted(self.listing()['files'], key=lambda listed: listed['path']):
+            if not listed['path'].startswith(folder) or not listed['all']:
+                continue
+            marks = ['new'] if listed['isNew'] else ['deleted'] if listed['isGone'] else []
+            if listed['movedFrom']:
+                marks.append(f"moved from {listed['movedFrom']}")
+            lines.append(listed['path'][len(folder):] + (f" ({', '.join(marks)})" if marks else ''))
+        if not lines:
+            raise Refusal(409, 'The folder has no changes now.')
+        return {'id': f'{time.time_ns():x}', 'time': now(), 'folder': folder, 'quote': '\n'.join(lines)[:4000],
+                'text': text}
 
     def kept_comment(self, comment, body):
         """Keeps a comment to be sent, in the thread it replies in if any; sends it at once while
@@ -1138,7 +1160,7 @@ class Review:
         for comment in said:
             first = comment.get('thread') if comment.get('thread') in threads else comment.get('id')
             firsts[comment.get('id')] = first
-            where = {name: comment.get(name) for name in ('key', 'path', 'side', 'start', 'end', 'quote', 'anchor', 'anchorSide', 'isFile', 'item')}
+            where = {name: comment.get(name) for name in ('key', 'path', 'side', 'start', 'end', 'quote', 'anchor', 'anchorSide', 'isFile', 'item', 'folder')}
             thread = threads.setdefault(first, {**where, 'id': first, 'entries': []})
             thread['entries'].append({'id': comment.get('id'), 'by': 'user', 'time': comment.get('time'),
                                       'text': comment.get('text'), 'state': comment['state']})
@@ -1448,6 +1470,13 @@ def described(comments, git=None, name=None):
         if comment.get('item') is not None:
             # On an item of the overview: it quotes the item, its text and its blocks.
             out += ['', f"The overview's item \"{comment['item']}\" (comment {comment.get('id')}{reply}):"]
+            if comment.get('quote'):
+                out.append(fenced(comment['quote']))
+            out.append(f"Comment: {comment['text']}")
+            continue
+        if comment.get('folder') is not None:
+            # On a folder: it quotes the folder's changed files.
+            out += ['', f"The folder {comment['folder']}, its changed files (comment {comment.get('id')}{reply}):"]
             if comment.get('quote'):
                 out.append(fenced(comment['quote']))
             out.append(f"Comment: {comment['text']}")

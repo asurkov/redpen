@@ -51,7 +51,8 @@ with the prompt: start the command then.
 Each comment names its file and lines and quotes them as the user saw them, and carries its id; one on
 "the whole file" quotes nothing. A comment "of the accepted text" or "of the file as it was before your
 edits" is on lines the file may no longer have. A reply names the thread it is in. A comment on an
-item of the overview names the item and quotes it, its text and its blocks; answer it the same way.
+item of the overview names the item and quotes it, its text and its blocks; one on a folder names
+the folder and lists its changed files. Answer them the same way.
 
 **Answering on the page.** Besides what you say in the chat or change in the files, put a short answer
 under each comment, so the user reads it where they asked; the page draws its Markdown (fenced code,

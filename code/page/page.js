@@ -31,6 +31,16 @@ const views = {
   },
 };
 const doneWords = { accept: 'Accepted', reject: 'Rejected', unaccept: 'Unaccepted' };
+// The icons buttons show in place of their words where the room is short: Icons8's iOS line icons
+// (https://icons8.com), each a path on a 50 by 50 grid.
+const iconPaths = {
+  files: 'M 2 6 A 1.0001 1.0001 0 0 0 1 7 L 1 43 A 1.0001 1.0001 0 0 0 2 44 L 48 44 A 1.0001 1.0001 0 0 0 49 43 L 49 7 A 1.0001 1.0001 0 0 0 48 6 L 2 6 z M 3 8 L 47 8 L 47 42 L 3 42 L 3 8 z M 6 10 A 1.0001 1.0001 0 0 0 5 11 L 5 39 A 1.0001 1.0001 0 0 0 6 40 L 10 40 A 1.0001 1.0001 0 0 0 11 39 L 11 11 A 1.0001 1.0001 0 0 0 10 10 L 6 10 z M 7 12 L 9 12 L 9 38 L 7 38 L 7 12 z',
+  unchanged: 'M 35 6 C 33.355469 6 32 7.355469 32 9 L 32 12.5 L 18 23 L 18 21 C 18 19.355469 16.644531 18 15 18 L 3 18 C 1.355469 18 0 19.355469 0 21 L 0 29 C 0 30.644531 1.355469 32 3 32 L 15 32 C 16.644531 32 18 30.644531 18 29 L 18 27 L 32 37.5 L 32 41 C 32 42.644531 33.355469 44 35 44 L 47 44 C 48.644531 44 50 42.644531 50 41 L 50 33 C 50 31.355469 48.644531 30 47 30 L 35 30 C 33.355469 30 32 31.355469 32 33 L 32 35 L 18.6875 25 L 32 15 L 32 17 C 32 18.644531 33.355469 20 35 20 L 47 20 C 48.644531 20 50 18.644531 50 17 L 50 9 C 50 7.355469 48.644531 6 47 6 Z M 35 8 L 47 8 C 47.554688 8 48 8.445313 48 9 L 48 17 C 48 17.554688 47.554688 18 47 18 L 35 18 C 34.445313 18 34 17.554688 34 17 L 34 9 C 34 8.445313 34.445313 8 35 8 Z M 3 20 L 15 20 C 15.554688 20 16 20.445313 16 21 L 16 29 C 16 29.554688 15.554688 30 15 30 L 3 30 C 2.445313 30 2 29.554688 2 29 L 2 21 C 2 20.445313 2.445313 20 3 20 Z M 35 32 L 47 32 C 47.554688 32 48 32.445313 48 33 L 48 41 C 48 41.554688 47.554688 42 47 42 L 35 42 C 34.445313 42 34 41.554688 34 41 L 34 33 C 34 32.445313 34.445313 32 35 32 Z',
+  reviewed: 'M 37.90625 8.96875 C 37.863281 8.976563 37.820313 8.988281 37.78125 9 C 37.554688 9.054688 37.355469 9.1875 37.21875 9.375 L 12.9375 38.5 L 1.71875 27.28125 C 1.320313 26.882813 0.679688 26.882813 0.28125 27.28125 C -0.117188 27.679688 -0.117188 28.320313 0.28125 28.71875 L 12.28125 40.71875 C 12.484375 40.921875 12.765625 41.03125 13.050781 41.011719 C 13.339844 40.992188 13.605469 40.851563 13.78125 40.625 L 38.78125 10.625 C 39.058594 10.3125 39.113281 9.863281 38.917969 9.492188 C 38.722656 9.125 38.320313 8.914063 37.90625 8.96875 Z M 48.90625 8.96875 C 48.863281 8.976563 48.820313 8.988281 48.78125 9 C 48.554688 9.054688 48.355469 9.1875 48.21875 9.375 L 23.9375 38.5 L 21.375 35.96875 C 21.132813 35.671875 20.746094 35.535156 20.371094 35.621094 C 20 35.707031 19.707031 36 19.621094 36.371094 C 19.535156 36.746094 19.671875 37.132813 19.96875 37.375 L 23.28125 40.71875 C 23.484375 40.921875 23.765625 41.03125 24.050781 41.011719 C 24.339844 40.992188 24.605469 40.851563 24.78125 40.625 L 49.78125 10.625 C 50.058594 10.3125 50.113281 9.863281 49.917969 9.492188 C 49.722656 9.125 49.320313 8.914063 48.90625 8.96875 Z',
+  overview: 'M 7 2 L 7 48 L 43 48 L 43 2 Z M 9 4 L 41 4 L 41 46 L 9 46 Z M 29.984375 8.984375 C 29.433594 8.996094 28.992188 9.449219 29 10 L 29 39 C 28.996094 39.359375 29.183594 39.695313 29.496094 39.878906 C 29.808594 40.058594 30.191406 40.058594 30.503906 39.878906 C 30.816406 39.695313 31.003906 39.359375 31 39 L 31 10 C 31.003906 9.730469 30.898438 9.46875 30.707031 9.277344 C 30.515625 9.085938 30.253906 8.980469 29.984375 8.984375 Z M 14 11 C 13.640625 10.996094 13.304688 11.183594 13.121094 11.496094 C 12.941406 11.808594 12.941406 12.191406 13.121094 12.503906 C 13.304688 12.816406 13.640625 13.003906 14 13 L 25 13 C 25.359375 13.003906 25.695313 12.816406 25.878906 12.503906 C 26.058594 12.191406 26.058594 11.808594 25.878906 11.496094 C 25.695313 11.183594 25.359375 10.996094 25 11 Z M 35 11 C 34.640625 10.996094 34.304688 11.183594 34.121094 11.496094 C 33.941406 11.808594 33.941406 12.191406 34.121094 12.503906 C 34.304688 12.816406 34.640625 13.003906 35 13 L 36 13 C 36.359375 13.003906 36.695313 12.816406 36.878906 12.503906 C 37.058594 12.191406 37.058594 11.808594 36.878906 11.496094 C 36.695313 11.183594 36.359375 10.996094 36 11 Z M 14 19 C 13.640625 18.996094 13.304688 19.183594 13.121094 19.496094 C 12.941406 19.808594 12.941406 20.191406 13.121094 20.503906 C 13.304688 20.816406 13.640625 21.003906 14 21 L 25 21 C 25.359375 21.003906 25.695313 20.816406 25.878906 20.503906 C 26.058594 20.191406 26.058594 19.808594 25.878906 19.496094 C 25.695313 19.183594 25.359375 18.996094 25 19 Z M 35 19 C 34.640625 18.996094 34.304688 19.183594 34.121094 19.496094 C 33.941406 19.808594 33.941406 20.191406 34.121094 20.503906 C 34.304688 20.816406 34.640625 21.003906 35 21 L 36 21 C 36.359375 21.003906 36.695313 20.816406 36.878906 20.503906 C 37.058594 20.191406 37.058594 19.808594 36.878906 19.496094 C 36.695313 19.183594 36.359375 18.996094 36 19 Z M 14 27 C 13.640625 26.996094 13.304688 27.183594 13.121094 27.496094 C 12.941406 27.808594 12.941406 28.191406 13.121094 28.503906 C 13.304688 28.816406 13.640625 29.003906 14 29 L 25 29 C 25.359375 29.003906 25.695313 28.816406 25.878906 28.503906 C 26.058594 28.191406 26.058594 27.808594 25.878906 27.496094 C 25.695313 27.183594 25.359375 26.996094 25 27 Z M 35 27 C 34.640625 26.996094 34.304688 27.183594 34.121094 27.496094 C 33.941406 27.808594 33.941406 28.191406 34.121094 28.503906 C 34.304688 28.816406 34.640625 29.003906 35 29 L 36 29 C 36.359375 29.003906 36.695313 28.816406 36.878906 28.503906 C 37.058594 28.191406 37.058594 27.808594 36.878906 27.496094 C 36.695313 27.183594 36.359375 26.996094 36 27 Z M 14 35 C 13.640625 34.996094 13.304688 35.183594 13.121094 35.496094 C 12.941406 35.808594 12.941406 36.191406 13.121094 36.503906 C 13.304688 36.816406 13.640625 37.003906 14 37 L 25 37 C 25.359375 37.003906 25.695313 36.816406 25.878906 36.503906 C 26.058594 36.191406 26.058594 35.808594 25.878906 35.496094 C 25.695313 35.183594 25.359375 34.996094 25 35 Z M 35 35 C 34.640625 34.996094 34.304688 35.183594 34.121094 35.496094 C 33.941406 35.808594 33.941406 36.191406 34.121094 36.503906 C 34.304688 36.816406 34.640625 37.003906 35 37 L 36 37 C 36.359375 37.003906 36.695313 36.816406 36.878906 36.503906 C 37.058594 36.191406 37.058594 35.808594 36.878906 35.496094 C 36.695313 35.183594 36.359375 34.996094 36 35 Z',
+  history: 'M 7.90625 0.96875 C 7.863281 0.976563 7.820313 0.988281 7.78125 1 C 7.316406 1.105469 6.988281 1.523438 7 2 L 7 12 L 17 12 C 17.359375 12.003906 17.695313 11.816406 17.878906 11.503906 C 18.058594 11.191406 18.058594 10.808594 17.878906 10.496094 C 17.695313 10.183594 17.359375 9.996094 17 10 L 10.34375 10 C 14.105469 6.304688 19.269531 4 25 4 C 36.664063 4 46 13.335938 46 25 C 46 36.664063 36.664063 46 25 46 C 13.335938 46 4 36.664063 4 25 C 4 21.566406 4.847656 18.207031 6.28125 15.34375 L 4.5 14.4375 C 2.933594 17.574219 2 21.234375 2 25 C 2 37.734375 12.265625 48 25 48 C 37.734375 48 48 37.734375 48 25 C 48 12.265625 37.734375 2 25 2 C 18.777344 2 13.117188 4.496094 9 8.5 L 9 2 C 9.011719 1.710938 8.894531 1.433594 8.6875 1.238281 C 8.476563 1.039063 8.191406 0.941406 7.90625 0.96875 Z M 24 9 L 24 23.28125 C 23.402344 23.628906 23 24.261719 23 25 C 23 25.171875 23.019531 25.339844 23.0625 25.5 L 16.28125 32.28125 L 17.71875 33.71875 L 24.5 26.9375 C 24.660156 26.980469 24.828125 27 25 27 C 26.105469 27 27 26.105469 27 25 C 27 24.261719 26.597656 23.628906 26 23.28125 L 26 9 Z',
+  comment: 'M 25 3.0703125 C 12.415167 3.0703125 2.0703125 11.925365 2.0703125 23 C 2.0703125 29.427318 5.6219606 35.086611 11 38.712891 C 10.9916 38.928457 11.008101 39.280691 10.726562 40.324219 C 10.377821 41.617047 9.6731852 43.431687 8.2402344 45.464844 A 0.92959293 0.92959293 0 0 0 8.9960938 46.929688 C 15.173361 46.956575 18.748849 42.904801 19.304688 42.251953 C 21.133469 42.659115 23.028437 42.929687 25 42.929688 C 37.583869 42.929688 47.929688 34.074694 47.929688 23 C 47.929688 11.925306 37.583869 3.0703125 25 3.0703125 z M 25 4.9296875 C 36.716131 4.9296875 46.070312 13.088694 46.070312 23 C 46.070312 32.911306 36.716131 41.070312 25 41.070312 C 22.998026 41.070312 21.063469 40.831229 19.230469 40.384766 A 0.92959293 0.92959293 0 0 0 18.285156 40.705078 C 18.285156 40.705078 15.394898 43.984833 10.787109 44.759766 C 11.62014 43.264901 12.235187 41.869931 12.521484 40.808594 C 12.920492 39.329422 12.925781 38.326172 12.925781 38.326172 A 0.92959293 0.92959293 0 0 0 12.494141 37.541016 C 7.2672049 34.227589 3.9296875 28.943265 3.9296875 23 C 3.9296875 13.088635 13.282833 4.9296875 25 4.9296875 z M 14 16 A 1.0001 1.0001 0 1 0 14 18 L 36 18 A 1.0001 1.0001 0 1 0 36 16 L 14 16 z M 10 22 A 1.0001 1.0001 0 1 0 10 24 L 27 24 A 1.0001 1.0001 0 1 0 27 22 L 10 22 z M 33 22 A 1.0001 1.0001 0 1 0 33 24 L 40 24 A 1.0001 1.0001 0 1 0 40 22 L 33 22 z M 14 28 A 1.0001 1.0001 0 1 0 14 30 L 36 30 A 1.0001 1.0001 0 1 0 36 28 L 14 28 z',
+};
 // The most lines changed, added and removed, the editor is given to compare: a file of 19,000 took
 // it 2.5 seconds, and it gives up at 5.
 const comparedLines = 20000;
@@ -93,6 +103,11 @@ const state = {
   outline: null,
   // The comment or reply being written under an overview item: its title and the text so far.
   itemReply: null,
+  // The comment or reply being written under a folder of the list: its path and the text so far.
+  folderReply: null,
+  // What Cmd+Z undid, by History's ids, the last undone last: what Cmd+Shift+Z redoes, until the next
+  // action.
+  redoable: [],
   outlineRead: '',
   outlineStamp: '',
   block: -1,
@@ -117,6 +132,10 @@ async function asked(path, body) {
   const answer = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(answer.error || `The server answered ${response.status}.`);
+  }
+  // An action done leaves nothing for Cmd+Shift+Z to redo.
+  if (['/apply', '/apply-files', '/apply-item'].includes(path)) {
+    state.redoable = [];
   }
   return answer;
 }
@@ -143,6 +162,13 @@ function workRoot() {
     root = root.slice(0, root.lastIndexOf('/', root.length - 2) + 1);
   }
   return root;
+}
+
+// A folder's path from the tree's top or the work's folder, with its closing slash; the whole path
+// outside them.
+function folderShown(path) {
+  const root = state.top || workRoot();
+  return root && path.startsWith(root) && path !== root ? path.slice(root.length) : path;
 }
 
 const shortened = (file, root) => (!file.isOther && root && file.path.startsWith(root) ? file.path.slice(root.length) : file.path);
@@ -328,6 +354,7 @@ async function refresh() {
   drawWaiting();
   state.top = listing.top;
   byId('unchangedButton').hidden = !state.top;
+  fitHeader();
   // What the folders hold is read beside the list's drawing and the actions, one read at a time, as
   // it takes a while in a large repository: the list shows the changed files at once, "N more" once
   // read.
@@ -721,14 +748,51 @@ function placeName(entry) {
 }
 
 function flip(id) {
+  return queued(() => flipNow(id));
+}
+
+// Undoes a History entry, or redoes an undone one; says whether it did.
+async function flipNow(id) {
+  let isFlipped = false;
+  try {
+    const entry = await asked('/flip', { id });
+    toast(`${entry.isUndone ? 'Undid' : 'Redid'}: ${doneWords[entry.action].toLowerCase()} in ${placeName(entry)}`);
+    isFlipped = true;
+  } catch (error) {
+    toast(error.message);
+  }
+  await refreshAll();
+  return isFlipped;
+}
+
+// Cmd+Z: undoes History's newest entry not undone, as its Undo does.
+function undoLast() {
   return queued(async () => {
-    try {
-      const entry = await asked('/flip', { id });
-      toast(`${entry.isUndone ? 'Undid' : 'Redid'}: ${doneWords[entry.action].toLowerCase()} in ${placeName(entry)}`);
-    } catch (error) {
-      toast(error.message);
+    const entry = (await asked('/journal')).find(candidate => candidate.action !== 'rebase' && !candidate.isUndone);
+    if (!entry) {
+      return toast('Nothing to undo.');
     }
-    await refreshAll();
+    if (!entry.canFlip) {
+      return toast(`Not undone: ${placeName(entry)} changed since it was ${doneWords[entry.action].toLowerCase()}.`);
+    }
+    if (await flipNow(entry.id)) {
+      state.redoable.push(entry.id);
+    }
+  });
+}
+
+// Cmd+Shift+Z: redoes what Cmd+Z undid last, while History still has it undone.
+function redoLast() {
+  return queued(async () => {
+    const id = state.redoable.pop();
+    const entry = id && (await asked('/journal')).find(candidate => candidate.id === id);
+    if (!entry?.isUndone) {
+      state.redoable = [];
+      return toast('Nothing to redo.');
+    }
+    if (!(await flipNow(id))) {
+      state.redoable.push(id);
+    }
   });
 }
 
@@ -793,6 +857,18 @@ async function showThread(thread) {
     const item = [...byId('outline').querySelectorAll('.item')].find(section => section.querySelector('.title')?.textContent === thread.item);
     return item?.scrollIntoView({ block: 'nearest' });
   }
+  // A thread on a folder stands under its row, in a view that lists the folder.
+  if (thread.folder != null) {
+    unfold(thread.folder);
+    const row = () => [...byId('list').querySelectorAll('details.folder')].find(fold => fold.dataset.path === thread.folder);
+    drawList();
+    if (!row() && state.view !== 'all') {
+      state.view = 'all';
+      drawViews();
+      drawList();
+    }
+    return row() ? row().scrollIntoView({ block: 'nearest' }) : toast('The list no longer shows the folder of that thread.');
+  }
   if (!file) {
     return toast('The page no longer lists the file of that thread.');
   }
@@ -833,12 +909,21 @@ function stepThread(direction) {
 
 // The page's keys: n or j and p or k step through the changes, as Alt+↓ and Alt+↑ do; a carries out
 // the current change's own action; r opens a comment on the selected text, or else on that change;
-// t and Shift+t step through the threads; d shows or hides All's diff.
+// t and Shift+t step through the threads; d shows or hides All's diff; Cmd+Z (Ctrl+Z) undoes the
+// last Accept or Reject, Cmd+Shift+Z redoes it.
 function takeKey(event) {
   const key = (event.altKey ? 'Alt+' : '') + event.key;
   // A letter typed into a field is the field's; the editor's own text is no such field.
   const isTyped = !event.altKey && event.target.closest?.('input, textarea') && !diffView.hasTextFocus();
   const isOpen = state.key || state.plain;
+  if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'z' && !isTyped && !event.isComposing) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.repeat) {
+      event.shiftKey ? redoLast() : undoLast();
+    }
+    return;
+  }
   if (event.metaKey || event.ctrlKey || event.isComposing || isTyped || (!isOpen && !state.threads.length)) {
     return;
   }
@@ -1015,7 +1100,9 @@ const drawn = { list: '', waiting: '', chosen: null };
 function drawList() {
   const drawing = JSON.stringify([state.view, state.key, state.plain,
     state.areUnchangedShown, state.areReviewedShown, state.top, state.foldersRead, ...state.widenedFolders, '', ...state.narrowedFolders, '', ...state.closedFolders, '', ...state.goneFolders,
-    shownInList().map(file => [file.key, file.movedFrom, file[state.view], file.all, file.isNew, file.isGone, file.isUncarried, file.isGenerated, !file.pending, !file.accepted])]);
+    shownInList().map(file => [file.key, file.movedFrom, file[state.view], file.all, file.isNew, file.isGone, file.isUncarried, file.isGenerated, !file.pending, !file.accepted]),
+    state.threads.filter(thread => thread.folder != null).map(thread => [thread.id, thread.folder, thread.id === state.thread,
+      ...thread.entries.map(entry => [entry.by, entry.state, entry.text])]), state.folderReply?.path]);
   if (drawing === drawn.list) {
     return;
   }
@@ -1078,8 +1165,12 @@ function drawList() {
   const folderRow = (folder, depth, canWiden) => {
     const under = filesUnder(folder).filter(file => !file.isPlain);
     const isChanged = under.length > 0;
+    // Its thread, and the box to comment or reply in while it is open.
+    const thread = state.threads.find(candidate => candidate.folder === folder.path);
+    const writing = state.folderReply?.path === folder.path ? state.folderReply : null;
     const fold = document.createElement('details');
     fold.className = `folder${isChanged ? '' : ' plain'}`;
+    fold.dataset.path = folder.path;
     fold.open = isChanged ? !state.closedFolders.has(folder.path) : state.openedFolders.has(folder.path);
     fold.addEventListener('toggle', () => {
       if (!fold.open) {
@@ -1140,8 +1231,15 @@ function drawList() {
       // The view's whole-file actions on every file in it with something in the view: shown on hover.
       const acted = under.filter(file => file[state.view]);
       const labels = { accept: 'Accept', reject: 'Reject', unaccept: 'Unaccept' };
+      const tools = head.appendChild(span('folderActions', ''));
+      if (!thread && !writing) {
+        iconed(button(tools, 'Comment', event => {
+          event.preventDefault();
+          event.stopPropagation();
+          openFolderBox(folder.path);
+        }, 'quiet'), 'comment').title = 'Comment for Claude on this folder';
+      }
       if (acted.length && views[state.view].fileActions.length) {
-        const tools = head.appendChild(span('folderActions', ''));
         for (const [action] of views[state.view].fileActions) {
           const made = button(tools, labels[action], event => {
             // The fold is not the button's.
@@ -1159,6 +1257,18 @@ function drawList() {
       const texts = under.map(file => file[state.view]).filter(count => count && !count.isBinary);
       const total = side => texts.reduce((sum, count) => sum + count[side], 0);
       head.append(...counts(texts.length ? { added: total('added'), removed: total('removed') } : null));
+    }
+    if (isChanged && (thread || writing)) {
+      const box = fold.appendChild(threadBox(thread, writing, {
+        placeholder: 'Comment for Claude on this folder',
+        send: text => commentFolder(folder.path, text, thread?.id),
+        cancel: () => {
+          state.folderReply = null;
+          drawList();
+        },
+        reply: () => openFolderBox(folder.path),
+      }));
+      box.style.setProperty('--depth', depth + 1);
     }
     fold.append(...rowsOf(folder, depth + 1, canWiden));
     return fold;
@@ -1354,10 +1464,25 @@ function renderOverview() {
 // in; nothing while neither is.
 function itemThread(item, index) {
   const thread = state.threads.find(candidate => candidate.item === item.title);
-  const isWriting = state.itemReply?.title === item.title;
-  if (!thread && !isWriting) {
+  const writing = state.itemReply?.title === item.title ? state.itemReply : null;
+  if (!thread && !writing) {
     return [];
   }
+  return [threadBox(thread, writing, {
+    placeholder: 'Comment for Claude on this item',
+    send: text => commentItem(index, item, text, thread?.id),
+    cancel: () => {
+      state.itemReply = null;
+      renderOverview();
+    },
+    reply: () => openItemBox(item),
+  })];
+}
+
+// A thread that stands apart from a file's lines, an overview item's or a folder's, as a line's thread
+// shows it, and the box to comment or reply in while writing, the box's draft, is there. on: the box's
+// placeholder, send(text), cancel() and reply().
+function threadBox(thread, writing, on) {
   const box = document.createElement('div');
   box.className = `thread${thread?.entries.at(-1).by === 'claude' ? ' answered' : ''}${thread?.id === state.thread ? ' current' : ''}`;
   for (const entry of thread?.entries || []) {
@@ -1382,16 +1507,13 @@ function itemThread(item, index) {
   }
   const foot = document.createElement('div');
   foot.className = 'foot';
-  if (isWriting) {
+  if (writing) {
     const input = box.appendChild(document.createElement('textarea'));
-    input.placeholder = thread ? 'Reply to Claude' : 'Comment for Claude on this item';
-    input.value = state.itemReply.text;
-    input.addEventListener('input', () => (state.itemReply.text = input.value));
-    const send = () => input.value.trim() && commentItem(index, item, input.value, thread?.id);
-    const cancel = () => {
-      state.itemReply = null;
-      renderOverview();
-    };
+    input.placeholder = thread ? 'Reply to Claude' : on.placeholder;
+    input.value = writing.text;
+    input.addEventListener('input', () => (writing.text = input.value));
+    const send = () => input.value.trim() && on.send(input.value);
+    const cancel = on.cancel;
     input.addEventListener('keydown', event => {
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
@@ -1403,21 +1525,26 @@ function itemThread(item, index) {
     foot.append(state.isWatched ? 'Goes to Claude at once' : 'Goes to Claude with your next message in the chat', span('spring', ''));
     button(foot, 'Cancel', cancel, 'quiet');
     button(foot, thread ? 'Add reply' : 'Add comment', send, 'main');
-    requestAnimationFrame(() => input.focus());
+    // Focused as it opens, and again when drawn anew while it has the keys.
+    if (writing.isOpening || document.activeElement === writing.input) {
+      writing.isOpening = false;
+      requestAnimationFrame(() => input.focus());
+    }
+    writing.input = input;
   } else {
     foot.append(span('spring', ''));
     if (thread.entries.some(entry => entry.state !== 'draft')) {
-      button(foot, 'Reply', () => openItemBox(item), 'quiet');
+      button(foot, 'Reply', on.reply, 'quiet');
     }
     button(foot, 'Resolve', () => resolve(thread.id), 'quiet').title = 'Take the thread off the page';
   }
   box.append(foot);
-  return [box];
+  return box;
 }
 
 // Opens the box under an overview item, to comment on it or reply in its thread.
 function openItemBox(item) {
-  state.itemReply = { title: item.title, text: '' };
+  state.itemReply = { title: item.title, text: '', isOpening: true };
   renderOverview();
 }
 
@@ -1432,6 +1559,62 @@ function commentItem(index, item, text, thread) {
     }
     await refresh();
     await drawOverview();
+  });
+}
+
+// A button's icon and its word: the word alone, or, where the room is short, the icon alone, the word
+// kept for screen readers.
+function iconed(made, name) {
+  const label = span('label', made.textContent);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 50 50');
+  svg.setAttribute('class', 'icon');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'path')).setAttribute('d', iconPaths[name]);
+  made.replaceChildren(svg, label);
+  return made;
+}
+
+// The header with its buttons' words while its row has room for them and a title of --titleRoom, with
+// their icons while it has not (and, short of room still, on two rows): the room the words take is
+// measured as they go, so they come back only when it is there.
+let wordsRoom = 0;
+function fitHeader() {
+  const top = byId('top');
+  const style = getComputedStyle(top);
+  const needed = () => [...top.children]
+    .filter(child => child.id !== 'title' && !child.hidden)
+    .reduce((sum, child) => sum + (child.id === 'progress' ? child.scrollWidth : child.offsetWidth) + parseFloat(style.columnGap), 0)
+    + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.getPropertyValue('--titleRoom'));
+  const isCompact = document.body.classList.contains('compactTop');
+  if (!isCompact && needed() > top.clientWidth) {
+    const worded = needed();
+    document.body.classList.add('compactTop');
+    wordsRoom = worded - needed();
+  } else if (isCompact && needed() + wordsRoom <= top.clientWidth) {
+    document.body.classList.remove('compactTop');
+  }
+}
+
+// Opens the box under a folder of the list, to comment on it or reply in its thread; a folded folder
+// opens.
+function openFolderBox(path) {
+  state.folderReply = { path, text: '', isOpening: true };
+  state.closedFolders.delete(path);
+  drawList();
+}
+
+// Sends a comment on a folder, or a reply in its thread, the way a line's comment goes.
+function commentFolder(path, text, thread) {
+  return queued(async () => {
+    try {
+      await asked('/comment', { folder: path, text, thread });
+      state.folderReply = null;
+    } catch (error) {
+      toast(error.message);
+    }
+    await refresh();
+    drawList();
   });
 }
 
@@ -1508,7 +1691,9 @@ function drawWaiting() {
     const row = document.createElement('li');
     const last = thread.entries.at(-1);
     const lines = thread.start === thread.end ? thread.start : `${thread.start}–${thread.end}`;
-    row.append(span('where', thread.item != null ? `Overview: ${thread.item}` : thread.isFile ? nameOf(thread.path) : `${nameOf(thread.path)}:${lines}`));
+    const where = thread.item != null ? `Overview: ${thread.item}` : thread.folder != null ? `Folder: ${folderShown(thread.folder)}`
+      : thread.isFile ? nameOf(thread.path) : `${nameOf(thread.path)}:${lines}`;
+    row.append(span('where', where));
     row.append(span(`state ${last.by}`, last.by === 'claude' ? 'Claude' : { draft: 'not sent', sent: 'sent', taken: 'Claude answers' }[last.state]));
     const text = button(row, last.text, () => queued(() => showThread(thread)));
     text.className = 'text';
@@ -1618,6 +1803,10 @@ async function main() {
   diffView = new DiffView(byId('editor'), { act, comment, uncomment, resolve, open, gaveUp });
   diffView.openable = () => state.files.map(file => file.key);
   byId('threadsButton').addEventListener('click', () => stepThread('next'));
+  for (const made of document.querySelectorAll('#top [data-icon]')) {
+    iconed(made, made.dataset.icon);
+  }
+  new ResizeObserver(fitHeader).observe(byId('top'));
   byId('listButton').addEventListener('click', () => document.body.classList.toggle('listHidden'));
   try {
     state.areUnchangedShown = localStorage.getItem(keptUnchangedShown) === 'yes';

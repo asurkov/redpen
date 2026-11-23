@@ -86,6 +86,35 @@ class Actions(unittest.TestCase):
         self.assertIsNotNone(listed(rv)['src/b.py']['pending'])
 
 
+class FolderComments(unittest.TestCase):
+    def test_a_comment_on_a_folder_lists_its_changed_files_and_is_answered_under_it(self):
+        top = repo({'src/a.py': 'a\n', 'src/same.py': 's\n', 'src/gone.py': 'g\n', 'other.py': 'o\n'})
+        write(top, {'src/a.py': 'A\n', 'src/gone.py': None, 'src/deep/new.py': 'n\n', 'other.py': 'O\n'})
+        rv = reviewed(top)
+        said = rv.comment({'folder': f'{top}/src/', 'text': 'Put these under lib/.'})
+        self.assertEqual(said['quote'], 'a.py\ndeep/new.py (new)\ngone.py (deleted)')
+        thread = next(thread for thread in rv.threads() if thread['folder'] == f'{top}/src/')
+        self.assertEqual((thread['key'], thread['entries'][0]['text']), (None, 'Put these under lib/.'))
+        told = review.described(rv.comments(), rv.git, rv.session)
+        self.assertIn(f'The folder {top}/src/, its changed files (comment {said["id"]}):', told)
+        self.assertIn('gone.py (deleted)', told)
+        rv.post(review.shared('channel'))
+        self.assertTrue(rv.answer(said['id'], 'Moved.'))
+        time.sleep(0.01)
+        rv.comment({'folder': f'{top}/src/', 'text': 'Thanks.', 'thread': said['id']})
+        thread = next(thread for thread in rv.threads() if thread['folder'] == f'{top}/src/')
+        self.assertEqual([entry['by'] for entry in thread['entries']], ['user', 'claude', 'user'])
+
+    def test_a_folder_with_no_changes_or_no_folder_is_refused(self):
+        top = repo({'src/a.py': 'a\n', 'b.py': 'b\n'})
+        write(top, {'b.py': 'B\n'})
+        rv = reviewed(top)
+        for folder, status in ((f'{top}/src/', 409), (f'{top}/src', 400), ('src/', 400)):
+            with self.assertRaises(review.Refusal) as refused:
+                rv.comment({'folder': folder, 'text': 'Why?'})
+            self.assertEqual(refused.exception.status, status, folder)
+
+
 class Moves(unittest.TestCase):
     def test_a_renamed_file_is_one_row_and_reject_puts_it_back(self):
         top = repo({'a.py': 'one\ntwo\nthree\n'})

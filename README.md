@@ -93,7 +93,9 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   its changes marked in the margin (green added, blue changed, a red notch where lines were removed)
   and on the scrollbar. **Diff** in the file bar, or `d`, shows the removed lines and colours again.
 - **History** lists every accept, reject and unaccept with Undo/Redo. An entry whose text changed
-  since is greyed out.
+  since is greyed out. `Cmd+Z` (`Ctrl+Z`) undoes the newest entry not undone, again and again down
+  the list; `Cmd+Shift+Z` redoes, in turn, what it undid, until the next accept or reject. In a
+  comment box both are the box's own.
 - A comment (select text → Comment, Comment under a change, or Comment in the file bar for the
   whole file, whose thread stands above its first line) stays under its lines as a thread,
   which says whether it is sent and whether Claude has it, and shows Claude's answer under it.
@@ -132,8 +134,13 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   tinted bar: `a` accepts it in Pending and unaccepts it in Accepted, `r` opens a comment on the
   selected text, or else on it. Reject has no key. With lines selected, `a` and the Accept and
   Reject buttons at the selection, beside Comment, take only the selected lines of the
-  changes, whole lines; removed lines go with the lines on both sides of them. `t` and `Shift+t` step to the next and the
-  previous thread, through every file's.
+  changes, whole lines; removed lines go with the lines on both sides of them. While those buttons,
+  or a comment box, are open, the bars of the changes they stand over are hidden, their room kept.
+  `t` and `Shift+t` step to the next and the previous thread, through every file's.
+- Where the room is short the buttons show icons for their words, the tooltip saying what each is:
+  the header's Files, Unchanged, Reviewed, Overview and History once its row has no room for the
+  words and a title of 180px (then on two rows if it still has not), and a folder's Comment in a list
+  320px wide or less. Accept and Reject keep their words.
 - The header says how many files are reviewed (nothing of them pending) of those the review has; in
   the list such a file has ✓, and one accepted in part ◐. In Pending a reviewed file stays where it
   was, dimmed, with ✓ and its lines added and removed faded; `n` and `p` pass it, and a click opens
@@ -145,6 +152,9 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   folder's row, under the pointer, has the view's whole-file actions for every file in it with
   something in the view (Accept and Reject in Pending, Unaccept in Accepted): one line in History,
   one Undo. On a folder gone with its files, Accept takes their deletion, Reject puts them back.
+  **Comment** there ("these belong under `lib/`") goes to Claude as a line's does, naming the folder
+  and listing its changed files as they were; its thread stands under the folder's row, and the strip
+  at the bottom lists it as "Folder: <path>", a click unfolding the folder at it.
 - The tree starts at the top of the repository (a git review's work tree; for a session, the
   repository its files are in, else the folder they all are in). Each folder shows its changed files
   and ends in "N more" for the rest, what git ignores left out; a folder name's tooltip says how much

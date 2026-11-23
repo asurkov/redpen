@@ -8,9 +8,9 @@
 </head>
 <body>
 <header id="top">
-  <button id="listButton" class="quiet" title="Show or hide the file list">Files</button>
-  <button id="unchangedButton" class="quiet" title="Show the unchanged files beside the changed ones; off, they wait behind “N more”" hidden>Unchanged</button>
-  <button id="reviewedButton" class="quiet" title="List the reviewed files, nothing of them pending, faded where they are; off, Pending leaves them out">Reviewed</button>
+  <button id="listButton" class="quiet" title="Files: show or hide the list" data-icon="files"><span class="label">Files</span></button>
+  <button id="unchangedButton" class="quiet" title="Unchanged: show the unchanged files beside the changed ones; off, they wait behind “N more”" data-icon="unchanged" hidden><span class="label">Unchanged</span></button>
+  <button id="reviewedButton" class="quiet" title="Reviewed: list the reviewed files, nothing of them pending, faded where they are; off, Pending leaves them out" data-icon="reviewed"><span class="label">Reviewed</span></button>
   <span id="title"></span>
   <span id="progress"></span>
   <button id="threadsButton" class="quiet" title="Next thread (t); the previous one: Shift+t" hidden></button>
@@ -19,8 +19,8 @@
     <button data-view="accepted">Accepted <span class="count"></span></button>
     <button data-view="all">All <span class="count"></span></button>
   </nav>
-  <button id="overviewButton" class="quiet" title="The changes by purpose, as Claude describes them, each part a way to its code">Overview</button>
-  <button id="historyButton" class="quiet">History</button>
+  <button id="overviewButton" class="quiet" title="Overview: the changes by purpose, as Claude describes them, each part a way to its code" data-icon="overview"><span class="label">Overview</span></button>
+  <button id="historyButton" class="quiet" title="History: what was accepted and rejected, each with Undo; Cmd+Z undoes the last, Cmd+Shift+Z redoes it" data-icon="history"><span class="label">History</span></button>
 </header>
 <main>
   <aside id="list"></aside>

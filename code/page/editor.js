@@ -544,6 +544,7 @@ export class DiffView {
     this.marginMarks.set(this.isDiffHidden ? this.changes.map(marginMark) : []);
     const zones = this.isDiffHidden ? [] : this.changes.map(change => this.bar(change));
     this.bars = zones.map(zone => zone.firstChild);
+    this.drawYielded();
     this.shown.changeViewZones(accessor => {
       this.zoneIds.forEach(id => accessor.removeZone(id));
       this.zoneIds = zones.map((zone, index) => accessor.addZone({
@@ -643,7 +644,7 @@ export class DiffView {
     }
     button(row, 'Comment', () => this.openBox(target));
     const { lineNumber, column } = this.shown.getSelection().getPosition();
-    this.addWidget('offer', node, { lineNumber, column }, true);
+    this.addWidget('offer', node, { lineNumber, column }, true, this.barsUnder(lineNumber, target));
   }
 
   openBox(target) {
@@ -693,20 +694,24 @@ export class DiffView {
     });
     // A comment on the whole file stands at its top, maybe far from where the view is.
     this.shown.revealLineInCenterIfOutsideViewport(target.anchor);
-    this.addWidget('box', node, { lineNumber: target.anchor, column: 1 }, false);
+    const shownLines = target.side === this.sides.right && !target.isFile ? target : null;
+    this.addWidget('box', node, { lineNumber: target.anchor, column: 1 }, false, this.barsUnder(target.anchor, shownLines));
     focusLaidOut(input);
   }
 
-  addWidget(name, node, position, suppressMouseDown) {
+  // yields: the change bars the widget stands over, by their changes' places, hidden while it is open.
+  addWidget(name, node, position, suppressMouseDown, yields = []) {
     const { ABOVE, BELOW } = monaco.editor.ContentWidgetPositionPreference;
     const widget = {
       suppressMouseDown,
+      yields,
       getId: () => `redpen.${name}`,
       getDomNode: () => node,
       getPosition: () => ({ position, preference: [BELOW, ABOVE] }),
     };
     this.widgets = { ...this.widgets, [name]: widget };
     this.shown.addContentWidget(widget);
+    this.drawYielded();
   }
 
   dropWidget(name) {
@@ -714,7 +719,22 @@ export class DiffView {
     if (widget) {
       this.shown.removeContentWidget(widget);
       this.widgets[name] = null;
+      this.drawYielded();
     }
+  }
+
+  // The change bars a widget at the line stands over: the one right under the line, and, given lines
+  // ({start, end}) of the text shown, those of the changes in them, whose buttons the widget's take
+  // the place of.
+  barsUnder(line, lines) {
+    return this.changes.flatMap((change, index) =>
+      (change.modifiedEndLineNumber || change.modifiedStartLineNumber) === line || lines && spansWithin(change, lines.start, lines.end) ? [index] : []);
+  }
+
+  // Hides the change bars the open widgets stand over, keeping their room so the text stays put.
+  drawYielded() {
+    const yielded = new Set(Object.values(this.widgets || {}).flatMap(widget => widget?.yields || []));
+    (this.bars || []).forEach((bar, index) => bar.classList.toggle('yielded', yielded.has(index)));
   }
 }
 
