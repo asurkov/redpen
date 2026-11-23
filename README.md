@@ -91,7 +91,9 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   stall the page for seconds.
 - **All** is everything the session changed, pending or accepted, with no buttons: the file as it is,
   its changes marked in the margin (green added, blue changed, a red notch where lines were removed)
-  and on the scrollbar. **Diff** in the file bar, or `d`, shows the removed lines and colours again.
+  and on the scrollbar, the current change's lines tinted. **Diff** in the file bar, or `d`, shows the
+  removed lines and colours again. The file bar's ↑ and ↓, at its right end in every view, step
+  through the changes as `p` and `n` do.
 - **History** lists every accept, reject and unaccept with Undo/Redo. An entry whose text changed
   since is greyed out. `Cmd+Z` (`Ctrl+Z`) undoes the newest entry not undone, again and again down
   the list; `Cmd+Shift+Z` redoes, in turn, what it undid, until the next accept or reject. In a

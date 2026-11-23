@@ -265,10 +265,18 @@ export class DiffView {
     const change = this.changes[index];
     this.current = index;
     this.bars.forEach((bar, place) => bar.classList.toggle('current', place === index));
-    this.currentEdge.set(change?.modifiedEndLineNumber > 0 ? [{
+    const marks = change?.modifiedEndLineNumber > 0 ? [{
       range: new monaco.Range(change.modifiedStartLineNumber, 1, change.modifiedEndLineNumber, 1),
       options: { isWholeLine: true, linesDecorationsClassName: 'currentEdge' },
-    }] : []);
+    }] : [];
+    // With the diff hidden there is no bar to tint: the change's own lines are tinted, or, for lines
+    // removed alone, the line their mark stands at.
+    if (change && this.isDiffHidden) {
+      const [start, end] = change.modifiedEndLineNumber > 0 ? [change.modifiedStartLineNumber, change.modifiedEndLineNumber]
+        : [Math.max(1, change.modifiedStartLineNumber), Math.max(1, change.modifiedStartLineNumber)];
+      marks.push({ range: new monaco.Range(start, 1, end, 1), options: { isWholeLine: true, className: 'currentChange' } });
+    }
+    this.currentEdge.set(marks);
   }
 
   pickAtCursor() {

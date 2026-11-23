@@ -616,6 +616,11 @@ body.listHidden #splitter {
 
 /* With the diff hidden, a change is a mark in the margin: a bar beside added or changed lines, a
    notch where lines were removed. */
+/* With the diff hidden, the current change: its lines in the current bar's tint. */
+.currentChange {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
 .addedMark {
   border-left: 3px solid var(--added);
 }
