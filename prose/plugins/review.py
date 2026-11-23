@@ -54,6 +54,8 @@ STYLE = '''
 .rvb-new,.rvb-new:hover{background:var(--insb);color:var(--bg);font-weight:700} #rvt.rvt-new{font-weight:700;border-color:var(--insb)}
 .rvb-done{width:7px;height:7px;padding:0;border:4px solid transparent;border-radius:50%;background:var(--muted) content-box;opacity:.35;vertical-align:middle} .rvb-done::before{content:none} .rvb-done:hover{background:var(--muted) content-box;opacity:.8}
 #cp{z-index:5} #rvp[hidden],#rvc[hidden]{display:none}
+/* An open card is the one popup: the selected change's own buttons (#pop) wait until it closes. */
+body:has(#rvc:not([hidden])) #pop{display:none}
 @media (min-width:840px){.rv-open main{margin-right:420px}}
 @media (max-width:839px){#rvp{top:auto!important;height:45vh;width:100vw!important;border-left:0!important;border-top:1px solid var(--line);box-shadow:0 -2px 10px rgba(0,0,0,.1)} .rv-open main{padding-bottom:50vh}}
 .rvh{flex-wrap:wrap} .rvonly{flex-basis:100%;text-align:left;font-size:12px;padding:1px 8px}
