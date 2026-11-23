@@ -675,7 +675,9 @@ function whatOf(change) {
 
 // Carries out an action on a change of the open file, on the selected lines of its changes (a
 // list), or on the whole file with no change named.
-function act(action, change) {
+// isGoingOn (Shift): then on to the next change, as n goes: the one that took this one's place, or the
+// next one down, or into the next file. A file left with nothing more in the view opens the next anyway.
+function act(action, change, isGoingOn = false) {
   const view = views[state.view];
   const { key, opened } = state;
   return queued(async () => {
@@ -693,8 +695,18 @@ function act(action, change) {
       toast(error.message);
       // The file is not what was shown: show it as it is.
       state.signature = null;
+      isGoingOn = false;
     }
     await refreshAll();
+    if (isGoingOn && state.key === key && state.isText) {
+      // The editor has the file anew: once it has put the view in place (never waited for long).
+      await Promise.race([diffView.settled(), new Promise(resolve => setTimeout(resolve, 3000))]);
+      if (diffView.current >= 0) {
+        diffView.goTo(diffView.current);
+      } else {
+        await stepNow('next');
+      }
+    }
   });
 }
 
@@ -799,23 +811,25 @@ function redoLast() {
 // Steps to the next or previous change; past the open file's last or first one, into the file
 // after or before it in the list, round the list's ends.
 function step(direction) {
-  return queued(async () => {
-    const files = listed();
-    if (state.plain && files.length) {
-      // From an unchanged file, to the changed one after or before it in the tree.
-      const here = { path: state.plain, isOther: false };
-      const next = direction === 'next'
-        ? files.find(file => treeOrder(file, here) > 0) || files[0]
-        : files.findLast(file => treeOrder(file, here) < 0) || files.at(-1);
-      return show(next.key, direction === 'next' ? undefined : 'last');
-    }
-    if (!state.key || !files.length || (state.isText && diffView.go(direction))) {
-      return;
-    }
-    const index = files.findIndex(file => file.key === state.key);
-    const neighbour = files[(index + (direction === 'next' ? 1 : files.length - 1)) % files.length];
-    await show(neighbour.key, direction === 'next' ? undefined : 'last');
-  });
+  return queued(() => stepNow(direction));
+}
+
+async function stepNow(direction) {
+  const files = listed();
+  if (state.plain && files.length) {
+    // From an unchanged file, to the changed one after or before it in the tree.
+    const here = { path: state.plain, isOther: false };
+    const next = direction === 'next'
+      ? files.find(file => treeOrder(file, here) > 0) || files[0]
+      : files.findLast(file => treeOrder(file, here) < 0) || files.at(-1);
+    return show(next.key, direction === 'next' ? undefined : 'last');
+  }
+  if (!state.key || !files.length || (state.isText && diffView.go(direction))) {
+    return;
+  }
+  const index = files.findIndex(file => file.key === state.key);
+  const neighbour = files[(index + (direction === 'next' ? 1 : files.length - 1)) % files.length];
+  await show(neighbour.key, direction === 'next' ? undefined : 'last');
 }
 
 // The view that shows a line of the file's text on disk: the one open if it does, else Pending, or
@@ -908,7 +922,7 @@ function stepThread(direction) {
 }
 
 // The page's keys: n or j and p or k step through the changes, as Alt+↓ and Alt+↑ do; a carries out
-// the current change's own action; r opens a comment on the selected text, or else on that change;
+// the current change's own action, Shift+A that and on to the next change; r opens a comment on the selected text, or else on that change;
 // t and Shift+t step through the threads; d shows or hides All's diff; Cmd+Z (Ctrl+Z) undoes the
 // last Accept or Reject, Cmd+Shift+Z redoes it.
 function takeKey(event) {
@@ -933,10 +947,11 @@ function takeKey(event) {
     return;
   } else if (steps[key]) {
     step(steps[key]);
-  } else if (key === 'a') {
-    // One press, one change: a key held down does not go on accepting.
+  } else if (key === 'a' || key === 'A') {
+    // One press, one change: a key held down does not go on accepting. Shift+A then goes on to the
+    // next change.
     if (state.isText && !event.repeat) {
-      diffView.actByKey(key);
+      diffView.actByKey('a', event.shiftKey);
     }
   } else if (key === 'd') {
     if (state.view === 'all' && state.key && state.isText) {
@@ -1807,6 +1822,13 @@ async function main() {
     iconed(made, made.dataset.icon);
   }
   new ResizeObserver(fitHeader).observe(byId('top'));
+  // Shift held, out of the text fields: the change buttons say they go on to the next change.
+  const shifted = event => document.body.classList.toggle('shifted',
+    event.shiftKey && !(event.target.closest?.('input, textarea') && !diffView.hasTextFocus()));
+  for (const name of ['keydown', 'keyup', 'mousemove']) {
+    document.addEventListener(name, shifted, true);
+  }
+  window.addEventListener('blur', () => document.body.classList.remove('shifted'));
   byId('listButton').addEventListener('click', () => document.body.classList.toggle('listHidden'));
   try {
     state.areUnchangedShown = localStorage.getItem(keptUnchangedShown) === 'yes';

@@ -290,16 +290,21 @@ export class DiffView {
   }
 
   // Carries out the action that has the key, if there is such a one: on the selected lines of the
-  // changes, or else on the current change.
-  actByKey(key) {
+  // changes, or else on the current change; isGoingOn, then on to the next change.
+  actByKey(key, isGoingOn = false) {
     const change = this.changes[this.current];
     const [action] = this.changeActions.find(([, , actionKey]) => actionKey === key) || [];
     const selected = this.selectedSpans();
     if (action && selected.length) {
-      this.handlers.act(action, selected);
+      this.handlers.act(action, selected, isGoingOn);
     } else if (change && action) {
-      this.handlers.act(action, spans(change));
+      this.handlers.act(action, spans(change), isGoingOn);
     }
+  }
+
+  // Resolves once the editor has compared the texts last shown and put the view in its place.
+  settled() {
+    return this.afterDiff ? new Promise(resolve => (this.whenSettled = resolve)) : Promise.resolve();
   }
 
   // The parts of the changes that lie in the selected lines; none with no text selected.
@@ -575,6 +580,8 @@ export class DiffView {
     if (this.afterDiff) {
       this.afterDiff();
       this.afterDiff = null;
+      this.whenSettled?.();
+      this.whenSettled = null;
     } else {
       this.pick(Math.min(this.current, this.changes.length - 1));
     }
@@ -592,7 +599,7 @@ export class DiffView {
       bar.addEventListener(name, event => event.stopPropagation());
     }
     for (const [action, label, key] of this.changeActions) {
-      const made = button(bar, label, () => this.handlers.act(action, spans(change)));
+      const made = goesOn(button(bar, label, event => this.handlers.act(action, spans(change), event.shiftKey)), key);
       if (key) {
         made.dataset.key = key;
       }
@@ -647,8 +654,8 @@ export class DiffView {
     const row = node.appendChild(document.createElement('div'));
     row.className = 'offerRow';
     const selected = this.selectedSpans();
-    for (const [action, label] of selected.length ? this.changeActions : []) {
-      button(row, label, () => this.handlers.act(action, selected));
+    for (const [action, label, key] of selected.length ? this.changeActions : []) {
+      goesOn(button(row, label, event => this.handlers.act(action, selected, event.shiftKey)), key);
     }
     button(row, 'Comment', () => this.openBox(target));
     const { lineNumber, column } = this.shown.getSelection().getPosition();
@@ -744,6 +751,16 @@ export class DiffView {
     const yielded = new Set(Object.values(this.widgets || {}).flatMap(widget => widget?.yields || []));
     (this.bars || []).forEach((bar, index) => bar.classList.toggle('yielded', yielded.has(index)));
   }
+}
+
+// A change's action button, which with Shift goes on to the next change, as with its key: it says so
+// in its tooltip, and while Shift is held (body.shifted) on its face.
+function goesOn(made, key) {
+  const label = made.textContent;
+  made.title = `Shift+click${key ? ` or Shift+${key.toUpperCase()}` : ''}: ${label.toLowerCase()}, then on to the next change`;
+  made.classList.add('goesOn');
+  made.append(Object.assign(document.createElement('span'), { className: 'goesWord', textContent: ' + next' }));
+  return made;
 }
 
 export function button(parent, label, act, kind) {
