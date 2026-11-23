@@ -192,7 +192,10 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   recorder does not follow) shows as the session's. Such a file says **edited elsewhere**, in the
   list and the file bar, from the moment it differs from how the session's last edit (or the page's
   Reject) left it, for good once the session edits it again; Reject's tooltip warns that it undoes
-  those changes too.
+  those changes too. But once all of the session's changes to a file are accepted (or committed), a
+  change since holds none of the session's: the page takes the file's text as its baseline (it shows
+  under Unchanged, edited elsewhere), the row above the prompt does not count it, and the session's
+  next edit of it is all of its diff, not edited elsewhere.
 - A link into the page, `<page URL>#<path>:<line>`, opens it at that file and line (see SKILL.md).
 
 ### A git review

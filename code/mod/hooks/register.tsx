@@ -46,10 +46,23 @@ async function counted($: EngineInterface, record: string, entry: Pick<EditedFil
     hasBase ? base : '/dev/null', exists ? entry.path : '/dev/null'])
   if (ran.exitCode === 0) return { ...plain, kind: 'same', note: '' }
   if (ran.exitCode !== 1) return { ...plain, kind: 'unknown', note: ran.stderr.trim().split('\n')[0] || 'diff failed' }
+  if (hasBase && exists && await isChangedElsewhereOnly($, record, entry.key, base, entry.path)) return { ...plain, kind: 'same', note: '' }
   const note = !exists ? 'deleted' : !hasBase ? 'new' : ''
   const [added = '', removed = ''] = ran.stdout.split('\t')
   if (added === '-') return { ...plain, kind: 'changed', note: note || 'binary' }
   return { ...plain, kind: 'changed', note, added: Number(added) || 0, removed: Number(removed) || 0 }
+}
+
+// Whether a file differs from its baseline by someone else's changes alone: its baseline is the text the
+// session's last edit left (after/<key>, its hash), all of the session's changes accepted, and the file
+// differs from that now. review.py takes the text now as the baseline once the page lists the files.
+async function isChangedElsewhereOnly($: EngineInterface, record: string, key: string, base: string, path: string) {
+  const after = (await $.fs.read(`${record}/after/${key}`).catch(() => '')).trim()
+  if (!after) return false
+  const ran = await $.process.run(['shasum', '-a', '256', base, path]).catch(() => undefined)
+  if (ran?.exitCode !== 0) return false
+  const [baseHash, nowHash] = ran.stdout.trim().split('\n').map(line => line.split(' ')[0])
+  return baseHash === after && nowHash !== after
 }
 
 // The record's entries as last read, by name, with their mtime then.

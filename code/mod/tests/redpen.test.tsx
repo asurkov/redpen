@@ -28,18 +28,26 @@ const bandSite = {
 } as const
 
 // The session's record: each file's entry and, unless it is new, its baseline; and the files on disk.
-// `numstat` is what git counts for a file against its baseline. `marks` are the record's after/<key>
-// marks, by path, with when each was written; `surfaces`, where the session draws.
-function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boolean; isGenerated?: boolean; numstat: string }[]) {
+// `numstat` is what git counts for a file against its baseline; `hashes`, where given, the hashes of its
+// baseline, of its text now and of the text the session's last edit left (its after/<key> mark). `marks`
+// are the record's after/<key> marks, by path, with when each was written; `surfaces`, where the session draws.
+type Hashes = { base: string; now: string; after: string }
+function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boolean; isGenerated?: boolean; numstat: string; hashes?: Hashes }[]) {
   const disk = new Set<string>()
   const entries = new Map<string, string>()
   const counts = new Map<string, string>()
-  edited.forEach(({ path, isNew = false, onDisk = true, numstat }, i) => {
+  const hashOf = new Map<string, string>()
+  edited.forEach(({ path, isNew = false, onDisk = true, numstat, hashes }, i) => {
     entries.set(`${record}/files/k${i}.json`, JSON.stringify({ path, new: isNew }))
     if (!isNew) disk.add(`${record}/base/k${i}`)
     if (onDisk) disk.add(path)
     counts.set(path, numstat)
     counts.set(`${record}/base/k${i}`, numstat)
+    if (hashes) {
+      entries.set(`${record}/after/k${i}`, hashes.after)
+      hashOf.set(`${record}/base/k${i}`, hashes.base)
+      hashOf.set(path, hashes.now)
+    }
   })
   const ran: string[] = []
   const opened: string[] = []
@@ -88,6 +96,7 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
       const numstat = counts.get(after) ?? counts.get(before) ?? ''
       return numstat ? done(1, `${numstat}\t${before} => ${after}\n`) : done(0)
     }
+    if (e.argv[0] === 'shasum') return done(0, e.argv.slice(3).map(path => `${hashOf.get(path) ?? '0'}  ${path}\n`).join(''))
     if (e.argv[2] === '--generated') {
       const asked = e.argv.slice(3)
       return done(0, edited.filter(file => file.isGenerated && asked.includes(file.path)).map(file => `${file.path}\n`).join(''))
@@ -129,6 +138,22 @@ test('the pane lists the edited files with their counts', async ($, on) => {
     expect((await ui.find({ key: 'redpen' }))?.props.label).toBe('Open review')
     await ui.unmount()
   }
+})
+
+test("a file someone else changed since all of the session's changes to it were accepted is not counted", async ($, on) => {
+  session(on, [
+    { path: file, numstat: '2\t1' },
+    // The session's last edit is still pending: its own.
+    { path: '/w/mine.txt', numstat: '1\t1', hashes: { base: 'h0', now: 'h1', after: 'h1' } },
+    // All of the session's accepted, then another session edited it: theirs alone.
+    { path: '/w/theirs.txt', numstat: '3\t2', hashes: { base: 'h1', now: 'h2', after: 'h1' } },
+  ])
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...paneSite, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /files changed/ }))?.text).toBe('2 of 3 files changed')
+  expect(await ui.find({ key: 'file:/w/mine.txt' })).toBeDefined()
+  expect(await ui.find({ key: 'file:/w/theirs.txt' })).toBeUndefined()
+  await ui.unmount()
 })
 
 test('with no edits the pane says so and offers nothing to open', async ($, on) => {

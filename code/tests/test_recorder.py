@@ -91,6 +91,27 @@ class ShellCommands(unittest.TestCase):
         self.assertEqual(recorded(mine), {'a.py': (False, 'a\n', True)})
         self.assertFalse(snapshot.exists())
 
+    def test_an_edit_once_all_was_accepted_and_someone_changed_the_file_since_diffs_alone(self):
+        top, mine, theirs = repo({'a.py': 'a\n'}), session(), session()
+        base = store / mine / 'base' / recorder.key(str(top / 'a.py'))
+
+        def edit(who, text):
+            hook('pre', who, top, 'Edit', {'file_path': str(top / 'a.py')})
+            write(top, {'a.py': text})
+            hook('post', who, top, 'Edit', {'file_path': str(top / 'a.py')})
+
+        edit(mine, 'mine\n')
+        # The page accepted all of it: the baseline is the text my edit left.
+        base.write_text('mine\n')
+        edit(theirs, 'theirs\n')
+        edit(mine, 'mine again\n')
+        self.assertEqual(recorded(mine), {'a.py': (False, 'theirs\n', False)})
+        # The page took their change as the baseline already (review.py's take_others_changes()).
+        edit(theirs, 'theirs again\n')
+        base.write_text('theirs again\n')
+        edit(mine, 'mine at last\n')
+        self.assertEqual(recorded(mine), {'a.py': (False, 'theirs again\n', False)})
+
     def test_a_change_made_before_another_sessions_command_began_stays_mine(self):
         top, mine, theirs = repo({'a.py': 'a\n'}), session(), session()
         hook('pre', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')

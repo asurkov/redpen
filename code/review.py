@@ -592,12 +592,31 @@ class Review:
             after = (self.record / 'after' / key).read_text()
         except OSError:
             return False
+        return self.disk_hash(file, disk, disk_signature) != after
+
+    def disk_hash(self, file, disk, disk_signature):
+        """The hash of the file's text on disk, a link's its own: remembered until it changes."""
         slot = (str(disk), disk_signature, bool(file.get('link')))
         if slot not in disk_hashes:
             if len(disk_hashes) > cached_answers:
                 disk_hashes.clear()
             disk_hashes[slot] = sha(self.read(file, 'disk', disk))
-        return disk_hashes[slot] != after
+        return disk_hashes[slot]
+
+    def take_others_changes(self):
+        """Of a session's review, a file whose baseline is the text the session's last edit left, all of
+        the session's changes to it accepted, holds none of the session's once it differs from that: the
+        change is someone else's (another session's, the user's), and the file's text now becomes its
+        baseline. Not in History, as nothing of the session's is to undo; it says edited elsewhere."""
+        if self.git:
+            return
+        for key, file, places, signatures in self.rows():
+            try:
+                after = (self.record / 'after' / key).read_text()
+            except OSError:
+                continue
+            if self.disk_hash(file, places['disk'], signatures['disk']) != after and hashed(places['base'], signatures['base']) == after:
+                self.write(key, file, 'base', self.read(file, 'disk', places['disk']))
 
     def read(self, file, name, place):
         """One of the file's texts; of a link, at its own place, the link itself, not what it points to;
@@ -2423,6 +2442,7 @@ def get(h, path):
         if found.group(2) == 'files':
             # What a commit took of the session's changes is accepted before the list is read.
             review.checkpoint()
+            review.take_others_changes()
             return send_json(h, {**review.listing(), 'committed': review.last_commit()})
         if found.group(2) == 'journal':
             return send_json(h, review.journal_shown())

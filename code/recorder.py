@@ -173,14 +173,28 @@ def keep_after(session, path):
 def note_outside(session, path):
     """Before the session edits a file it edited before: marks it, for good, as changed outside the
     session if it differs from how the session's last edit left it, as its diff takes those changes
-    in from now on."""
+    in from now on. With nothing of the session's pending in it (its baseline is the text the last edit
+    left, all of it accepted, or the text now), those changes are not taken in: the baseline is the
+    text now, so the diff holds the coming edit alone."""
     k = key(path)
     entry = read_json(store / session / 'files' / f'{k}.json')
     try:
         after = (store / session / 'after' / k).read_text()
     except OSError:
         return
-    if entry is not None and sha(disk_text(path, entry.get('link'))) != after:
+    if entry is None:
+        return
+    now = disk_text(path, entry.get('link'))
+    if sha(now) == after:
+        return
+    base = store / session / 'base' / k
+    try:
+        was = sha(base.read_bytes())
+    except OSError:
+        was = sha(None)
+    if now is not None and was == after:
+        write_atomic(base, now)
+    elif now is None or was != sha(now):
         write_atomic(store / session / 'outside' / k, b'')
 
 

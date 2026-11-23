@@ -150,6 +150,32 @@ class Commits(unittest.TestCase):
         self.assertEqual(rv.checkpoint()['files'], 1)
         self.assertIsNone(listed(rv)['a.py']['pending'])
 
+    def test_a_file_another_session_changes_once_all_of_mine_was_accepted_is_theirs(self):
+        top, mine, theirs = repo({'a.py': 'a1\n', 'b.py': 'b1\n'}), scratch.session(), scratch.session()
+        self.edit(top, mine, 'a.py', 'a2\n')
+        self.edit(top, mine, 'b.py', 'b2\n')
+        rv = review.Review(mine)
+        rv.checkpoint()
+        # a.py all accepted by its commit; b.py's change pending still.
+        git(top, 'add', 'a.py')
+        git(top, 'commit', '-qm', 'a2')
+        rv.checkpoint()
+        self.edit(top, theirs, 'a.py', 'a3\n')
+        self.edit(top, theirs, 'b.py', 'b3\n')
+        rv.take_others_changes()
+        files = listed(rv)
+        # a.py: theirs alone, its baseline now, and said so.
+        self.assertIsNone(files['a.py']['pending'])
+        self.assertTrue(files['a.py']['isEditedElsewhere'])
+        # b.py: mine pending, theirs in it, as before.
+        self.assertEqual(counts(files['b.py']), (1, 1))
+        self.assertEqual(rv.opened(files['b.py']['key'])['texts']['base']['sha'], review.sha(b'b1\n'))
+        # My next edit of a.py is all of its diff.
+        self.edit(top, mine, 'a.py', 'a4\n')
+        files = listed(rv)
+        self.assertEqual(rv.opened(files['a.py']['key'])['texts']['base']['sha'], review.sha(b'a3\n'))
+        self.assertFalse(files['a.py']['isEditedElsewhere'])
+
     def test_a_commit_of_other_files_leaves_the_record_alone(self):
         top, who = repo({'a.py': 'a1\n', 'b.py': 'b1\n'}), scratch.session()
         self.edit(top, who, 'a.py', 'a2\n')
