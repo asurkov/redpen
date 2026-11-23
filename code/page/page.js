@@ -331,6 +331,15 @@ async function refresh() {
   const order = listed().map(file => file.key);
   const listing = await asked('/files');
   state.files = listing.files.sort(treeOrder);
+  // A commit took some of the session's changes since the page last read: they count as accepted now. The
+  // page says so once, not for one there before it loaded.
+  if ((listing.committed?.id ?? null) !== state.committedId) {
+    const entry = listing.committed;
+    if (entry && state.committedId !== undefined) {
+      toast(`Committed in ${entry.commit}: ${entry.files} file${entry.files === 1 ? '' : 's'} accepted`, 'Undo', () => flip(entry.id));
+    }
+    state.committedId = entry?.id ?? null;
+  }
   state.comments = listing.comments;
   state.threads = listing.threads;
   state.goneFolders = new Set((listing.goneFolders || []).map(path => `${path}/`));
@@ -753,6 +762,9 @@ function placeName(entry) {
   if (entry.item) {
     return `“${entry.item}”`;
   }
+  if (entry.commit) {
+    return `commit ${entry.commit}`;
+  }
   if (entry.generated) {
     return 'generated files';
   }
@@ -1167,6 +1179,9 @@ function drawList() {
     if (file.isGone || file.isNew) {
       made.append(span('state', file.isGone ? 'gone' : 'new'));
     }
+    if (file.agents?.length) {
+      made.appendChild(span('state', `by ${file.agents.join(', ')}`)).title = `Edited by the session's subagent${file.agents.length > 1 ? 's' : ''}: ${file.agents.join(', ')}`;
+    }
     if (file.isUncarried) {
       made.appendChild(span('state again', 'rebased')).title = 'The branch was rebased, and what was accepted in this file did not fit the new base: nothing of it is accepted now, look at it again';
     }
@@ -1369,8 +1384,9 @@ async function drawJournal() {
     row.className = entry.isUndone ? 'undone' : '';
     const files = `${entry.files} file${entry.files === 1 ? '' : 's'}`;
     const done = entry.item ? placeName(entry) : entry.generated ? `${entry.files} generated file${entry.files === 1 ? '' : 's'}` : entry.folder ? `${files} in` : whatOf(entry.change);
-    const what = row.appendChild(span('what', `${doneWords[entry.action]} ${done}`));
-    const where = entry.item ? files : entry.generated ? '' : entry.movedFrom ? `${nameOf(entry.movedFrom)} → ${nameOf(entry.path)}` : placeName(entry);
+    // A commit's: what it took of the session's changes, accepted.
+    const what = row.appendChild(span('what', entry.commit ? `Committed in ${entry.commit}` : `${doneWords[entry.action]} ${done}`));
+    const where = entry.item || entry.commit ? files : entry.generated ? '' : entry.movedFrom ? `${nameOf(entry.movedFrom)} → ${nameOf(entry.path)}` : placeName(entry);
     what.append(span('where', where), span('when', new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
     const flipButton = button(row, entry.isUndone ? 'Redo' : 'Undo', () => flip(entry.id));
     flipButton.disabled = !entry.canFlip;

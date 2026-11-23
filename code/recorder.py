@@ -50,6 +50,8 @@ link_mark = b'\0symlink\0'
 moving = re.compile(r'(^|[\s;&|(`])(rm|mv|unlink|trash)(?=\s)|\s-delete(?=\s|;|$)')
 # One that can make a file executable, or no longer.
 chmodding = re.compile(r'(^|[\s;&|(`])chmod(?=\s)')
+# A git command that moves HEAD: what a commit took of the session's changes counts as accepted at once.
+committing = re.compile(r'\bgit\b[^;&|]*\b(commit|merge|pull|rebase|cherry-pick|revert|am|reset)\b')
 # Commands that only read: a shell command made of these alone, writing no output into a file, changes
 # no file, and git is not asked around it. sed, find and git read too, but for what they are told.
 reading = {'ls', 'cat', 'head', 'tail', 'less', 'more', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'wc', 'sort', 'uniq',
@@ -115,6 +117,31 @@ def record(session, path, old, is_link=False, executable=None):
     if old is not None and not is_link and executable is not None:
         kept['executable'] = {'orig': executable, 'base': executable}
     write_atomic(entry, json.dumps(kept).encode())
+    note_head(session, path)
+
+
+def note_head(session, path):
+    """Notes the HEAD of the work tree the file is in, the first time the record has a file there: a
+    commit after it takes the session's changes, which the review then counts as accepted."""
+    top = tree_of(path)
+    place = store / session / 'review' / 'heads.json'
+    heads = read_json(place, {})
+    if not top or top in heads:
+        return
+    head = (git(top, 'rev-parse', 'HEAD') or b'').decode().strip()
+    if head:
+        write_atomic(place, json.dumps({**heads, top: head}, indent=1).encode())
+
+
+def checkpoint_soon(session):
+    """Asks the review server, where it runs, to read the session's file list, which takes what a commit
+    took as accepted: in the background, quietly."""
+    url = f"http://127.0.0.1:{os.environ.get('REDPEN_PORT', '7878')}/code/api/{session}/files"
+    try:
+        subprocess.Popen(['curl', '-s', '-m', '15', '-o', '/dev/null', url], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
 
 
 def sha(data):
@@ -237,10 +264,10 @@ def stage_shell(session, data, name):
     modes = {path: is_executable(path) for path in named_files(command, cwd)} if chmodding.search(command) else {}
     if trees or modes:
         write_atomic(store / session / 'pending' / name,
-                     json.dumps({'trees': trees, 'modes': modes, 'time': time.time()}).encode())
+                     json.dumps({'trees': trees, 'modes': modes, 'time': time.time(), 'command': command}).encode())
 
 
-def commit_shell(session, name):
+def commit_shell(session, name, agent=None):
     """After the command: records a tracked file it changed or deleted, with its last committed text
     as its baseline, and a file it made, as new; one the record has stays as it is. Says whether it
     recorded any."""
@@ -250,8 +277,12 @@ def commit_shell(session, name):
     added = False
     began = before.get('time') or time.time()
     is_long = time.time() - began > long_seconds
+    command = before.get('command') or ''
     # What the command changed is the session's own doing, recorded or not before.
     touched = set()
+    # Other sessions' shell commands running now, by the work trees they watch: what one of them began
+    # before a file changed may be its doing.
+    running = others_running(session)
     # A file a chmod made executable, or no longer: its text as it is, and its bit as it was.
     for path, was in (before.get('modes') or {}).items():
         if was is None or is_executable(path) in (None, was):
@@ -270,6 +301,10 @@ def commit_shell(session, name):
             # Another session's own edit, made while the command ran, is that session's.
             if kind != 'gone' and is_others_edit(session, path, began):
                 continue
+            # Changed while another session's command ran in the tree, by a command of this one that names no
+            # path there: that command's, whose own record takes it once it ends.
+            if not kept['paths'] and is_others_running(running, top, path):
+                continue
             touched.add(path)
             if (store / session / 'files' / f'{key(path)}.json').exists():
                 continue
@@ -280,14 +315,26 @@ def commit_shell(session, name):
                 if old is None:
                     continue
                 record(session, path, *old)
-            # Changed before the command, or perhaps by someone else while a long one ran: its diff takes
-            # in changes not the session's.
-            if kind != 'gone' and (path in was or is_long):
+            # Changed before the command, or perhaps by someone else while a long one ran, or one the
+            # command does not mention (your editor's save while it ran, say): its diff may take in changes
+            # not the session's.
+            if kind != 'gone' and (path in was or is_long or os.path.basename(path) not in command):
                 write_atomic(store / session / 'outside' / key(path), b'')
             added = True
     for path in touched:
         keep_after(session, path)
+        if agent:
+            note_agent(session, path, agent)
     return added
+
+
+def note_agent(session, path, agent):
+    """Notes that a subagent of the session, by its type, edited the file: its record holds the session's
+    edits and its subagents', and the review says whose."""
+    entry = store / session / 'files' / f'{key(path)}.json'
+    kept = read_json(entry)
+    if isinstance(kept, dict) and agent not in (kept.get('agents') or []):
+        write_atomic(entry, json.dumps({**kept, 'agents': [*(kept.get('agents') or []), agent]}).encode())
 
 
 def committed(top, path):
@@ -312,6 +359,28 @@ def file_signature(path):
     except OSError:
         return '-'
     return f'{stat.st_mtime_ns}:{stat.st_ctime_ns}:{stat.st_size}'
+
+
+def others_running(session):
+    """The shell commands of other sessions running now: [(when each began, the work trees it watches)]."""
+    found = []
+    for staged in store.glob('*/pending/shell-*.json'):
+        if staged.parent.parent.name == session:
+            continue
+        kept = read_json(staged) or {}
+        if kept.get('trees'):
+            found.append((kept.get('time') or 0, set(kept['trees'])))
+    return found
+
+
+def is_others_running(running, top, path):
+    """Whether one of the commands running in the work tree began before the file last changed (for a file
+    gone, began at all): the change may be that command's."""
+    try:
+        changed_at = os.lstat(path).st_mtime
+    except OSError:
+        changed_at = None
+    return any(top in trees and (changed_at is None or began <= changed_at) for began, trees in running)
 
 
 def is_others_edit(session, path, since):
@@ -592,6 +661,8 @@ def main():
     if not re.fullmatch(r'[\w-]+', session):
         return
     tool_input = data.get('tool_input') or {}
+    # A subagent's call (the hook says which, agent_id) is recorded in the session's record, by its type.
+    agent = (data.get('agent_type') or 'subagent') if data.get('agent_id') else None
     if sys.argv[1] == 'post':
         prune_daily(session)
     if data.get('tool_name') == 'Bash':
@@ -599,8 +670,10 @@ def main():
         name = f"shell-{key(data.get('tool_use_id') or tool_input.get('command') or '')}.json"
         if sys.argv[1] == 'pre':
             stage_shell(session, data, name)
-        elif commit_shell(session, name):
+        elif commit_shell(session, name, agent):
             touch(session, data.get('transcript_path', ''))
+        if sys.argv[1] == 'post' and committing.search(tool_input.get('command') or ''):
+            checkpoint_soon(session)
         return
     path = tool_input.get('file_path') or tool_input.get('notebook_path')
     if not path:
@@ -613,6 +686,8 @@ def main():
     commit(session, path)
     if (store / session / 'files' / f'{key(path)}.json').exists():
         keep_after(session, path)
+        if agent:
+            note_agent(session, path, agent)
         touch(session, data.get('transcript_path', ''))
 
 

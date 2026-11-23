@@ -1,6 +1,6 @@
 """recorder.py run as Claude Code runs it, around Edit calls and shell commands in scratch
 repositories: what each records, with what baseline, and what it leaves alone."""
-import json, os, subprocess, sys, time, unittest
+import json, os, pathlib, subprocess, sys, time, unittest
 
 import scratch
 from scratch import hook, recorded, repo, session, shell, write
@@ -61,6 +61,48 @@ class ShellCommands(unittest.TestCase):
         shell(who, top, "printf 'mine\\n' >> a.py", between=their_edit)
         self.assertEqual(recorded(who), {'a.py': (False, 'a\n', False)})
         self.assertEqual(recorded(other), {'b.py': (False, 'b\n', False)})
+
+    def test_a_change_made_while_another_sessions_command_runs_is_theirs(self):
+        top, mine, theirs = repo({'a.py': 'a\n', 'b.py': 'b\n'}), session(), session()
+        # My command runs; theirs starts while it does, and changes b.py (a formatter, an install).
+        hook('pre', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')
+        time.sleep(0.02)
+        hook('pre', theirs, top, 'Bash', {'command': 'npx prettier --write .'}, 't1')
+        time.sleep(0.02)
+        write(top, {'b.py': 'B\n'})
+        # Mine ends first: b.py is not mine.
+        hook('post', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')
+        self.assertEqual(recorded(mine), {})
+        hook('post', theirs, top, 'Bash', {'command': 'npx prettier --write .'}, 't1')
+        # Theirs, and marked: their command does not name it either.
+        self.assertEqual(recorded(theirs), {'b.py': (False, 'b\n', True)})
+
+    def test_a_change_made_before_another_sessions_command_began_stays_mine(self):
+        top, mine, theirs = repo({'a.py': 'a\n'}), session(), session()
+        hook('pre', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')
+        write(top, {'a.py': 'mine\n'})
+        time.sleep(0.02)
+        hook('pre', theirs, top, 'Bash', {'command': 'npx prettier --write .'}, 't1')
+        hook('post', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')
+        self.assertEqual(recorded(mine), {'a.py': (False, 'a\n', True)})
+
+    def test_a_file_the_command_does_not_mention_is_marked(self):
+        top, who = repo({'a.py': 'a\n', 'b.py': 'b\n'}), session()
+        # The command writes a.py, which it names; b.py changes meanwhile (an editor's save, say).
+        shell(who, top, "printf 'mine\\n' >> a.py", between=lambda: write(top, {'b.py': 'yours\n'}))
+        self.assertEqual(recorded(who), {'a.py': (False, 'a\n', False), 'b.py': (False, 'b\n', True)})
+
+    def test_a_subagents_edits_are_the_sessions_by_its_type(self):
+        top, who = repo({'a.py': 'a\n', 'b.py': 'b\n'}), session()
+        hook('pre', who, top, 'Edit', {'file_path': str(top / 'a.py')}, agent_id='x1', agent_type='Explore')
+        write(top, {'a.py': 'A\n'})
+        hook('post', who, top, 'Edit', {'file_path': str(top / 'a.py')}, agent_id='x1', agent_type='Explore')
+        hook('pre', who, top, 'Edit', {'file_path': str(top / 'b.py')})
+        write(top, {'b.py': 'B\n'})
+        hook('post', who, top, 'Edit', {'file_path': str(top / 'b.py')})
+        agents = {pathlib.Path(json.loads(f.read_text())['path']).name: json.loads(f.read_text()).get('agents')
+                  for f in (store / who / 'files').glob('*.json')}
+        self.assertEqual(agents, {'a.py': ['Explore'], 'b.py': None})
 
     def test_what_a_long_command_changed_is_marked(self):
         top, who = repo({'a.py': 'a\n'}), session()

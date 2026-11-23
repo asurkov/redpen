@@ -405,7 +405,7 @@ def shown_entry(entry, members):
     """A journal entry as the page shows it: of an action on a folder's files, at the folder, saying
     how many; of one on a moved file, at its new place, saying the old one; of an overview item's
     Accept, by the item's title, saying how many files."""
-    if entry.get('item') or entry.get('generated'):
+    if entry.get('item') or entry.get('generated') or entry.get('commit'):
         return {**entry, 'change': None}
     if entry.get('folder'):
         return {**entry, 'path': entry['folder'], 'change': None}
@@ -700,6 +700,8 @@ class Review:
                 'all': pending if accepted is None else accepted if pending is None else
                        compared(places['orig'], signatures['orig'], places['disk'], signatures['disk']),
                 'isOther': not self.git and is_other(file['path']),
+                # The session's subagents that edited it, by their types.
+                'agents': file.get('agents') or [],
             })
             # Made executable, or no longer: a change of its own, its text the same or not.
             is_new_base = moved_from and places['base'] != moved_from[2]['base']
@@ -971,6 +973,57 @@ class Review:
             if entry is members[0]:
                 entries.append({**shown_entry(entry, members), 'canFlip': all(can_flip(member) for member in members)})
         return entries
+
+    def checkpoint(self):
+        """Of a session's review, what a commit took of the session's changes counts as accepted: for each
+        work tree the record's files are in, the HEAD seen last is kept (review/heads.json), and where it
+        moved since, each file of the record the new commits touched gets the committed text as its
+        baseline, as one History entry, which Undo takes back. The first look only notes HEAD, so a part
+        accepted is never taken back to an older commit. Returns that entry, or None."""
+        if self.git:
+            return None
+        place = self.folder / 'heads.json'
+        seen = read_json(place, {})
+        trees = {}
+        for key, file in self.entries():
+            top = None if file.get('link') else repository_top(os.path.dirname(file['path']) or '/')
+            if top:
+                trees.setdefault(top, []).append((key, file))
+        heads, todo = {}, []
+        for top, files in trees.items():
+            head = (git(top, 'rev-parse', 'HEAD') or b'').decode().strip()
+            if not head:
+                continue
+            heads[top] = head
+            if not seen.get(top) or seen[top] == head:
+                continue
+            touched = set((git(top, 'diff', '--name-only', '-z', seen[top], head) or b'').decode().split('\0'))
+            for key, file in files:
+                name = os.path.relpath(file['path'], top)
+                if name not in touched:
+                    continue
+                base = read_bytes(self.places(key, file)['base'])
+                now_text = committed_text(top, head, name)
+                if now_text != base:
+                    todo.append((key, file, base, now_text, head))
+        entries = []
+        if todo:
+            group = f'commit-{time.time_ns():x}'
+            for key, file, base, now_text, head in todo:
+                entries.append(self.applied(key, file, 'accept', None, base, now_text, group,
+                                            {'commit': head[:10], 'files': len(todo)}))
+        if any(seen.get(top) != head for top, head in heads.items()):
+            write_atomic(place, json.dumps({**seen, **heads}, indent=1).encode())
+        return shown_entry(entries[0], entries) if entries else None
+
+    def last_commit(self):
+        """The newest commit's entry in History, as the page shows it, not undone; None with none: the
+        page says so when it comes, whoever had it taken."""
+        journal = self.journal()
+        last = next((entry for entry in reversed(journal) if entry.get('commit') and not entry['isUndone']), None)
+        if not last:
+            return None
+        return shown_entry(last, [entry for entry in journal if entry.get('group') == last.get('group')])
 
     def kept(self, data):
         """Keeps the text among the blobs; returns its name there."""
@@ -2318,7 +2371,9 @@ def get(h, path):
         # Read under the lock: a git review may have been carried over to another base meanwhile.
         review = Review(found.group(1))
         if found.group(2) == 'files':
-            return send_json(h, review.listing())
+            # What a commit took of the session's changes is accepted before the list is read.
+            review.checkpoint()
+            return send_json(h, {**review.listing(), 'committed': review.last_commit()})
         if found.group(2) == 'journal':
             return send_json(h, review.journal_shown())
         if found.group(2) == 'outline':

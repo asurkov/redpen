@@ -115,6 +115,53 @@ class FolderComments(unittest.TestCase):
             self.assertEqual(refused.exception.status, status, folder)
 
 
+class Commits(unittest.TestCase):
+    def edit(self, top, who, name, text):
+        scratch.hook('pre', who, top, 'Edit', {'file_path': str(top / name)})
+        write(top, {name: text})
+        scratch.hook('post', who, top, 'Edit', {'file_path': str(top / name)})
+
+    def test_a_commit_makes_what_it_took_accepted_and_undo_takes_it_back(self):
+        top, who = repo({'a.py': 'a1\n', 'b.py': 'b1\n'}), scratch.session()
+        self.edit(top, who, 'a.py', 'a2\n')
+        rv = review.Review(who)
+        # The first look notes HEAD and accepts nothing.
+        self.assertIsNone(rv.checkpoint())
+        self.assertEqual(counts(listed(rv)['a.py']), (1, 1))
+        git(top, 'commit', '-qam', 'a2')
+        entry = rv.checkpoint()
+        self.assertEqual((entry['files'], entry['commit']), (1, git(top, 'rev-parse', 'HEAD')[:10]))
+        self.assertIsNone(listed(rv)['a.py']['pending'])
+        self.assertEqual(counts(listed(rv)['a.py'], 'accepted'), (1, 1))
+        # The next edit is all that is pending; a look with HEAD where it was does nothing.
+        self.edit(top, who, 'a.py', 'a3\n')
+        self.assertIsNone(rv.checkpoint())
+        self.assertEqual(counts(listed(rv)['a.py']), (1, 1))
+        self.assertEqual(rv.opened(listed(rv)['a.py']['key'])['texts']['base']['sha'], review.sha(b'a2\n'))
+        # Undo: the committed change is pending again, with the one after it.
+        rv.flip(entry['id'])
+        self.assertEqual(rv.opened(listed(rv)['a.py']['key'])['texts']['base']['sha'], review.sha(b'a1\n'))
+
+    def test_a_commit_before_the_page_ever_looked_counts_too(self):
+        top, who = repo({'a.py': 'a1\n'}), scratch.session()
+        self.edit(top, who, 'a.py', 'a2\n')
+        git(top, 'commit', '-qam', 'a2')
+        rv = review.Review(who)
+        self.assertEqual(rv.checkpoint()['files'], 1)
+        self.assertIsNone(listed(rv)['a.py']['pending'])
+
+    def test_a_commit_of_other_files_leaves_the_record_alone(self):
+        top, who = repo({'a.py': 'a1\n', 'b.py': 'b1\n'}), scratch.session()
+        self.edit(top, who, 'a.py', 'a2\n')
+        rv = review.Review(who)
+        rv.checkpoint()
+        write(top, {'b.py': 'b2\n'})
+        git(top, 'add', 'b.py')
+        git(top, 'commit', '-qm', 'b2')
+        self.assertIsNone(rv.checkpoint())
+        self.assertEqual(counts(listed(rv)['a.py']), (1, 1))
+
+
 class Moves(unittest.TestCase):
     def test_a_renamed_file_is_one_row_and_reject_puts_it_back(self):
         top = repo({'a.py': 'one\ntwo\nthree\n'})

@@ -78,12 +78,13 @@ def session():
     return f'test-{uuid.uuid4().hex[:12]}'
 
 
-def hook(phase, session_id, cwd, tool, tool_input, tool_id='call'):
-    """Runs the recorder's pre or post hook as Claude Code does, with the call's JSON on stdin."""
+def hook(phase, session_id, cwd, tool, tool_input, tool_id='call', **more):
+    """Runs the recorder's pre or post hook as Claude Code does, with the call's JSON on stdin; more, the
+    hook input's other fields (a subagent's agent_id and agent_type)."""
     data = {'session_id': session_id, 'tool_name': tool, 'cwd': str(cwd), 'tool_use_id': tool_id,
-            'tool_input': tool_input, 'transcript_path': ''}
+            'tool_input': tool_input, 'transcript_path': '', **more}
     ran = subprocess.run([sys.executable, str(code / 'recorder.py'), phase], input=json.dumps(data), text=True,
-                         capture_output=True, env={**os.environ, 'HOME': str(home)})
+                         capture_output=True, env={**os.environ, 'HOME': str(home), 'REDPEN_PORT': '9'})
     if ran.stderr:
         raise AssertionError(f'the recorder said: {ran.stderr}')
 
