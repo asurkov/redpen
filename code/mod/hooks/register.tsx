@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, McpToolResult, Register } from 'claude-code'
 
-import type { EditedFile } from '../types'
+import type { EditedFile, Overview } from '../types'
 
 // The files this session edited, from the record redpen's recorder keeps in
 // ~/.redpen/code/<session>/ (files/<key>.json and base/<key>), each counted against its baseline: its
@@ -12,6 +12,15 @@ const paneId = 'redpen'
 const files = atom({ plugin: 'redpen', key: 'files' } as const, [], { shape: 'files-3' })
 const areOthersOpen = atom({ plugin: 'redpen', key: 'areOthersOpen' } as const, false)
 const redpenTab = atom({ plugin: 'redpen', key: 'redpenTab' } as const, { id: '', url: '' })
+// The record's edit marks (after/<key>, rewritten at each of the session's own edits to the file), by key,
+// with when each was written: as last read, and as they were when you last looked (closed the row above
+// the prompt, or opened the review from it or the pane); and whether you closed the row.
+const marks = atom({ plugin: 'redpen', key: 'marks' } as const, {})
+const lookedMarks = atom({ plugin: 'redpen', key: 'lookedMarks' } as const, null)
+const isRowClosed = atom({ plugin: 'redpen', key: 'isRowClosed' } as const, false)
+// The overview Claude wrote of the review, by purpose, as the row names what is new: when it was written,
+// and each item's title with the files its blocks are in, by their keys.
+const overview = atom({ plugin: 'redpen', key: 'overview' } as const, null)
 
 type Places = { record: string; cwd: string; home: string }
 
@@ -93,6 +102,31 @@ async function scanOnce($: EngineInterface, force: boolean) {
   next.sort((a, b) => a.path.localeCompare(b.path))
   const before = JSON.stringify(await read($, files))
   if (JSON.stringify(next) !== before) await update($, files, () => next)
+  const marked = Object.fromEntries(await editMarks($))
+  if (JSON.stringify(marked) !== JSON.stringify(await read($, marks))) await update($, marks, () => marked)
+  const written = await readOverview($, record)
+  if (written !== undefined && JSON.stringify(written) !== JSON.stringify(await read($, overview))) await update($, overview, () => written)
+}
+
+// The record's overview (review/outline.json) as the row uses it, read again when its file changed;
+// undefined while it has not.
+let overviewSignature = ''
+async function readOverview($: EngineInterface, record: string): Promise<Overview | null | undefined> {
+  const place = `${record}/review/outline.json`
+  const signature = await signatureOf($, place)
+  if (signature === overviewSignature) return undefined
+  overviewSignature = signature
+  if (signature === '-') return null
+  try {
+    const written = JSON.parse(await $.fs.read(place))
+    return {
+      time: String(written.time ?? ''),
+      items: (written.items ?? []).map((item: { title?: string; blocks?: { key?: string }[] }) =>
+        ({ title: item.title ?? '', keys: [...new Set((item.blocks ?? []).map(block => block.key ?? ''))] })),
+    }
+  } catch {
+    return null
+  }
 }
 
 let scanning: Promise<void> | undefined
@@ -136,6 +170,23 @@ function openingJson(result: McpToolResult | undefined): Record<string, unknown>
 // in a new one. From the terminal, or with no Browser pane to reach, in the default browser. Given a
 // file, at that file: the page opens what a link into it names, #<path>.
 async function openRedpen($: EngineInterface, surface: string, path?: string) {
+  await showRedpen($, surface, path)
+  void askOverview($)
+}
+
+// The review opened with changes no overview covers: Claude is asked for one, by a prompt of the
+// session's own, which starts a turn of its own once the session is idle. review.py says whether one is
+// needed (none while an ask waits for its answer) and logs the ask as handed over, so the page shows
+// that Claude writes it and nothing hands it over again.
+async function askOverview($: EngineInterface) {
+  const { home } = await places($)
+  const ran = await $.process.run(['python3', `${home}/.claude/skills/redpen/code/review.py`, '--describe',
+    '--session', await $.session.id()]).catch(() => undefined)
+  const text = ran?.exitCode === 0 ? ran.stdout.trim() : ''
+  if (text) await $.prompt.submit({ text }).catch(() => undefined)
+}
+
+async function showRedpen($: EngineInterface, surface: string, path?: string) {
   const { home } = await places($)
   const ran = await $.process.run(['python3', `${home}/.claude/skills/redpen/code/review.py`,
     '--session', await $.session.id()]).catch(() => undefined)
@@ -189,6 +240,30 @@ async function editMarks($: EngineInterface) {
   return new Map(listed.filter(({ name }) => !name.startsWith('.')).map(({ name, mtimeMs }) => [name, mtimeMs]))
 }
 
+// What the row names of the files edited since you looked: an overview item's title with the files of
+// it whose latest edit it was written after, in the overview's order; the rest by their names.
+function freshParts(fresh: EditedFile[], now: Record<string, number>, written: Overview | null) {
+  const nameOf = (file: EditedFile) => file.path.split('/').pop() ?? file.path
+  const writtenMs = written ? Date.parse(written.time) || 0 : 0
+  const told = new Set<string>()
+  const parts: string[] = []
+  for (const item of written?.items ?? []) {
+    const its = fresh.filter(file => !told.has(file.key) && item.keys.includes(file.key) && (now[file.key] ?? Infinity) <= writtenMs)
+    if (!its.length) continue
+    its.forEach(file => told.add(file.key))
+    const title = item.title.length > 48 ? `${item.title.slice(0, 47)}…` : item.title
+    parts.push(`${title} (${its.map(nameOf).join(', ')})`)
+  }
+  return [...parts, ...fresh.filter(file => !told.has(file.key)).map(nameOf)]
+}
+
+// You looked: what the session edited so far is no longer new, and the row is closed or open.
+async function look($: EngineInterface, isClosing: boolean) {
+  const now = await read($, marks)
+  await update($, lookedMarks, () => now)
+  await update($, isRowClosed, () => isClosing)
+}
+
 // The marks as the main loop's turn found them, and whether the turn used the Browser pane itself.
 let marksAtStart: Map<string, number> | undefined
 let isBrowserUsed = false
@@ -209,6 +284,11 @@ export const register: Register = on => {
     const started = await next(e)
     await $.command.register({ name: 'edits', description: 'Show the files this session edited, and open their review in redpen' })
     await scan($, true)
+    // What the session edited before this start (a resume, a reload) is not new.
+    if ((await read($, lookedMarks)) === null) {
+      const now = await read($, marks)
+      await update($, lookedMarks, () => now)
+    }
     $.clock.every(1500, () => void scan($))
     return started
   })
@@ -244,17 +324,26 @@ export const register: Register = on => {
     return ended
   })
 
-  // One row above the prompt while the session's work has changes: their count and the way to the
-  // review, which leaves the side of the window to the page. A phone has no page to open.
+  // One row above the prompt while the session's work has changes: the files the session edited since
+  // you last looked, their count, the way to the review, which leaves the side of the window to the page,
+  // and ×. Closed, it stays away until the session edits a file of the work again. A phone has no page to
+  // open.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.surface === 'mobile' || e.props.hasSurvey) return next(e)
     const { changed, work } = sortedFiles(await read($, files), (await places($)).home)
     if (!changed.length) return next(e)
+    const now: Record<string, number> = await read($, marks)
+    const looked: Record<string, number> = (await read($, lookedMarks)) ?? now
+    const fresh = changed.filter(file => now[file.key] !== undefined && now[file.key] !== looked[file.key])
+    if ((await read($, isRowClosed)) && !fresh.length) return next(e)
+    const parts = freshParts(fresh, now, await read($, overview))
+    const freshWords = parts.length ? ` · new: ${parts.slice(0, 3).join(', ')}${parts.length > 3 ? ` +${parts.length - 3}` : ''}` : ''
     const { Box, Text, Button } = $.ui.resolve(e)
     return (
       <Box flexDirection="row" gap={1} alignItems="center">
-        <Text dimColor>{`redpen · ${changed.length} of ${work.length} files changed`}</Text>
-        <Button key="redpen" label="Open review" onPress={press => void openRedpen($, press.surface)} />
+        <Text dimColor>{`redpen${freshWords} · ${changed.length} of ${work.length} files changed`}</Text>
+        <Button key="redpen" label="Open review" onPress={press => void look($, false).then(() => openRedpen($, press.surface))} />
+        <Button key="close" label="×" plain role="dismiss" onPress={() => void look($, true)} />
       </Box>
     )
   })
@@ -282,7 +371,7 @@ export const register: Register = on => {
       const dir = shown(file.path).slice(0, -name.length).replace(/\/$/, '')
       return (
         <Box flexDirection="row" gap={1} flexWrap="wrap" alignItems="center" key={`file:${file.path}`}>
-          <Button key={`open:${file.path}`} plain label={name} onPress={press => void openRedpen($, press.surface, file.path)} />
+          <Button key={`open:${file.path}`} plain label={name} onPress={press => void look($, false).then(() => openRedpen($, press.surface, file.path))} />
           <Text color="diffAdded">{`+${file.added}`}</Text>
           <Text color="diffRemoved">{`−${file.removed}`}</Text>
           {file.note ? <Text dimColor>{file.note}</Text> : undefined}
@@ -299,7 +388,7 @@ export const register: Register = on => {
             {work.length ? `${changed.length} of ${work.length} files changed` : 'No edits in this session yet.'}
           </Text>
           {list.length > 0 &&
-            <Button key="redpen" label="Open review" onPress={press => void openRedpen($, press.surface)} />}
+            <Button key="redpen" label="Open review" onPress={press => void look($, false).then(() => openRedpen($, press.surface))} />}
         </Box>
         <Box flexDirection="column">
           {work.filter(isListed).map(fileRow)}

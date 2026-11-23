@@ -1217,6 +1217,29 @@ class Review:
                 self.post(channel)
         return {'asked': self.asked_state()}
 
+    def needs_overview(self):
+        """Whether the work's changes have a part no overview covers: none written yet while the work has
+        changes, or changes no block of it touches; never while an ask for one waits."""
+        if self.asked_state():
+            return False
+        shown = self.outline_shown()
+        if shown['time'] is None:
+            return any(file['all'] and not file['isOther'] and not file['isGenerated'] for file in self.listing()['files'])
+        return bool(shown['uncovered'])
+
+    def describe_by_prompt(self):
+        """Asks for the overview by a prompt of the session's own, which the Claude Code mod submits: the ask
+        is logged as sent and handed over at once, so the page says Claude writes it and nothing hands it
+        over again. Returns the prompt."""
+        channel = shared('channel')
+        with channel.locked(self.sent):
+            ask = channel.append(self.sent, {'comments': [{'id': f'{time.time_ns():x}', 'time': now(), 'describe': True}]})
+            channel.mark(self.sent, [ask], 'prompt')
+        outline = read_json(self.folder / 'outline.json', {})
+        titles = [item.get('title') for item in outline.get('items') or []] if isinstance(outline, dict) else []
+        changes = f"the changes in {self.git['repo']} against {self.git['spec']}" if self.git else 'your changes'
+        return outline_asked(changes, self.git, self.session, titles)
+
     def asked_state(self):
         """Where the last ask for an overview is: 'draft', to go with the next message; 'sent', not
         taken yet; 'taken', Claude writes it; None, answered or never asked."""
@@ -1498,12 +1521,18 @@ def described(comments, git=None, name=None):
     return '\n'.join(out + ['', *told] if told else out)
 
 
-def outline_asked(changes, git, name):
-    """What tells the model to write the overview the user asked for."""
+def outline_asked(changes, git, name, titles=None):
+    """What tells the model to write the overview the user asked for; with titles, the items of the one
+    written before, the ask the page's own, made when the review opened with changes it does not cover."""
     diffed = f" (`git -C {git['repo']} diff {git['base']}`, and its untracked files)" if git else ''
     before = ' at the base commit' if git else ' before your edits'
+    asker = 'The user asked on the redpen review page' if titles is None else \
+        'The redpen review page opened with changes no overview covers, and asks'
+    again = [] if not titles else [
+        'It replaces the one written before, whose items were: ' + '; '.join(f'"{title}"' for title in titles) +
+        '. Keep those that still hold, and give the changes they do not cover items of their own.']
     return '\n'.join([
-        f'The user asked on the redpen review page for an overview of {changes}{diffed}: what they do, by '
+        f'{asker} for an overview of {changes}{diffed}: what they do, by '
         'purpose, each part pointing at its code. Write it as JSON and run '
         f"`python3 {here / 'review.py'} --outline {name}` with it on stdin:",
         '```json',
@@ -1515,7 +1544,7 @@ def outline_asked(changes, git, name):
         'file. Group the changes by purpose, not by file, in the order a reviewer should read them, and let '
         'every change belong to an item: the command and the page list those no block covers. Leave out the '
         'files the project generates (lockfiles, those marked linguist-generated or by a generator\'s banner). Each note says '
-        'what its block does, in a few words; say only what the code shows.'])
+        'what its block does, in a few words; say only what the code shows.', *again])
 
 
 def prompt_hook():
@@ -1627,6 +1656,16 @@ def answer(session, comment_id, where=None):
         except Refusal:
             pass
     sys.exit(f'No comment {comment_id!r} was sent from a review page.')
+
+
+def describe_if_needed(session):
+    """Prints the prompt that asks for the session's overview, if its review needs one; else nothing."""
+    try:
+        review = Review(session)
+        if (store / session / 'files').is_dir() and review.needs_overview():
+            print(review.describe_by_prompt())
+    except Refusal as e:
+        sys.exit(str(e))
 
 
 def outline(name):
@@ -2331,6 +2370,8 @@ def main():
     parser.add_argument('--answer', metavar='ID')
     parser.add_argument('--outline', nargs='?', const='', metavar='REVIEW')
     parser.add_argument('--generated', nargs='+', metavar='PATH')
+    parser.add_argument('--describe', action='store_true',
+                        help="print the ask for an overview, logged as handed over, if the session's review needs one")
     parser.add_argument('--change', metavar='PATH[:LINE]')
     parser.add_argument('--git', nargs='?', const='.', metavar='REPO')
     parser.add_argument('--base', metavar='REV', help="default: the branch's upstream, else HEAD")
@@ -2346,6 +2387,8 @@ def main():
         return outline(args.outline or args.session)
     if args.generated:
         return print('\n'.join(sorted(generated_paths([os.path.abspath(path) for path in args.generated]))))
+    if args.describe:
+        return describe_if_needed(args.session)
     server = shared('server')
     port = args.port or server.default_port
     if not server.running(port):

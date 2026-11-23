@@ -271,7 +271,18 @@ Cursor's Agents Window runs only Cursor's built-in extensions, so the item shows
 The mod in `code/mod/` (the plugin `redpen`) is the review page's way in from Claude Code, in the
 terminal and in the desktop app. While the session's work has changes, a row above the prompt counts
 them beside Open review, leaving the side of the window to the page; Claude's own and temporary files,
-and generated ones, are not counted there. `/edits` opens a pane that lists the files this session
+and generated ones, are not counted there. It names the files the session edited since you last looked
+(`new: page.js, editor.js`; you look by closing the row or opening the review from it or the pane), and
+**×** closes it until the session edits a file of the work again: its recorder's `after/` mark of the file
+rewritten. What the session edited before it started (a resume) is not new. Where the overview was
+written after a file's latest edit, the row names it by the overview's item (`new: Prev and next fixed
+(page.js), README.md`).
+
+Opening the review (from the row, the pane, or by itself at a turn's end) asks Claude for an overview when
+the review has none yet or has changes no block of it covers: `review.py --describe` says whether one is
+needed, none while an ask waits, and prints the ask, logged as handed over; the mod submits it as a
+prompt of the session's own ("The redpen plugin sent a message"), which starts a turn once the session
+is idle. So the overview and the row's titles keep up without Describe; each such ask is one short turn. `/edits` opens a pane that lists the files this session
 edited with their lines added and removed, each a way to its review (a link into the page). The mod
 only reads the record: the review itself is the page. Open review opens
 this session's review page in the desktop app's Browser pane through its MCP server (`Claude Browser`),

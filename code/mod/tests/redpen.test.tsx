@@ -45,6 +45,15 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
   const opened: string[] = []
   const marks = new Map<string, number>()
   const surfaces: ('terminal' | 'desktop')[] = ['desktop']
+  // What review.py --describe prints (the ask for an overview, or nothing), the prompts the mod submitted,
+  // and the files' times, by path, for those a test rewrites.
+  const asking = { text: '' }
+  const submitted: string[] = []
+  const times = new Map<string, number>()
+  on('prompt.submit', (_, e) => {
+    submitted.push(e.text)
+    return { text: e.text }
+  })
   on('env.get', () => ({ value: '/h' }))
   on('session.surfaces', () => ({ value: [...surfaces] }))
   on('session.id', () => ({ value: 's1' }))
@@ -64,7 +73,7 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
   }))
   on('fs.read', (_, e) => ({ value: entries.get(e.path) ?? '' }))
   on('fs.exists', (_, e) => ({ value: disk.has(e.path) }))
-  on('fs.stat', () => ({ value: { kind: 'file' as const, size: 1, mtimeMs: 1, isLink: false } }))
+  on('fs.stat', (_, e) => ({ value: { kind: 'file' as const, size: 1, mtimeMs: times.get(e.path) ?? 1, isLink: false } }))
   on('process.run', (_, e) => {
     ran.push(e.argv.join(' '))
     const done = (exitCode: number, stdout = '') =>
@@ -78,10 +87,17 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
       const asked = e.argv.slice(3)
       return done(0, edited.filter(file => file.isGenerated && asked.includes(file.path)).map(file => `${file.path}\n`).join(''))
     }
+    if (e.argv[2] === '--describe') return done(0, asking.text)
     if (e.argv[1] === '/h/.claude/skills/redpen/code/review.py') return done(0, `${page}\n`)
     return done(0)
   })
-  return { ran, opened, marks, surfaces, clock }
+  // Writes the record's overview, as review.py --outline does.
+  const writeOverview = (written: unknown) => {
+    const place = `${record}/review/outline.json`
+    entries.set(place, JSON.stringify(written))
+    times.set(place, (times.get(place) ?? 1) + 1)
+  }
+  return { ran, opened, marks, surfaces, clock, asking, submitted, writeOverview }
 }
 
 test('the pane lists the edited files with their counts', async ($, on) => {
@@ -180,7 +196,7 @@ test('Open review opens the page in the Browser pane, in the same tab while it i
   // The terminal has no Browser pane: the page opens in the default browser.
   const terminal = await $.ui.mount({ ...paneSite, surface: 'terminal' })
   await terminal.press({ key: 'redpen' })
-  expect(ran.at(-1)).toBe(`/usr/bin/open ${page}`)
+  expect(ran).toContain(`/usr/bin/open ${page}`)
   expect(opened).toBe(2)
   await terminal.unmount()
 })
@@ -323,4 +339,81 @@ test('a turn that edited the work opens the review as it ends', async ($, on) =>
   surfaces.splice(0, 1, 'terminal')
   await turn(['k0'])
   expect(opens()).toBe(2)
+})
+
+test('the row says what is new, closes with ×, and comes back when the session edits again', async ($, on) => {
+  const { marks, clock } = session(on, [
+    { path: file, numstat: '2\t1' },
+    { path: '/w/src/b.txt', numstat: '1\t0' },
+  ])
+  on('mcp.connect', (_, e) => ({ value: { isConnected: true as const, server: e.server } }))
+  on('mcp.call', () => ({ value: { content: [{ type: 'text', text: '{"tabs":[],"tabId":"tab-1"}' }], isError: false } }))
+  // a.txt was edited before the session started (a resume): not new.
+  marks.set(`${record}/after/k0`, 1)
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
+  const row = async (act?: string) => {
+    const band = await $.ui.mount({ ...bandSite, surface: 'desktop' })
+    if (act) await band.press({ key: act })
+    const text = (await band.find({ type: 'Text', text: /^redpen/ }))?.text
+    await band.unmount()
+    return text
+  }
+  // The session edits a file: the next scan has it.
+  const edit = async (key: string, at: number) => {
+    marks.set(`${record}/after/${key}`, at)
+    await clock.advance(1500)
+  }
+
+  expect(await row()).toBe('redpen · 2 of 2 files changed')
+  await edit('k1', 5)
+  expect(await row()).toBe('redpen · new: b.txt · 2 of 2 files changed')
+  // × closes it, and it stays closed while nothing new is edited.
+  await row('close')
+  expect(await row()).toBeUndefined()
+  await clock.advance(1500)
+  expect(await row()).toBeUndefined()
+  // A new edit brings it back, saying what is new since it was closed.
+  await edit('k0', 9)
+  expect(await row()).toBe('redpen · new: a.txt · 2 of 2 files changed')
+  // Opening the review is looking: nothing is new, and the row stays.
+  await row('redpen')
+  expect(await row()).toBe('redpen · 2 of 2 files changed')
+})
+
+test('opening the review asks Claude for the overview it lacks, and the row names what is new by it', async ($, on) => {
+  const { marks, clock, asking, submitted, ran, writeOverview } = session(on, [
+    { path: file, numstat: '2\t1' },
+    { path: '/w/src/b.txt', numstat: '1\t0' },
+  ])
+  on('mcp.connect', (_, e) => ({ value: { isConnected: true as const, server: e.server } }))
+  on('mcp.call', () => ({ value: { content: [{ type: 'text', text: '{"tabs":[],"tabId":"tab-1"}' }], isError: false } }))
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
+  const row = async (act?: string) => {
+    const band = await $.ui.mount({ ...bandSite, surface: 'desktop' })
+    if (act) await band.press({ key: act })
+    const text = (await band.find({ type: 'Text', text: /^redpen/ }))?.text
+    await band.unmount()
+    return text
+  }
+
+  // review.py says no overview is needed: nothing is asked.
+  await row('redpen')
+  expect(ran).toContain('python3 /h/.claude/skills/redpen/code/review.py --describe --session s1')
+  expect(submitted).toEqual([])
+  // It says one is: its ask goes to Claude as a prompt of the session's own.
+  asking.text = 'Write the overview.\n'
+  await row('redpen')
+  await clock.settle()
+  expect(submitted).toEqual(['Write the overview.'])
+
+  // Edits, then the overview Claude wrote after them: the row names them by its item.
+  marks.set(`${record}/after/k0`, 5)
+  marks.set(`${record}/after/k1`, 6)
+  writeOverview({ time: new Date(10).toISOString(), items: [{ title: 'Prev and next fixed', blocks: [{ key: 'k0', path: file }] }] })
+  await clock.advance(1500)
+  expect(await row()).toBe('redpen · new: Prev and next fixed (a.txt), b.txt · 2 of 2 files changed')
+  // a.txt edited after the overview was written: by its name until a new one says what it is.
+  marks.set(`${record}/after/k0`, 20)
+  await clock.advance(1500)
+  expect(await row()).toBe('redpen · new: a.txt, b.txt · 2 of 2 files changed')
 })

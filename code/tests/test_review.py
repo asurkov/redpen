@@ -250,6 +250,23 @@ class Overview(unittest.TestCase):
         thread = next(thread for thread in self.rv.threads() if thread['item'] == 'eight')
         self.assertEqual([entry['by'] for entry in thread['entries']], ['user', 'claude', 'user'])
 
+    def test_the_page_asks_for_an_overview_while_changes_have_none(self):
+        self.assertTrue(self.rv.needs_overview())
+        asked = self.rv.describe_by_prompt()
+        self.assertIn('opened with changes no overview covers', asked)
+        self.assertIn(f'--outline {self.rv.session}', asked)
+        # Handed over with the prompt: Claude writes it, and nothing asks again meanwhile.
+        self.assertEqual(self.rv.asked_state(), 'taken')
+        self.assertFalse(self.rv.needs_overview())
+        self.assertEqual(review.shared('channel').waiting(self.rv.sent), [])
+        self.outline(('three', [('a.py', 3, 3)]), ('eight', [('a.py', 8, 8)]), ('b', [('b.py', 2, 2)]))
+        self.assertIsNone(self.rv.asked_state())
+        self.assertFalse(self.rv.needs_overview())
+        # A change since that no block covers: asked again, naming the items written before.
+        write(self.top, {'a.py': (self.top / 'a.py').read_text().replace('a1\n', 'A1\n')})
+        self.assertTrue(self.rv.needs_overview())
+        self.assertIn('"three"; "eight"; "b"', self.rv.describe_by_prompt())
+
     def test_a_comment_on_an_item_the_overview_no_longer_has_is_refused(self):
         self.outline(('three', [('a.py', 3, 3)]))
         with self.assertRaises(review.Refusal) as refused:
