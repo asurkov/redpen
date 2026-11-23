@@ -1288,6 +1288,13 @@ class Review:
         with channel.locked(self.sent):
             ask = channel.append(self.sent, {'comments': [{'id': f'{time.time_ns():x}', 'time': now(), 'describe': True}]})
             channel.mark(self.sent, [ask], 'prompt')
+        # One line in the transcript: the command it names prints what to write (outline_how()).
+        return (f"Write the overview of {'the' if self.git else 'your'} changes for the redpen review: "
+                f"`python3 {here / 'review.py'} --outline-how {self.session}` says how.")
+
+    def outline_how(self):
+        """What the page's own ask for an overview tells the model: how to write it, and the items of the
+        one written before, to keep those that still hold."""
         outline = read_json(self.folder / 'outline.json', {})
         titles = [item.get('title') for item in outline.get('items') or []] if isinstance(outline, dict) else []
         changes = f"the changes in {self.git['repo']} against {self.git['spec']}" if self.git else 'your changes'
@@ -2425,6 +2432,8 @@ def main():
     parser.add_argument('--answer', metavar='ID')
     parser.add_argument('--outline', nargs='?', const='', metavar='REVIEW')
     parser.add_argument('--generated', nargs='+', metavar='PATH')
+    parser.add_argument('--outline-how', nargs='?', const='', metavar='REVIEW',
+                        help='print how to write the overview the review page asked for')
     parser.add_argument('--describe', action='store_true',
                         help="print the ask for an overview, logged as handed over, if the session's review needs one")
     parser.add_argument('--change', metavar='PATH[:LINE]')
@@ -2444,6 +2453,8 @@ def main():
         return print('\n'.join(sorted(generated_paths([os.path.abspath(path) for path in args.generated]))))
     if args.describe:
         return describe_if_needed(args.session)
+    if args.outline_how is not None:
+        return print(Review(args.outline_how or args.session).outline_how())
     server = shared('server')
     port = args.port or server.default_port
     if not server.running(port):

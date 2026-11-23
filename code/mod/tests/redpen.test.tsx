@@ -49,6 +49,7 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
   // and the files' times, by path, for those a test rewrites.
   const asking = { text: '' }
   const submitted: string[] = []
+
   const times = new Map<string, number>()
   on('prompt.submit', (_, e) => {
     submitted.push(e.text)
@@ -293,10 +294,12 @@ test('a file in the pane opens the review at that file, in the tab open already'
 })
 
 test('a turn that edited the work opens the review as it ends', async ($, on) => {
-  const { marks, surfaces, clock } = session(on, [
+  const { marks, surfaces, clock, asking, submitted } = session(on, [
     { path: file, numstat: '2\t1' },
     { path: '/h/.claude/settings.json', numstat: '1\t0' },
   ])
+  // review.py would ask; the page opening by itself asks nothing.
+  asking.text = 'Write the overview as JSON.\n'
   const calls: string[] = []
   on('mcp.connect', (_, e) => ({ value: { isConnected: true as const, server: e.server } }))
   on('mcp.call', (_, e) => {
@@ -323,6 +326,7 @@ test('a turn that edited the work opens the review as it ends', async ($, on) =>
 
   await turn(['k0'])
   expect(opens()).toBe(1)
+  expect(submitted).toEqual([])
   // No edit, or only one to Claude's own files: nothing opens.
   await turn([])
   await turn(['k1'])
@@ -409,10 +413,10 @@ test('opening the review asks Claude for the overview it lacks, and the row name
   expect(ran).toContain('python3 /h/.claude/skills/redpen/code/review.py --describe --session s1')
   expect(submitted).toEqual([])
   // It says one is: its ask goes to Claude as a prompt of the session's own.
-  asking.text = 'Write the overview.\n'
+  asking.text = 'Write the overview: review.py --outline-how says how.\n'
   await row('redpen')
   await clock.settle()
-  expect(submitted).toEqual(['Write the overview.'])
+  expect(submitted).toEqual(['Write the overview: review.py --outline-how says how.'])
 
   // Edits, then the overview Claude wrote after them: the row names them by its item.
   marks.set(`${record}/after/k1`, 5)

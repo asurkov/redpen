@@ -300,8 +300,11 @@ class Overview(unittest.TestCase):
     def test_the_page_asks_for_an_overview_while_changes_have_none(self):
         self.assertTrue(self.rv.needs_overview())
         asked = self.rv.describe_by_prompt()
-        self.assertIn('opened with changes no overview covers', asked)
-        self.assertIn(f'--outline {self.rv.session}', asked)
+        # One line, naming the command that says how.
+        self.assertNotIn('\n', asked)
+        self.assertIn(f'--outline-how {self.rv.session}', asked)
+        self.assertIn('opened with changes no overview covers', self.rv.outline_how())
+        self.assertIn(f'--outline {self.rv.session}', self.rv.outline_how())
         # Handed over with the prompt: Claude writes it, and nothing asks again meanwhile.
         self.assertEqual(self.rv.asked_state(), 'taken')
         self.assertFalse(self.rv.needs_overview())
@@ -312,7 +315,8 @@ class Overview(unittest.TestCase):
         # A change since that no block covers: asked again, naming the items written before.
         write(self.top, {'a.py': (self.top / 'a.py').read_text().replace('a1\n', 'A1\n')})
         self.assertTrue(self.rv.needs_overview())
-        self.assertIn('"three"; "eight"; "b"', self.rv.describe_by_prompt())
+        self.rv.describe_by_prompt()
+        self.assertIn('"three"; "eight"; "b"', self.rv.outline_how())
 
     def test_a_comment_on_an_item_the_overview_no_longer_has_is_refused(self):
         self.outline(('three', [('a.py', 3, 3)]))

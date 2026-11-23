@@ -288,11 +288,14 @@ changed. Only that title gives way, cut at its end. Claude's own and temporary f
 are not counted. **×** closes the row until the session edits a file of the work again: its recorder's
 `after/` mark of the file rewritten. What the session edited before it started (a resume) is not new.
 
-Opening the review (from the row, the pane, or by itself at a turn's end) asks Claude for an overview when
-the review has none yet or has changes no block of it covers: `review.py --describe` says whether one is
-needed, none while an ask waits, and prints the ask, logged as handed over; the mod submits it as a
-prompt of the session's own ("The redpen plugin sent a message"), which starts a turn once the session
-is idle. So the overview and the row's titles keep up without Describe; each such ask is one short turn. `/edits` opens a pane that lists the files this session
+Opening the review yourself (from the row or the pane; not its opening by itself at a turn's end) asks
+Claude for an overview when the review has none yet or has changes no block of it covers: `review.py
+--describe` says whether one is needed, none while an ask waits, and prints the ask, logged as handed
+over; the mod submits it as a prompt of the session's own, one line ("The redpen plugin sent a message:
+Write the overview of your changes … `review.py --outline-how <review>` says how"), which starts a turn
+once the session is idle, and the command it names prints what to write. Each step leaves a line in the
+record's `review/ask.log`, and a failure a toast. So the overview and the row's titles keep up without
+Describe; each such ask is one short turn. `/edits` opens a pane that lists the files this session
 edited with their lines added and removed, each a way to its review (a link into the page). The mod
 only reads the record: the review itself is the page. Open review opens
 this session's review page in the desktop app's Browser pane through its MCP server (`Claude Browser`),

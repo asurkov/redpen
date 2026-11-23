@@ -169,10 +169,14 @@ function openingJson(result: McpToolResult | undefined): Record<string, unknown>
 // line), in the desktop's Browser pane: in the tab it opened there before while that tab is open, else
 // in a new one. From the terminal, or with no Browser pane to reach, in the default browser. Given a
 // file, at that file: the page opens what a link into it names, #<path>.
-async function openRedpen($: EngineInterface, surface: string, path?: string) {
+// isAsking: false where the page opens by itself, at a turn's end: Claude is asked for an overview only
+// when you open the review, not after every turn that edits.
+async function openRedpen($: EngineInterface, surface: string, path?: string, isAsking = true) {
   await showRedpen($, surface, path).catch(error => trace($, `the page did not open: ${error}`))
-  void askOverview($)
+  if (isAsking) void askOverview($)
 }
+
+
 
 // What the last asks for an overview did, a line for each step, in the record's review/ask.log: a failure
 // there says why, never silently.
@@ -294,7 +298,7 @@ async function openIfEdited($: EngineInterface, before: Map<string, number>) {
   if (!edited.size) return
   await scan($)
   const { changed } = sortedFiles(await read($, files), (await places($)).home)
-  if (changed.some(file => edited.has(file.key))) await openRedpen($, 'desktop')
+  if (changed.some(file => edited.has(file.key))) await openRedpen($, 'desktop', undefined, false)
 }
 
 export const register: Register = on => {
