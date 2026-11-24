@@ -70,6 +70,29 @@ class Actions(unittest.TestCase):
         rv.apply(key, 'reject', None, scratch.expected(rv, key, 'reject'))
         self.assertFalse((top / 'deep').exists())
 
+    def test_accepting_all_of_a_deleted_files_change_accepts_the_deletion(self):
+        top = repo({'a.py': 'a1\na2\n', 'b.py': 'b\n'})
+        write(top, {'a.py': None})
+        rv = reviewed(top)
+        key = listed(rv)['a.py']['key']
+        # Its one change, as the page sends it (Space, or a and the change's Accept): all its lines gone.
+        removal = {'leftStart': 0, 'leftEnd': 2, 'rightStart': 0, 'rightEnd': 0}
+        entry = rv.apply(key, 'accept', removal, scratch.expected(rv, key, 'accept'))
+        self.assertIsNone(listed(rv)['a.py']['pending'])
+        self.assertFalse((rv.record / 'base' / key).exists())
+        # Undo puts the text back as the baseline: the deletion is pending again.
+        rv.flip(entry['id'])
+        self.assertEqual(counts(listed(rv)['a.py']), (0, 2))
+
+    def test_rejecting_all_of_a_new_files_change_takes_it_away(self):
+        top = repo({'b.py': 'b\n'})
+        write(top, {'new.py': 'n1\nn2\n'})
+        rv = reviewed(top)
+        key = listed(rv)['new.py']['key']
+        addition = {'leftStart': 0, 'leftEnd': 0, 'rightStart': 0, 'rightEnd': 2}
+        rv.apply(key, 'reject', addition, scratch.expected(rv, key, 'reject'))
+        self.assertFalse((top / 'new.py').exists())
+
     def test_a_folder_action_is_one_entry_undone_at_once(self):
         top = repo({'src/a.py': 'a\n', 'src/b.py': 'b\n', 'other.py': 'o\n'})
         write(top, {'src/a.py': 'A\n', 'src/b.py': 'B\n', 'other.py': 'O\n'})

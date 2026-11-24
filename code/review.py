@@ -957,6 +957,11 @@ class Review:
         entries of one action on a moved file, or a folder's files; marks go with each, the folder say."""
         right_name, target, is_left_taken = actions[action][1:]
         result = (left if is_left_taken else right) if change is None else spliced(left, right, change, is_left_taken)
+        # All of a file's lines taken from a side where there is no file (accepting a deletion by its
+        # change, as Space does, or rejecting a new file's): no file, as the whole file's action makes,
+        # not an empty one.
+        if change is not None and not result and (left if is_left_taken else right) is None:
+            result = None
         before = right if target == right_name else left
         entry = {
             'id': f'{time.time_ns():x}',
