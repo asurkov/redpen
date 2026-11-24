@@ -132,29 +132,6 @@ export class DiffView {
       this.dropWidget('offer');
       this.offerTimer = setTimeout(() => this.offerComment(), 250);
     });
-    // Shift here means "and on to the next change": a Shift+click on the text with nothing selected
-    // puts the cursor there, as a plain click, and selects nothing from the cursor to it, which a key
-    // would then act on. With text selected, it still takes the selection to the click.
-    const plainTargets = new Set(['CONTENT_TEXT', 'CONTENT_EMPTY', 'GUTTER_LINE_NUMBERS', 'GUTTER_LINE_DECORATIONS']
-      .map(name => monaco.editor.MouseTargetType[name]));
-    // The editor's own handling starts at pointerdown, and a press held then drags a selection: it is
-    // kept from both the pointer's and the mouse's down.
-    const plainClick = event => {
-      if (!event.shiftKey || event.button !== 0 || !this.shown.getModel() || !this.shown.getSelection()?.isEmpty()) {
-        return;
-      }
-      const target = this.shown.getTargetAtClientPoint(event.clientX, event.clientY);
-      if (!target?.position || !plainTargets.has(target.type)) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      this.shown.focus();
-      this.shown.setPosition(target.position);
-    };
-    for (const name of ['pointerdown', 'mousedown']) {
-      element.addEventListener(name, plainClick, true);
-    }
   }
 
   // Shows the two texts of the file at path. changeActions: [action, label, key] for each change's
@@ -622,7 +599,7 @@ export class DiffView {
       bar.addEventListener(name, event => event.stopPropagation());
     }
     for (const [action, label, key] of this.changeActions) {
-      const made = goesOn(button(bar, label, event => this.handlers.act(action, spans(change), event.shiftKey)), key);
+      const made = button(bar, label, () => this.handlers.act(action, spans(change)));
       if (key) {
         made.dataset.key = key;
       }
@@ -677,8 +654,8 @@ export class DiffView {
     const row = node.appendChild(document.createElement('div'));
     row.className = 'offerRow';
     const selected = this.selectedSpans();
-    for (const [action, label, key] of selected.length ? this.changeActions : []) {
-      goesOn(button(row, label, event => this.handlers.act(action, selected, event.shiftKey)), key);
+    for (const [action, label] of selected.length ? this.changeActions : []) {
+      button(row, label, () => this.handlers.act(action, selected));
     }
     button(row, 'Comment', () => this.openBox(target));
     const { lineNumber, column } = this.shown.getSelection().getPosition();
@@ -774,16 +751,6 @@ export class DiffView {
     const yielded = new Set(Object.values(this.widgets || {}).flatMap(widget => widget?.yields || []));
     (this.bars || []).forEach((bar, index) => bar.classList.toggle('yielded', yielded.has(index)));
   }
-}
-
-// A change's action button, which with Shift goes on to the next change, as with its key: it says so
-// in its tooltip, and while Shift is held (body.shifted) on its face.
-function goesOn(made, key) {
-  const label = made.textContent;
-  made.title = `Shift+click${key ? ` or Shift+${key.toUpperCase()}` : ''}: ${label.toLowerCase()}, then on to the next change`;
-  made.classList.add('goesOn');
-  made.append(Object.assign(document.createElement('span'), { className: 'goesWord', textContent: ' + next' }));
-  return made;
 }
 
 export function button(parent, label, act, kind) {

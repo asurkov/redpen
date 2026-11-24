@@ -169,6 +169,7 @@ body.compactTop #top .label {
 #views button.chosen,
 #unchangedButton.chosen,
 #reviewedButton.chosen,
+#goOnButton.chosen,
 #fileActions button.chosen {
   background: var(--chosen);
   color: var(--ink);
@@ -608,19 +609,6 @@ body.listHidden #splitter {
 .changeBar.current button[data-key]::after {
   content: ' ' attr(data-key);
   opacity: 0.55;
-}
-
-/* Shift held: Accept, Reject and Unaccept go on to the next change, and say so, their key with ⇧. */
-.goesWord {
-  display: none;
-}
-
-body.shifted .goesWord {
-  display: inline;
-}
-
-body.shifted .changeBar.current button.goesOn[data-key]::after {
-  content: ' ⇧' attr(data-key);
 }
 
 .currentEdge {

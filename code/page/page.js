@@ -116,6 +116,8 @@ const state = {
 const keptUnchangedShown = 'redpenUnchangedShown';
 // And whether Pending lists the reviewed files.
 const keptReviewedHidden = 'redpenReviewedHidden';
+// And whether Accept, Reject and Unaccept go on to the next change.
+const keptGoingOn = 'redpenGoingOn';
 let diffView;
 // One request after another: a poll never reads between an action and its redraw.
 let chain = Promise.resolve();
@@ -482,6 +484,18 @@ function openReviewed(file) {
   return show(file.key);
 }
 
+// Whether Accept, Reject and Unaccept, by button or key, go on to the next change after, a quick review's
+// way, or stay on it, a careful one's; the choice kept.
+function goOn(isOn) {
+  state.isGoingOn = isOn;
+  byId('goOnButton').classList.toggle('chosen', isOn);
+  try {
+    localStorage.setItem(keptGoingOn, isOn ? 'yes' : '');
+  } catch {
+    // A browser that keeps nothing: the choice lasts until the page is loaded again.
+  }
+}
+
 // Lists the reviewed files in Pending, faded, or leaves them out, and keeps the choice.
 function showReviewed(isOn) {
   return queued(async () => {
@@ -688,9 +702,10 @@ function whatOf(change) {
 
 // Carries out an action on a change of the open file, on the selected lines of its changes (a
 // list), or on the whole file with no change named.
-// isGoingOn (Shift): then on to the next change, as n goes: the one that took this one's place, or the
-// next one down, or into the next file. A file left with nothing more in the view opens the next anyway.
-function act(action, change, isGoingOn = false) {
+// isGoingOn (the Go on toggle, for a change's action): then on to the next change, as n goes: the one that
+// took this one's place, or the next one down, or into the next file. A file left with nothing more in the
+// view opens the next anyway.
+function act(action, change, isGoingOn = Boolean(change) && state.isGoingOn) {
   const view = views[state.view];
   const { key, opened } = state;
   return queued(async () => {
@@ -941,9 +956,10 @@ function stepThread(direction) {
 }
 
 // The page's keys: n or j and p or k step through the changes, as Alt+↓ and Alt+↑ do; a carries out
-// the current change's own action, Shift+A that and on to the next change; r opens a comment on the selected text, or else on that change;
-// t and Shift+t step through the threads; d shows or hides All's diff; Cmd+Z (Ctrl+Z) undoes the
-// last Accept or Reject, Cmd+Shift+Z redoes it.
+// the current change's own action, and with Go on goes on to the next change; g turns Go on on or off;
+// r opens a comment on the selected text, or else on that change; t and Shift+t step through the
+// threads; d shows or hides All's diff; Cmd+Z (Ctrl+Z) undoes the last Accept or Reject, Cmd+Shift+Z
+// redoes it.
 function takeKey(event) {
   const key = (event.altKey ? 'Alt+' : '') + event.key;
   // A letter typed into a field is the field's; the editor's own text is no such field.
@@ -966,12 +982,14 @@ function takeKey(event) {
     return;
   } else if (steps[key]) {
     step(steps[key]);
-  } else if (key === 'a' || key === 'A') {
-    // One press, one change: a key held down does not go on accepting. Shift+A then goes on to the
-    // next change.
+  } else if (key === 'a') {
+    // One press, one change: a key held down does not go on accepting. With Go on, on to the next.
     if (state.isText && !event.repeat) {
-      diffView.actByKey('a', event.shiftKey);
+      diffView.actByKey('a', state.isGoingOn);
     }
+  } else if (key === 'g') {
+    goOn(!state.isGoingOn);
+    toast(state.isGoingOn ? 'Go on: Accept, Reject and Unaccept go on to the next change.' : 'Go on is off: they stay on the change.');
   } else if (key === 'd') {
     if (state.view === 'all' && state.key && state.isText) {
       toggleAllDiff();
@@ -1864,13 +1882,6 @@ async function main() {
     iconed(made, made.dataset.icon);
   }
   new ResizeObserver(fitHeader).observe(byId('top'));
-  // Shift held, out of the text fields: the change buttons say they go on to the next change.
-  const shifted = event => document.body.classList.toggle('shifted',
-    event.shiftKey && !(event.target.closest?.('input, textarea') && !diffView.hasTextFocus()));
-  for (const name of ['keydown', 'keyup', 'mousemove']) {
-    document.addEventListener(name, shifted, true);
-  }
-  window.addEventListener('blur', () => document.body.classList.remove('shifted'));
   byId('listButton').addEventListener('click', () => document.body.classList.toggle('listHidden'));
   byId('acceptAllButton').addEventListener('click', acceptAll);
   try {
@@ -1887,6 +1898,13 @@ async function main() {
   }
   byId('reviewedButton').classList.toggle('chosen', state.areReviewedShown);
   byId('reviewedButton').addEventListener('click', () => showReviewed(!state.areReviewedShown));
+  try {
+    state.isGoingOn = localStorage.getItem(keptGoingOn) === 'yes';
+  } catch {
+    // A browser that keeps nothing: Accept and Reject stay on the change.
+  }
+  byId('goOnButton').classList.toggle('chosen', Boolean(state.isGoingOn));
+  byId('goOnButton').addEventListener('click', () => goOn(!state.isGoingOn));
   sizeListBySplitter();
   for (const tab of document.querySelectorAll('#views button')) {
     tab.addEventListener('click', () => queued(async () => {
