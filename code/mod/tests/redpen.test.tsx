@@ -31,7 +31,7 @@ const bandSite = {
 // `numstat` is what git counts for a file against its baseline; `hashes`, where given, the hashes of its
 // baseline, of its text now and of the text the session's last edit left (its after/<key> mark). `marks`
 // are the record's after/<key> marks, by path, with when each was written; `surfaces`, where the session draws.
-type Hashes = { base: string; now: string; after: string }
+type Hashes = { base: string; now: string; after: string; taken?: string }
 function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boolean; isGenerated?: boolean; numstat: string; hashes?: Hashes }[]) {
   const disk = new Set<string>()
   const entries = new Map<string, string>()
@@ -45,6 +45,7 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
     counts.set(`${record}/base/k${i}`, numstat)
     if (hashes) {
       entries.set(`${record}/after/k${i}`, hashes.after)
+      if (hashes.taken) entries.set(`${record}/review/taken/k${i}`, hashes.taken)
       hashOf.set(`${record}/base/k${i}`, hashes.base)
       hashOf.set(path, hashes.now)
     }
@@ -177,12 +178,15 @@ test("a file someone else changed since all of the session's changes to it were 
     { path: '/w/mine.txt', numstat: '1\t1', hashes: { base: 'h0', now: 'h1', after: 'h1' } },
     // All of the session's accepted, then another session edited it: theirs alone.
     { path: '/w/theirs.txt', numstat: '3\t2', hashes: { base: 'h1', now: 'h2', after: 'h1' } },
+    // Their change taken by the page, at the text the session left, and changed again since: theirs too.
+    { path: '/w/again.txt', numstat: '1\t1', hashes: { base: 'h3', now: 'h4', after: 'h1', taken: 'h1' } },
   ])
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...paneSite, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /files changed/ }))?.text).toBe('2 of 3 files changed')
+  expect((await ui.find({ type: 'Text', text: /files changed/ }))?.text).toBe('2 of 4 files changed')
   expect(await ui.find({ key: 'file:/w/mine.txt' })).toBeDefined()
   expect(await ui.find({ key: 'file:/w/theirs.txt' })).toBeUndefined()
+  expect(await ui.find({ key: 'file:/w/again.txt' })).toBeUndefined()
   await ui.unmount()
 })
 

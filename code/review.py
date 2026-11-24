@@ -613,19 +613,37 @@ class Review:
         return disk_hashes[slot]
 
     def take_others_changes(self):
-        """Of a session's review, a file whose baseline is the text the session's last edit left, all of
-        the session's changes to it accepted, holds none of the session's once it differs from that: the
-        change is someone else's (another session's, the user's), and the file's text now becomes its
+        """Of a session's review, a file with nothing of the session's left to review: the text its last
+        edit left (after/) is its baseline (all accepted), HEAD's (committed), or the one it was when
+        others' changes were taken before (review/taken/), the session not having edited it since. A change
+        since is someone else's (another session's, the user's), each time: the file's text now becomes its
         baseline. Not in History, as nothing of the session's is to undo; it says edited elsewhere."""
         if self.git:
             return
+        heads = {}
         for key, file, places, signatures in self.rows():
             try:
                 after = (self.record / 'after' / key).read_text()
             except OSError:
                 continue
-            if self.disk_hash(file, places['disk'], signatures['disk']) != after and hashed(places['base'], signatures['base']) == after:
+            disk = self.disk_hash(file, places['disk'], signatures['disk'])
+            base = hashed(places['base'], signatures['base'])
+            if disk == after or base == disk:
+                continue
+            taken = self.folder / 'taken' / key
+            if base == after or (read_bytes(taken) or b'').decode() == after or self.head_hash(file, heads) == after:
                 self.write(key, file, 'base', self.read(file, 'disk', places['disk']))
+                write_atomic(taken, after.encode())
+
+    def head_hash(self, file, heads):
+        """The hash of the file's text at HEAD, a link's as a link's; None outside a work tree or with no such
+        file. heads: the HEAD of each work tree asked, kept for the caller's round."""
+        top = repository_top(os.path.dirname(file['path']) or '/')
+        if not top:
+            return None
+        if top not in heads:
+            heads[top] = (git(top, 'rev-parse', 'HEAD') or b'').decode().strip()
+        return committed_hash(top, heads[top], os.path.relpath(file['path'], top)) if heads[top] else None
 
     def read(self, file, name, place):
         """One of the file's texts; of a link, at its own place, the link itself, not what it points to;
@@ -2334,6 +2352,12 @@ def changed_files(top, base):
         if name:
             files.setdefault(os.fsdecode(name), ())
     return files, submodules
+
+
+@functools.lru_cache(maxsize=512)
+def committed_hash(top, commit, name):
+    """The hash of a file's text at the commit, as committed_text() reads it."""
+    return sha(committed_text(top, commit, name))
 
 
 def committed_text(top, commit, name):

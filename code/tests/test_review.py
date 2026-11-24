@@ -170,11 +170,43 @@ class Commits(unittest.TestCase):
         # b.py: mine pending, theirs in it, as before.
         self.assertEqual(counts(files['b.py']), (1, 1))
         self.assertEqual(rv.opened(files['b.py']['key'])['texts']['base']['sha'], review.sha(b'b1\n'))
+        # They change it again: taken again, as I have not edited it since.
+        self.edit(top, theirs, 'a.py', 'a3 again\n')
+        rv.take_others_changes()
+        self.assertIsNone(listed(rv)['a.py']['pending'])
         # My next edit of a.py is all of its diff.
         self.edit(top, mine, 'a.py', 'a4\n')
         files = listed(rv)
-        self.assertEqual(rv.opened(files['a.py']['key'])['texts']['base']['sha'], review.sha(b'a3\n'))
+        self.assertEqual(rv.opened(files['a.py']['key'])['texts']['base']['sha'], review.sha(b'a3 again\n'))
         self.assertFalse(files['a.py']['isEditedElsewhere'])
+
+    def test_a_file_all_accepted_takes_others_changes_each_time_and_writes_nothing_between(self):
+        top, mine, theirs = repo({'a.py': 'a1\n'}), scratch.session(), scratch.session()
+        self.edit(top, mine, 'a.py', 'a2\n')
+        rv = review.Review(mine)
+        rv.accept_all()
+        # Accepted, not committed: they change it twice, and both are theirs.
+        self.edit(top, theirs, 'a.py', 'a3\n')
+        rv.take_others_changes()
+        self.edit(top, theirs, 'a.py', 'a4\n')
+        rv.take_others_changes()
+        self.assertIsNone(listed(rv)['a.py']['pending'])
+        # With nothing new, the baseline stays as it is: no write at each look.
+        base = rv.record / 'base' / listed(rv)['a.py']['key']
+        written = base.stat().st_mtime_ns
+        rv.take_others_changes()
+        self.assertEqual(base.stat().st_mtime_ns, written)
+
+    def test_a_file_whose_text_i_left_is_committed_takes_others_changes_whatever_its_baseline(self):
+        top, mine, theirs = repo({'a.py': 'a1\n'}), scratch.session(), scratch.session()
+        self.edit(top, mine, 'a.py', 'a2\n')
+        git(top, 'commit', '-qam', 'a2')
+        self.edit(top, theirs, 'a.py', 'a3\n')
+        rv = review.Review(mine)
+        # A part of theirs accepted on the page left a baseline that is neither; HEAD holds what I left.
+        (rv.record / 'base' / listed(rv)['a.py']['key']).write_text('a2, and a part of a3\n')
+        rv.take_others_changes()
+        self.assertIsNone(listed(rv)['a.py']['pending'])
 
     def test_a_commit_of_other_files_leaves_the_record_alone(self):
         top, who = repo({'a.py': 'a1\n', 'b.py': 'b1\n'}), scratch.session()

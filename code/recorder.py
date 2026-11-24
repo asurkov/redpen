@@ -173,9 +173,10 @@ def keep_after(session, path):
 def note_outside(session, path):
     """Before the session edits a file it edited before: marks it, for good, as changed outside the
     session if it differs from how the session's last edit left it, as its diff takes those changes
-    in from now on. With nothing of the session's pending in it (its baseline is the text the last edit
-    left, all of it accepted, or the text now), those changes are not taken in: the baseline is the
-    text now, so the diff holds the coming edit alone."""
+    in from now on. With nothing of the session's pending in it (the text its last edit left is its
+    baseline, all accepted, HEAD's, committed, or the one the review page took others' changes at, its
+    review/taken/ mark; or its baseline is the text now), those changes are not taken in: the baseline is
+    the text now, so the diff holds the coming edit alone."""
     k = key(path)
     entry = read_json(store / session / 'files' / f'{k}.json')
     try:
@@ -192,10 +193,25 @@ def note_outside(session, path):
         was = sha(base.read_bytes())
     except OSError:
         was = sha(None)
-    if now is not None and was == after:
+    if now is not None and is_left_settled(session, path, k, after, was):
         write_atomic(base, now)
     elif now is None or was != sha(now):
         write_atomic(store / session / 'outside' / k, b'')
+
+
+def is_left_settled(session, path, k, after, was):
+    """Whether the text the session's last edit left (its hash, after) has nothing left to review: it is
+    the baseline (was, its hash), the one the review page took others' changes at, or HEAD's."""
+    if was == after:
+        return True
+    try:
+        if (store / session / 'review' / 'taken' / k).read_text() == after:
+            return True
+    except OSError:
+        pass
+    top = tree_of(path)
+    head = committed(top, path) if top else None
+    return head is not None and sha(head[0]) == after
 
 
 def is_executable(path):

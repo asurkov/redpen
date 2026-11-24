@@ -53,16 +53,19 @@ async function counted($: EngineInterface, record: string, entry: Pick<EditedFil
   return { ...plain, kind: 'changed', note, added: Number(added) || 0, removed: Number(removed) || 0 }
 }
 
-// Whether a file differs from its baseline by someone else's changes alone: its baseline is the text the
-// session's last edit left (after/<key>, its hash), all of the session's changes accepted, and the file
-// differs from that now. review.py takes the text now as the baseline once the page lists the files.
+// Whether a file differs from its baseline by someone else's changes alone: the text the session's last
+// edit left (after/<key>, its hash) is its baseline, all of the session's changes accepted, or the one the
+// review page took others' changes at (review/taken/<key>), and the file differs from that now. review.py
+// takes the text now as the baseline once the page lists the files; it also counts HEAD's text as settled,
+// which the row leaves to it.
 async function isChangedElsewhereOnly($: EngineInterface, record: string, key: string, base: string, path: string) {
   const after = (await $.fs.read(`${record}/after/${key}`).catch(() => '')).trim()
   if (!after) return false
+  const taken = (await $.fs.read(`${record}/review/taken/${key}`).catch(() => '')).trim()
   const ran = await $.process.run(['shasum', '-a', '256', base, path]).catch(() => undefined)
   if (ran?.exitCode !== 0) return false
   const [baseHash, nowHash] = ran.stdout.trim().split('\n').map(line => line.split(' ')[0])
-  return baseHash === after && nowHash !== after
+  return (baseHash === after || taken === after) && nowHash !== after
 }
 
 // The record's entries as last read, by name, with their mtime then.

@@ -3,7 +3,7 @@ repositories: what each records, with what baseline, and what it leaves alone.""
 import json, os, pathlib, subprocess, sys, time, unittest
 
 import scratch
-from scratch import hook, recorded, repo, session, shell, write
+from scratch import git, hook, recorded, repo, session, shell, write
 
 recorder = scratch.recorder
 store = scratch.home / '.redpen/code'
@@ -111,6 +111,39 @@ class ShellCommands(unittest.TestCase):
         base.write_text('theirs again\n')
         edit(mine, 'mine at last\n')
         self.assertEqual(recorded(mine), {'a.py': (False, 'theirs again\n', False)})
+
+    def test_an_edit_once_the_page_took_others_changes_diffs_alone_however_often_they_changed(self):
+        top, mine, theirs = repo({'a.py': 'a\n'}), session(), session()
+        k = recorder.key(str(top / 'a.py'))
+
+        def edit(who, text):
+            hook('pre', who, top, 'Edit', {'file_path': str(top / 'a.py')})
+            write(top, {'a.py': text})
+            hook('post', who, top, 'Edit', {'file_path': str(top / 'a.py')})
+
+        edit(mine, 'mine\n')
+        # The page took their change, at the text my edit left; they changed it again since.
+        edit(theirs, 'theirs\n')
+        (store / mine / 'base' / k).write_text('theirs\n')
+        (store / mine / 'review' / 'taken').mkdir(parents=True, exist_ok=True)
+        (store / mine / 'review' / 'taken' / k).write_text(recorder.sha(b'mine\n'))
+        edit(theirs, 'theirs again\n')
+        edit(mine, 'mine again\n')
+        self.assertEqual(recorded(mine), {'a.py': (False, 'theirs again\n', False)})
+
+    def test_an_edit_once_mine_was_committed_and_someone_changed_the_file_since_diffs_alone(self):
+        top, mine, theirs = repo({'a.py': 'a\n'}), session(), session()
+
+        def edit(who, text):
+            hook('pre', who, top, 'Edit', {'file_path': str(top / 'a.py')})
+            write(top, {'a.py': text})
+            hook('post', who, top, 'Edit', {'file_path': str(top / 'a.py')})
+
+        edit(mine, 'mine\n')
+        git(top, 'commit', '-qam', 'mine')
+        edit(theirs, 'theirs\n')
+        edit(mine, 'mine again\n')
+        self.assertEqual(recorded(mine), {'a.py': (False, 'theirs\n', False)})
 
     def test_a_change_made_before_another_sessions_command_began_stays_mine(self):
         top, mine, theirs = repo({'a.py': 'a\n'}), session(), session()
