@@ -82,8 +82,9 @@ than guessed; a [git review](#a-git-review) shows a work tree's every change.
   (gone from one place, and a new file at least half of whose lines are its old ones, as git finds
   renames: the same text first, then the same name, then any; in a refactor of thousands, only files
   of one extension are compared) is one row at its new place, `old → new` when renamed in its
-  folder, else its name and, quietly, "from" its old path, its diff against its old text. It
-  is accepted or rejected whole: **Accept** keeps the move, **Reject** puts the file back at its old
+  folder, else its name and, quietly, "from" its old path, its diff against its old text. Its changes
+  are accepted and rejected one by one as any file's, at its new place; the move itself goes whole,
+  with the file's: **Accept file** keeps the move, **Reject file** puts the file back at its old
   place, the new one to the Trash; History has one line for it, and one Undo. A file renamed by its
   case alone (`git mv Foo.js foo.js`), which macOS's file system finds under either name, is such a
   rename, `Foo.js → foo.js`; its Reject takes the new name away first, then puts the old one back. A

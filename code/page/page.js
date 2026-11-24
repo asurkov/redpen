@@ -654,8 +654,8 @@ async function show(key, place) {
       path: file.path,
       left: left.text,
       right: right.text,
-      // A moved file, and a link, is accepted or rejected whole.
-      changeActions: file.movedFrom || file.isLink ? [] : view.changeActions,
+      // A link is accepted or rejected whole; a moved file's changes one by one too, its move whole.
+      changeActions: file.isLink ? [] : view.changeActions,
       canSplice: DiffView.splits(left.text) && DiffView.splits(right.text),
       sides: { left: view.left, right: view.right },
       threads: state.threads.filter(thread => thread.key === key),

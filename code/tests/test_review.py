@@ -317,6 +317,29 @@ class Moves(unittest.TestCase):
         rv.apply(key, 'reject', None, scratch.expected(rv, key, 'reject'))
         self.assertEqual(sorted(os.listdir(top)), ['.git', 'a.py'])
 
+    def test_a_moved_files_changes_are_accepted_and_rejected_one_by_one_and_the_move_whole(self):
+        top = repo({'a.py': 'one\ntwo\nthree\nfour\n'})
+        git(top, 'mv', 'a.py', 'b.py')
+        write(top, {'b.py': 'ONE\ntwo\nthree\nFOUR\n'})
+        rv = reviewed(top)
+        key = listed(rv)['b.py']['key']
+        self.assertEqual(counts(listed(rv)['b.py']), (2, 2))
+        # Accept the first change: the second is all that is pending, the file still moved.
+        first = {'leftStart': 0, 'leftEnd': 1, 'rightStart': 0, 'rightEnd': 1}
+        entry = rv.apply(key, 'accept', first, scratch.expected(rv, key, 'accept'))
+        file = listed(rv)['b.py']
+        self.assertEqual((counts(file), file['movedFrom']), ((1, 1), f'{top}/a.py'))
+        # Reject the second: the file as it is takes the old line back, at its new place.
+        last = {'leftStart': 3, 'leftEnd': 4, 'rightStart': 3, 'rightEnd': 4}
+        rv.apply(key, 'reject', last, scratch.expected(rv, key, 'reject'))
+        self.assertEqual((top / 'b.py').read_text(), 'ONE\ntwo\nthree\nfour\n')
+        self.assertIsNone(listed(rv)['b.py']['pending'])
+        # Undone, the first change is pending again; the move, whole, is still Accept file's.
+        rv.flip(entry['id'])
+        self.assertEqual(counts(listed(rv)['b.py']), (1, 1))
+        rv.apply(key, 'accept', None, scratch.expected(rv, key, 'accept'))
+        self.assertIsNone(listed(rv)['b.py']['pending'])
+
     def test_a_rename_by_case_alone_is_put_back_under_its_old_name(self):
         top = repo({'Foo.py': 'foo\n'})
         if not os.path.exists(top / 'foo.py'):

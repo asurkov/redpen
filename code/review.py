@@ -868,11 +868,16 @@ class Review:
             raise Refusal(400, 'No such action.')
         left_name, right_name = actions[action][:2]
         moved = self.move_of(key)
-        if moved:
+        if moved and change is None:
             return self.apply_move(key, file, *moved, action, change, expected)
         if file.get('link') and change is not None:
             raise Refusal(400, 'A link is accepted or rejected whole.')
         places = self.places(key, file)
+        # A change of a moved file is between its texts as the move has them (moved_places()); what an
+        # action writes goes to its new place: accepted, the change is the new place's baseline from then
+        # on, and the move itself stays to accept or reject with the whole file.
+        if moved:
+            places = self.moved_places(places, self.places(*moved))
         left, right = self.read(file, left_name, places[left_name]), self.read(file, right_name, places[right_name])
         if not isinstance(expected, dict) or (sha(left), sha(right)) != (expected.get('left'), expected.get('right')):
             raise Refusal(409, 'The file changed since it was shown.')
