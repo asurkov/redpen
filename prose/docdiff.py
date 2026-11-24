@@ -40,8 +40,8 @@ respec.py diffs ReSpec specs, gdoc_comments.py shows a Google Doc's comments (--
 links changes to a GitHub PR (--pr), review.py keeps review comments and shows revisits' answers,
 git_remote.py links a doc to its copy on the repo's remote.
 """
-import argparse, base64, difflib, hashlib, html, http.server, importlib.util, itertools, json, mimetypes, os, pathlib
-import re, shlex, shutil, subprocess, sys, threading, time, urllib.parse, webbrowser
+import argparse, base64, difflib, functools, hashlib, html, http.server, importlib.util, itertools, json, mimetypes, os
+import pathlib, re, shlex, shutil, subprocess, sys, threading, time, traceback, urllib.parse, webbrowser
 
 # Every review's dir, <name>, and the clones of PRs' repos (clones/); the server's log. DOCDIFF_HOME
 # puts them elsewhere, for a test server that must not see the reviews in use.
@@ -421,6 +421,9 @@ def whole_blocks(run, gid):
     return out, key
 
 
+# A build diffs each doc's texts again, and an accept the same ones: the latest answers are kept. Their
+# callers only read them.
+@functools.lru_cache(maxsize=32)
 def block_diff(old, new, gid):
     """Diff block by block (paragraph, heading, list item, table...): unchanged blocks plain, added,
     removed and rewritten ones marked whole, and only a lightly edited one word by word. Also returns
@@ -771,6 +774,9 @@ let wordsOf=x=>W;
 // Runs before changes xs are accepted (accepting) or taken back, one or a whole file's; a plugin may set
 // its own, to act on what is on them.
 let onAccept=async(xs,accepting)=>{};
+// Runs once changes of a file are shown accepted, or taken back, in place (restate()): a plugin redraws what
+// it drew of them.
+let onRestate=file=>{};
 const pos=$('pos'),next=$('next'),prev=$('prev'),acc=$('acc'),rev=$('rev'),rp=$('rp'),rq=$('rq'),rt=$('rt'),pop=$('pop'),pa=$('pa'),pr=$('pr');
 // The status line is one line, cut short where narrow: its title holds it whole.
 new MutationObserver(()=>pos.title=pos.textContent).observe(pos,{childList:true,characterData:true,subtree:true});
@@ -857,7 +863,7 @@ $('tl-all').textContent='Diff: '+ns(n);if($('tl-new'))$('tl-new').textContent=sv
 // The counts under the line open the views of those diffs: the base's to the head, and the last reviewed's.
 for(const[id,v]of[['tl-all','diff'],['tl-new','since']]){const s=$(id),b=document.querySelector('#views button[data-v='+v+']');
 if(s&&b)Object.assign(s,{title:b.title+' · click to see it',onclick:view(v)}).dataset.go='';}}}
-for(const b of fbs){const f=b.dataset.f,n=count(f),m=fresh&&count(f,true);b.append(' '+n);
+for(const b of fbs){const f=b.dataset.f,n=count(f),m=fresh&&count(f,true);b.dataset.label=b.textContent;b.append(' '+n);
 if(m)b.title=n+' '+named[f]+', '+m+' of them new since '+since;
 b.onclick=()=>filter(f);}
 let cur=body.dataset.view,c=null,anchor=null,mark=null,req=null,filt='todo',onlyNew=false;
@@ -892,20 +898,43 @@ if(c){c.els.forEach(e=>e.classList.add('cur'));if(scroll)c.els.find(e=>e.offsetP
 function go(d){const x=step(d);if(x)focus(x);}
 async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
 if(!r.ok)throw new Error(url+' '+r.status);return r.json();}
-// An accept moves the change into the accepted copy, an unaccept takes it back out; the server rebuilds
-// the page and it reloads. It stays where it is: the next change in the filter becomes current only if it
-// is already in view; otherwise nothing is current and n goes to it.
+// An accept moves the change into the accepted copy, an unaccept takes it back out, in one request, and the
+// page shows it so in place (moveIn()). It stays where it is: the next change in the filter becomes current
+// only if it is already in view; otherwise nothing is current and n goes to it.
 // In the Since view, it moves the changes of base to head the current one lies in, the ones not yet as it goes.
 function accepts(x){return !!x&&x.view===cur&&(cur==='diff'||cur==='since'&&x.diffs.length>0);}
 async function accept(){if(!accepts(c))return;const x=c,l=L(),nx=l.find(y=>gi(y)>gi(x))||l.findLast(y=>gi(y)<gi(x))||null,
 xs=x.view==='since'?x.diffs.filter(y=>y.done===x.done):[x];
-try{await onAccept(xs,!x.done).catch(()=>{});for(const y of xs)await post(x.done?'unaccept':'accept',{file:y.file,key:y.k});}catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';return;}
-focus(nx&&inView(nx)?nx:null,false);if(!c)anchor=x;location.reload();}
+try{await onAccept(xs,!x.done).catch(()=>{});await moveIn(x.done?'unaccept':'accept',x.file,{keys:xs.map(y=>y.k)});}catch(e){pos.textContent='not saved: '+e.message+' (is the docdiff server running?)';return;}
+focus(nx&&inView(nx)?nx:null,false);if(!c)anchor=x;}
+// Moves changes of a file into the accepted copy, or out of it, and shows the file's changes as they then
+// stand, by the keys the server says read as accepted; it rebuilds the page behind, under a build the page
+// takes as its own (builds), so it does not load again.
+async function moveIn(a,file,data){const r=await post(a,{file,...data});builds.add(r.build);restate(file,r.done);}
+function restate(file,done){const ks=new Set(done);
+for(const x of groups)if(x.file===file){x.done=ks.has(x.k);x.els.forEach(e=>e.classList.toggle('done',x.done));}
+for(const x of sinceGroups)if(x.file===file){x.done=x.diffs.length>0&&x.diffs.every(y=>y.done);x.els.forEach(e=>e.classList.toggle('done',x.done));}
+recount();onRestate(file);filter(filt);}
+// The counts the build wrote, made again from the changes as they stand: the filter's, each doc's line at
+// the top (its first text; plugins add to the rest) and its bar's buttons, and the publish and commit
+// buttons' files.
+function recount(){for(const b of fbs){const f=b.dataset.f,n=count(f),m=fresh&&count(f,true);b.textContent=b.dataset.label+' '+n;
+if(m)b.title=n+' '+named[f]+', '+m+' of them new since '+since;}
+const per=new Map();for(const x of groups){const p=per.get(x.file)||[0,0];p[x.done?1:0]++;per.set(x.file,p);}
+for(const s of document.querySelectorAll('section[data-file]')){const[t,d]=per.get(s.dataset.file)||[0,0],
+t0=document.querySelector('.files a[href="#'+s.id+'"]+.n')?.firstChild;
+if(t0?.nodeType===3&&t0.textContent)t0.textContent=t+' to review · '+d+' '+W.accepted;
+s.querySelectorAll('.accf').forEach(b=>b.hidden=b.dataset.a==='accept'?!t:!d);}
+const pb=$('pub');if(pb){const fs=[...per].filter(([,[,d]])=>d).map(([f,[,d]])=>[f,d]);
+Object.assign(pb,{hidden:!fs.length,textContent:'⇪ publish accepted ('+fs.reduce((a,[,d])=>a+d,0)+')',title:'Publish the accepted changes of '+fs.length+' file(s)'});pb.dataset.files=JSON.stringify(fs);}
+const cb=$('cmt');if(cb){const fs=[...per].filter(([,[t,d]])=>d&&!t).map(([f])=>f),ws=[...per].filter(([,[t,d]])=>d&&t).map(([f,[t]])=>[f,t]);
+Object.assign(cb,{hidden:!fs.length,textContent:'⇪ commit accepted ('+fs.length+')',title:'Commit the '+fs.length+' file(s) whose changes are all accepted, as they read on disk'});
+cb.dataset.files=JSON.stringify(fs);cb.dataset.waiting=JSON.stringify(ws);}}
 function inView(x){const top=document.querySelector('header').getBoundingClientRect().bottom;
 return x.els.some(e=>{const r=e.getBoundingClientRect();return e.offsetParent&&r.bottom>top&&r.top<innerHeight;});}
 document.querySelectorAll('.accf').forEach(b=>b.onclick=async()=>{const s=b.closest('section'),a=b.dataset.a==='accept';
-try{await onAccept(groups.filter(x=>x.sec===s&&x.done!==a),a).catch(()=>{});await post(b.dataset.a,{file:s.dataset.file,all:true});
-location.reload();}catch(e){pos.textContent='not saved: '+e.message;}});
+try{await onAccept(groups.filter(x=>x.sec===s&&x.done!==a),a).catch(()=>{});await moveIn(b.dataset.a,s.dataset.file,{all:true});}
+catch(e){pos.textContent='not saved: '+e.message;}});
 // A doc's bar copies the doc (see copy_options()). One option is the button itself. Several open from it
 // as a strip of icons beside it, over the bar, so nothing moves (a click or ↵; ← → move, esc or a click
 // elsewhere closes), and what the pointed or focused one copies shows under it; a copied one turns ✓ and
@@ -945,8 +974,8 @@ document.addEventListener('click',e=>{if(shut&&!e.target.closest('.cpy.open'))sh
 // which file is being published, then what each printed; the page reloads on Done. (No confirm() or
 // alert(): an embedded browser may block them, and then nothing would happen.)
 const pb=document.getElementById('pub');if(pb){const pp=document.getElementById('pp'),pt=document.getElementById('pt'),
-pc=document.getElementById('pc'),ps=document.getElementById('ps'),fs=JSON.parse(pb.dataset.files);
-pb.onclick=()=>{pt.textContent='Publish the accepted changes?\\n\\n'+fs.map(([f,n])=>f+': '+n+' change(s)').join('\\n');pp.hidden=false;ps.focus();};
+pc=document.getElementById('pc'),ps=document.getElementById('ps');let fs=[];
+pb.onclick=()=>{fs=JSON.parse(pb.dataset.files);pt.textContent='Publish the accepted changes?\\n\\n'+fs.map(([f,n])=>f+': '+n+' change(s)').join('\\n');pp.hidden=false;ps.focus();};
 pc.onclick=()=>{pp.hidden=true;};
 ps.onclick=async()=>{if(ps.dataset.done){location.reload();return;}pc.hidden=true;ps.disabled=pb.disabled=true;const said=[];
 for(const[i,[f]]of fs.entries()){pb.textContent=ps.textContent='publishing '+(i+1)+' of '+fs.length+'…';pt.textContent=[...said,'Publishing '+f+'…'].join('\\n\\n');
@@ -956,8 +985,8 @@ pt.textContent=said.join('\\n\\n');ps.textContent='Done';ps.disabled=false;ps.da
 // Commit accepted, with --commit: its panel lists the files it commits, as they read on disk, and the ones
 // still waiting on changes to review; the message is editable (↵ commits); the page reloads on Done.
 const cb=document.getElementById('cmt');if(cb){const cp=document.getElementById('cmp'),cx=document.getElementById('cmx'),cm=document.getElementById('cmm'),
-cc=document.getElementById('cmc'),cs=document.getElementById('cms'),fs=JSON.parse(cb.dataset.files),ws=JSON.parse(cb.dataset.waiting);
-cb.onclick=()=>{cx.textContent='Commit, as they read on disk:\\n'+fs.join('\\n')+(ws.length?'\\n\\nNot these, with changes still to review:\\n'+ws.map(([f,n])=>f+': '+n).join('\\n'):'');
+cc=document.getElementById('cmc'),cs=document.getElementById('cms');let fs=[],ws=[];
+cb.onclick=()=>{fs=JSON.parse(cb.dataset.files);ws=JSON.parse(cb.dataset.waiting);cx.textContent='Commit, as they read on disk:\\n'+fs.join('\\n')+(ws.length?'\\n\\nNot these, with changes still to review:\\n'+ws.map(([f,n])=>f+': '+n).join('\\n'):'');
 cm.value=cm.value||'Update '+fs.join(', ');cp.hidden=false;cm.focus();};cc.onclick=()=>{cp.hidden=true;};
 cs.onclick=async()=>{if(cs.dataset.done){location.reload();return;}cs.disabled=cb.disabled=true;cs.textContent='committing…';let t;
 try{const r=await fetch('commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({files:fs,message:cm.value})});t=(r.ok?'✓ ':'✗ ')+(await r.text()).trim();}
@@ -1105,7 +1134,10 @@ anchor=find(st.a);const x=find(st.c)||(st.c&&L()[Math.min(st.ci,L().length-1)]);
 const back=()=>{const s=st.at&&[...document.querySelectorAll('section')].find(z=>z.dataset.file===st.at.file);
 if(s){const b=s.getBoundingClientRect();scrollTo(0,scrollY+b.top+st.at.r*b.height-80);}};
 document.readyState==='complete'?back():addEventListener('load',back);}
-setInterval(()=>fetch('build.json').then(r=>r.json()).then(b=>{if(b.id!==body.dataset.build&&!document.querySelector('.panel:not([hidden])'))location.reload();}).catch(()=>{}),1500);
+// The page's own builds: the one it loaded and those its accepts made behind it (moveIn()). Another is the
+// repo's or docdiff's having moved on, and the page loads it.
+const builds=new Set([body.dataset.build]);
+setInterval(()=>fetch('build.json').then(r=>r.json()).then(b=>{if(!builds.has(b.id)&&!document.querySelector('.panel:not([hidden])'))location.reload();}).catch(()=>{}),1500);
 restore();filter(filt);
 // A link to #file=<name> (from gdocsync's docs list, say) opens the page at that doc, just below the header,
 // or &at=<part of it, 0 to 1> into it, or at its paragraph that starts &near, the reading line &by pixels
@@ -1533,8 +1565,9 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
         # The Diff view keeps the ids; the Old and New views keep theirs as data-anchor, so none clash and a
         # link into the doc finds its target in any view (follow()).
         plain = lambda h, missing: re.sub(r'\sid="([^"]*)"', r' data-anchor="\1"', h) or f'<p class="n">({missing})</p>'
-        bar = ((f'<button class="accf" data-a="accept">{words["accept_file"]}</button>' if todo else '') +
-               (f'<button class="accf" data-a="unaccept">{words["unaccept_file"]}</button>' if accepted else ''))
+        # Both, the one with nothing to move hidden: an accept on the page shows the other in place.
+        bar = (f'<button class="accf" data-a="accept"{"" if todo else " hidden"}>{words["accept_file"]}</button>'
+               f'<button class="accf" data-a="unaccept"{"" if accepted else " hidden"}>{words["unaccept_file"]}</button>')
         if publish and accepted:
             pubs.append([name, accepted])
         # With --commit, a file whose changes are all accepted can be committed as it reads on disk.
@@ -1571,15 +1604,16 @@ def build(repo, base, head, files, build_id, out, keep=(), run=None, new_label=N
     files = ' · '.join(f'<a href="#{sid}">{label}</a> <span class="n">{counted if len(nav) > 1 else ""}</span>'
                        for sid, label, counted in nav)
     title = f'docdiff · {what}'
-    # One button publishes every file with accepted changes, each in turn.
-    pub = (f'<button id="pub" data-files="{html.escape(json.dumps(pubs, ensure_ascii=False))}" '
+    # One button publishes every file with accepted changes, each in turn; hidden while there are none, as
+    # an accept on the page shows it in place (recount()).
+    pub = (f'<button id="pub" data-files="{html.escape(json.dumps(pubs, ensure_ascii=False))}"{"" if pubs else " hidden"} '
            f'title="Publish the accepted changes of {len(pubs)} file(s)">⇪ publish accepted ({sum(n for _, n in pubs)})</button>'
-           if pubs else '')
+           if publish else '')
     # And one commits every file whose changes are all accepted; the ones with changes left wait.
-    cmt = (f'<button id="cmt" data-files="{html.escape(json.dumps(commits, ensure_ascii=False))}" '
+    cmt = (f'<button id="cmt" data-files="{html.escape(json.dumps(commits, ensure_ascii=False))}"{"" if commits else " hidden"} '
            f'data-waiting="{html.escape(json.dumps(waiting, ensure_ascii=False))}" '
            f'title="Commit the {len(commits)} file(s) whose changes are all accepted, as they read on disk">⇪ commit accepted ({len(commits)})</button>'
-           if commits else '')
+           if run and run.get('commit') and not head else '')
     # Comparing commits, the views are named by the versions they show: the base and the head. Since is the
     # diff of the version last reviewed to the head, where that is neither (to the working tree: where a
     # doc was reviewed before).
@@ -1644,12 +1678,13 @@ def files_for(repo, base, head, paths):
     return sorted(files + [(p, p) for p in named], key=lambda f: place.get(f[1] or f[0], len(place))), named
 
 
-def rebuild(out):
-    """The page for the run recorded in out, then build.json, so an open page reloads into it."""
+def rebuild(out, build_id=None):
+    """The page for the run recorded in out, then build.json, so an open page reloads into it, unless the
+    build's id is one it took as its own (see review_post())."""
     run = json.loads((out / '.run.json').read_text())
     repo = pathlib.Path(run['repo'])
     files, named = files_for(repo, run['base'], run.get('head'), run['paths'])
-    build_id = str(time.time_ns())
+    build_id = build_id or str(time.time_ns())
     # Read before the page is made: an edit that lands meanwhile then shows as the repo having moved on,
     # and the next request rebuilds. Read after, it would pass for built, and the page would keep changes
     # the files no longer have ("that change is gone" on accept, and no reload to cure it).
@@ -1665,6 +1700,15 @@ def rebuild(out):
         (out / f'{name}.tmp').write_text(text)
         (out / f'{name}.tmp').replace(out / name)
     return repo, run['base'], shown
+
+
+def rebuild_after(out, lock, build_id):
+    """rebuild(), once the request that asked for it lets go of the review's lock."""
+    with lock:
+        try:
+            rebuild(out, build_id)
+        except Exception:
+            traceback.print_exc()
 
 
 def fingerprint(run):
@@ -1833,7 +1877,9 @@ def hand_on(run, moves):
 
 
 def move(out, req, accept):
-    """Accept one change, or the whole file, into the accepted copy, or take it back out; then rebuild."""
+    """Accept changes of a file (req keys, or the one key), or the whole file (all), into the accepted copy,
+    or take them back out. Returns the keys of the file's changes that read as accepted then, as a build
+    marks them (see build()); the page settles them in place."""
     run = json.loads((out / '.run.json').read_text())
     repo, base, head, name = pathlib.Path(run['repo']), run['base'], run.get('head'), req['file']
     old, new = next((f for f in files_for(repo, base, head, run['paths'])[0] if (f[1] or f[0]) == name), (None, None))
@@ -1843,20 +1889,25 @@ def move(out, req, accept):
     copy, wait = accepted_html(repo, base, head, out, old, new, old_html, new_html)
     if wait:
         raise LookupError('that file is not rendered yet; reload the page')
+    diffed = block_diff(old_html, new_html, 'x')
     if req.get('all'):
         text = new_html if accept else old_html
     else:
         # The key is a change's of base to head: the changes of the accepted copy at its place move (see
         # states()). A page from before keys a change of copy to head, or of base to copy, itself.
         reviewing, reviewed = block_diff(copy, new_html, 'x'), block_diff(old_html, copy, 'x')
-        todo, done = states(block_diff(old_html, new_html, 'x'), reviewing, reviewed).get(req['key'], ([req['key']],) * 2)
-        keys, pieces = set(todo if accept else done), (reviewing if accept else reviewed)[2]
+        stand, keys = states(diffed, reviewing, reviewed), set()
+        for key in req.get('keys') or [req['key']]:
+            todo, done = stand.get(key, ([key],) * 2)
+            keys |= set(todo if accept else done)
+        pieces = (reviewing if accept else reviewed)[2]
         if not keys or not keys <= {k for _, _, ps in pieces for k, _, _ in ps}:
             raise LookupError('that change is gone; reload the page')
         text = apply(pieces, 'old' if accept else 'new', keys)
     save_copy(repo, base, out, name, text)
     see(repo, head, out, name, new_html)
-    rebuild(out)
+    stand = states(diffed, block_diff(text, new_html, 'x'), block_diff(old_html, text, 'x'))
+    return sorted(c for c, (t, _) in stand.items() if not t)
 
 
 def reviewed_at(repo, base, head, out, paths, rev):
@@ -2134,10 +2185,15 @@ def review_post(h, out, lock):
     with lock:
         if h.path in ('/accept', '/unaccept'):
             try:
-                move(out, req, h.path == '/accept')
+                done = move(out, req, h.path == '/accept')
             except LookupError as e:
                 return h.send_error(409, str(e))
-            reply = {}
+            # The page settles the file's changes in place, by done; the rest of the page a rebuild makes
+            # after the answer, under the id the answer gives, which the page takes as its own, so it does
+            # not load again.
+            build_id = str(time.time_ns())
+            threading.Thread(target=rebuild_after, args=(out, lock, build_id), daemon=True).start()
+            reply = {'done': done, 'build': build_id}
         elif h.path == '/reviewed-at':
             # The header's picker of the version last reviewed (see last_picker()).
             run = json.loads((out / '.run.json').read_text())

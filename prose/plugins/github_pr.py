@@ -351,9 +351,31 @@ def changed(repo, base, head, old, new, side):
     return git(repo, 'diff', '--name-only', '--no-renames', base, head, '--', d).splitlines()
 
 
+# The sources read at commits, which never change: each build reads them again otherwise (an accept's too).
+read_sources = {}
+
+
 def source(repo, rev, path):
     """A file at rev as its words and their lines, and a matcher with it as the second sequence;
-    None where it does not exist or is not text."""
+    None where it does not exist or is not text. At a commit named by its hash, read once."""
+    if not re.fullmatch(r'[0-9a-f]{40}', str(rev)):
+        return read_source(repo, rev, path)
+    slot = (str(repo), rev, path)
+    if slot not in read_sources:
+        if len(read_sources) > 64:
+            read_sources.clear()
+        read_sources[slot] = read_source(repo, rev, path)
+    kept = read_sources[slot]
+    if kept is None:
+        return None
+    # Its matcher is the caller's to set: a new one each time, as builds of two reviews may run at once.
+    sm = difflib.SequenceMatcher(None, autojunk=False)
+    sm.set_seq2(kept['words'])
+    return {**kept, 'sm': sm}
+
+
+def read_source(repo, rev, path):
+    """source(), read."""
     r = subprocess.run(['git', '-C', repo, 'show', f'{rev}:{path}'], capture_output=True)
     if r.returncode or b'\0' in r.stdout:
         return None

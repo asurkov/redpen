@@ -442,7 +442,7 @@ wordsOf=x=>x&&W.reviewed&&mine[x.view]?.has(x.k)?{...W,accept:W.reviewed,accept_
 onAccept=async(xs,accepting)=>{if(!W.reviewed)return;const ts=[];
 for(const x of xs)for(const it of items)if(it.kind==='r'&&!ts.includes(it)&&it.on[x.view]?.size===1&&it.on[x.view].has(x.k)&&
 (accepting?!it.done&&!it.wait:it.done&&it.members.every(m=>m.resolved_by==='accept')))ts.push(it);
-if(ts.length)await post('review',{revisits:ts.flatMap(t=>t.members.map(m=>m.time)),resolve:accepting,by:'accept'});};
+if(ts.length)take(await post('review',{revisits:ts.flatMap(t=>t.members.map(m=>m.time)),resolve:accepting,by:'accept'}));};
 // Reviewed (accepted) changes show settled: the text as it reads now and nothing else in it, a thin bar in the
 // margin beside a block with a change in it, and a tick where a block was removed (rvtick; see paint()).
 // Clicking a change, the bar or the tick shows the diff again, with its ✓; ± diffs, kept per viewer, shows
@@ -455,7 +455,12 @@ function settle(){body.classList.toggle('rv-settled',!diffs);sd.setAttribute('ar
 sd.title=sd.disabled?'No '+W.accepted+' changes yet: their diffs show here once there are':
 diffs?'Showing the diffs of '+W.accepted+' changes: click to show them settled':'Show the diffs of '+W.accepted+' changes';}
 sd.onclick=()=>{diffs=!diffs;try{localStorage.setItem(sk('docdiff-diffs'),diffs?'1':'');}catch(e){}settle();};
-document.querySelector('header').append(sd);for(const g of groups)if(g.done)for(const el of g.els){if(!el.classList.contains('blk'))el.closest(blocks)?.classList.add('rvbar');else if(el.dataset.kind==='del')el.classList.add('rvtick');}
+document.querySelector('header').append(sd);
+// The bars beside blocks with reviewed changes in them, and the ticks of reviewed removed blocks: drawn again,
+// with the marks, once an accept shows changes accepted, or taken back, in place (onRestate).
+function bars(){document.querySelectorAll('.rvbar,.rvtick').forEach(e=>e.classList.remove('rvbar','rvtick'));
+for(const g of groups)if(g.done)for(const el of g.els){if(!el.classList.contains('blk'))el.closest(blocks)?.classList.add('rvbar');else if(el.dataset.kind==='del')el.classList.add('rvtick');}}
+bars();onRestate=()=>{bars();paint();settle();};
 // The word at a point of the page selected, as a double click there selects it; nothing where no word is.
 function wordAt(x,y){const p=document.caretPositionFromPoint?.(x,y),r=!p&&document.caretRangeFromPoint?.(x,y),n=p?p.offsetNode:r&&r.startContainer,s=getSelection();
 let i=p?p.offset:r?r.startOffset:0,j=i;const w=/[\\p{L}\\p{N}_]/u;s.removeAllRanges();if(n?.nodeType!==3||n.parentElement.closest('.rvb,.rvok'))return;

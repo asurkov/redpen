@@ -71,8 +71,11 @@ apply to the doc is absent, and a doc with one option alone has it as the button
   the repo (`~/.gdocsync/<repo name>/map.json`), so any review of the repo has it.
 
 **Accept** (`a`, or the ✓ button; "accept file" on each file's bar) moves the current change into the
-accepted copy, and the page reloads with it accepted, in place; on an accepted change, the same key (↺
-unaccept; "unaccept file") takes it back out. Which changes are accepted is read off the accepted copy:
+accepted copy, in one request, and the page shows it accepted where it is, with no reload: the server
+answers with the file's changes that read as accepted then, and rebuilds the page behind, under a build
+id the page takes as its own, so it loads only a build it did not make (the repo moved on, or docdiff
+did); on an accepted change, the same key (↺ unaccept; "unaccept file") takes it back out. The rebuild
+reuses the diffs of texts it diffed before and the PR's sources read at commits. Which changes are accepted is read off the accepted copy:
 the changes of the copy to new are laid over the changes of base to new by position, new being their
 common side, and a change with none of them on it is accepted; an accept moves the copy's changes at its
 place, so a change keeps its key, and stays current, through accepts.
@@ -153,7 +156,8 @@ Read them from the invocation, in any order:
 The server writes both into the review's dir, `<out>`:
 
 - `accepted/<file>.html` — the accepted copy: the file as the user has accepted it, rendered. It starts as
-  the base; each accept moves one change in, each unaccept takes one out, and the server rebuilds the page.
+  the base; each accept moves changes in, each unaccept takes them out, and the server rebuilds the page
+  after answering.
   `<file>.base` records the base commit. When the head or the base moves (an edit, a push, a commit, a
   new export), the copy is carried over by position ([Review rounds](#review-rounds)): accepted changes
   the move left alone stay, the ones it touched come back to review whole, and the copy never keeps text
