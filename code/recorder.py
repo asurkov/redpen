@@ -29,7 +29,9 @@ names none), with each changed file's signature, and post records what the comma
 tracked file it changed or deleted, with its last committed text as its baseline, and a file it made,
 as new; a link as a link. A file that was changed already before the command, or that changed during a
 long one, is marked as taking in changes not the session's (outside/); one another session's own edit
-left as it is, during the command, is that session's and not recorded. In a work tree whose status
+left as it is, during the command, is that session's and not recorded, and so is one made while another
+session's command ran in the tree that names the file, or else began after this command did, before the
+change, unless this command names the file. In a work tree whose status
 took git long, only a command that can delete or move files (rm, mv, unlink, trash, find -delete) is
 watched, for a day. Of a chmod, a file it names that it made executable, or no longer, is recorded
 with its text as it is and its executable bit as it was. A failure never blocks an edit: it goes to
@@ -334,10 +336,9 @@ def commit_shell(session, name, agent=None):
             # Another session's own edit, made while the command ran, is that session's.
             if kind != 'gone' and is_others_edit(session, path, began):
                 continue
-            # Changed while another session's command ran in the tree, by a command of this one that names no
-            # path there: that command's, whose own record takes it once it ends; unless this one names the
-            # file all the same (a script given on its input, say), and it is this one's.
-            if not kept['paths'] and os.path.basename(path) not in command and is_others_running(running, top, path):
+            # Changed while another session's command ran in the tree, and that one's doing rather than this
+            # one's: its own record takes it once it ends.
+            if is_others_doing(running, top, path, command, began):
                 continue
             touched.add(path)
             if (store / session / 'files' / f'{key(path)}.json').exists():
@@ -407,8 +408,8 @@ def file_signature(path):
 
 
 def others_running(session):
-    """The shell commands of other sessions running now: [(when each began, the work trees it watches)].
-    A stale snapshot goes: its command ended long ago."""
+    """The shell commands of other sessions running now: [(when each began, the work trees it watches, the
+    command)]. A stale snapshot goes: its command ended long ago."""
     found = []
     for staged in store.glob('*/pending/shell-*.json'):
         if staged.parent.parent.name == session:
@@ -418,18 +419,27 @@ def others_running(session):
             staged.unlink(missing_ok=True)
             continue
         if kept.get('trees'):
-            found.append((kept.get('time') or 0, set(kept['trees'])))
+            found.append((kept.get('time') or 0, set(kept['trees']), kept.get('command') or ''))
     return found
 
 
-def is_others_running(running, top, path):
-    """Whether one of the commands running in the work tree began before the file last changed (for a file
-    gone, began at all): the change may be that command's."""
+def is_others_doing(running, top, path, command, began):
+    """Whether a change to the file, made while a command that began at the time given ran, is rather one of
+    the commands running in the work tree: never while this command names the file; else one that names
+    it, or else one that began after this command and before the file last changed (for a file gone,
+    after this command at all), the one likelier to have changed it than a command running all along (a
+    test suite, a push)."""
+    name = os.path.basename(path)
+    if name in command:
+        return False
+    others = [(when, other) for when, trees, other in running if top in trees]
+    if any(name in other for _, other in others):
+        return True
     try:
         changed_at = os.lstat(path).st_mtime
     except OSError:
         changed_at = None
-    return any(top in trees and (changed_at is None or began <= changed_at) for began, trees in running)
+    return any(began <= when and (changed_at is None or when <= changed_at) for when, _ in others)
 
 
 def is_others_edit(session, path, since):

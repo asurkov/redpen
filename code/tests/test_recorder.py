@@ -88,6 +88,52 @@ class ShellCommands(unittest.TestCase):
         hook('post', theirs, top, 'Bash', {'command': 'python3 -c pass'}, 't1')
         self.assertEqual(recorded(theirs), {})
 
+    def test_a_change_my_command_names_is_mine_though_another_sessions_began_after(self):
+        top, mine, theirs = repo({'b.py': 'b\n'}), session(), session()
+        command = "python3 - <<'EOF'\nopen('b.py', 'w').write('B\\n')\nEOF\n"
+        hook('pre', mine, top, 'Bash', {'command': command}, 'm1')
+        time.sleep(0.02)
+        hook('pre', theirs, top, 'Bash', {'command': 'python3 -c pass'}, 't1')
+        time.sleep(0.02)
+        write(top, {'b.py': 'B\n'})
+        hook('post', mine, top, 'Bash', {'command': command}, 'm1')
+        self.assertEqual(recorded(mine), {'b.py': (False, 'b\n', False)})
+
+    def test_a_change_my_later_command_makes_while_another_sessions_waits_is_mine(self):
+        top, mine, theirs = repo({'b.py': 'b\n'}), session(), session()
+        # Their push waits on the network; my reformat, from a list, names no file and starts after it.
+        hook('pre', theirs, top, 'Bash', {'command': 'git push origin develop'}, 't1')
+        time.sleep(0.02)
+        shell(mine, top, 'for f in *.py; do echo B > "$f"; done', 'm1')
+        self.assertEqual(recorded(mine), {'b.py': (False, 'b\n', True)})
+        hook('post', theirs, top, 'Bash', {'command': 'git push origin develop'}, 't1')
+        self.assertEqual(recorded(theirs), {})
+
+    def test_a_change_in_a_folder_my_command_names_is_theirs_when_theirs_began_after(self):
+        top, mine, theirs = repo({'tests/t.py': 't\n'}), session(), session()
+        # My test run names its folder; their command, begun after it, leaves a file there.
+        hook('pre', mine, top, 'Bash', {'command': 'python3 -m unittest discover tests'}, 'm1')
+        time.sleep(0.02)
+        hook('pre', theirs, top, 'Bash', {'command': 'python3 -c pass'}, 't1')
+        time.sleep(0.02)
+        write(top, {'tests/scratch.tmp': 'x\n'})
+        hook('post', mine, top, 'Bash', {'command': 'python3 -m unittest discover tests'}, 'm1')
+        self.assertEqual(recorded(mine), {})
+        hook('post', theirs, top, 'Bash', {'command': 'python3 -c pass'}, 't1')
+        self.assertEqual(recorded(theirs), {'scratch.tmp': (True, None, True)})
+
+    def test_a_change_another_sessions_command_names_is_theirs_whenever_it_began(self):
+        top, mine, theirs = repo({'b.py': 'b\n'}), session(), session()
+        hook('pre', theirs, top, 'Bash', {'command': "sed -i.bak 's/b/B/' b.py"}, 't1')
+        time.sleep(0.02)
+        hook('pre', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')
+        time.sleep(0.02)
+        write(top, {'b.py': 'B\n'})
+        hook('post', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')
+        self.assertEqual(recorded(mine), {})
+        hook('post', theirs, top, 'Bash', {'command': "sed -i.bak 's/b/B/' b.py"}, 't1')
+        self.assertEqual(recorded(theirs), {'b.py': (False, 'b\n', False)})
+
     def test_a_command_cut_short_in_another_session_runs_no_more(self):
         top, mine, theirs = repo({'a.py': 'a\n'}), session(), session()
         # Their command was cut short an hour and more ago: its post hook never came.
