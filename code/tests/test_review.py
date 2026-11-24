@@ -415,7 +415,9 @@ class Overview(unittest.TestCase):
     def test_blocks_follow_their_lines_and_leave_the_rest_uncovered(self):
         self.outline(('three', [('a.py', 3, 3)]), ('eight', [('a.py', 8, 8)]))
         write(self.top, {'a.py': 'new1\nnew2\n' + (self.top / 'a.py').read_text()})
-        shown = self.rv.outline_shown()
+        # Changed since, it is old, and the page shows it no more; its update is asked with its blocks so.
+        self.assertTrue(self.rv.outline_shown()['isOld'])
+        shown = self.rv.outline_shown(is_whole=True)
         self.assertEqual(self.states(shown), [[(5, 'pending')], [(10, 'pending')]])
         uncovered = {(os.path.basename(change['path']), change['start']) for change in shown['uncovered']}
         self.assertEqual(uncovered, {('a.py', 1), ('b.py', 2)})
@@ -432,9 +434,26 @@ class Overview(unittest.TestCase):
     def test_a_block_whose_lines_changed_is_stale(self):
         self.outline(('eight', [('a.py', 8, 8)]))
         write(self.top, {'a.py': (self.top / 'a.py').read_text().replace('A8', 'A8 again')})
-        shown = self.rv.outline_shown()
+        shown = self.rv.outline_shown(is_whole=True)
         self.assertEqual(self.states(shown), [[(8, 'stale')]])
         self.assertIn(8, [change['start'] for change in shown['uncovered']])
+
+    def test_a_change_to_the_files_makes_it_old_but_the_pages_own_writes_do_not(self):
+        self.outline(('three', [('a.py', 3, 3)]), ('b', [('b.py', 2, 2)]))
+        # Reject b.py's change on the page, and Undo: the overview stays as new as it was.
+        key = listed(self.rv)['b.py']['key']
+        entry = self.rv.apply(key, 'reject', None, scratch.expected(self.rv, key, 'reject'))
+        self.assertFalse(self.rv.outline_shown()['isOld'])
+        self.rv.flip(entry['id'])
+        self.assertFalse(self.rv.outline_shown()['isOld'])
+        # A change of anyone's to the files: old, its items not shown, and Describe, not a turn's end, asks anew.
+        write(self.top, {'b.py': 'b1\nB2 again\n'})
+        shown = self.rv.outline_shown()
+        self.assertEqual((shown['isOld'], shown['items'], shown['isAskedAtTurnEnd']), (True, [], False))
+        # One kept before it saw the files never is.
+        place = self.rv.folder / 'outline.json'
+        place.write_text(json.dumps({k: v for k, v in json.loads(place.read_text()).items() if k != 'seen'}))
+        self.assertFalse(self.rv.outline_shown()['isOld'])
 
     def test_the_ask_goes_as_a_comment_and_an_overview_answers_it(self):
         self.rv.describe()

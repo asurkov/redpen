@@ -157,7 +157,9 @@ than guessed; a [git review](#a-git-review) shows a work tree's every change.
   as changed since when they are gone. **Not in the overview** lists the changes no block covers, so
   nothing hides behind it. An overview of a session's review asked for before the session's latest
   edits is not shown, as its items would pass for theirs: the drawer says when it was written, and the
-  end of the turn asks for one anew (the page's Reject and a commit leave it shown). **Describe** asks Claude for the overview, or for a new one, the way a
+  end of the turn asks for one anew (the page's Reject and a commit leave it shown). A git review's
+  goes so once any change, anyone's, makes a work file's text other than the one it saw (`seen`;
+  the page's own Reject and Undo follow it), and Describe asks for one anew. **Describe** asks Claude for the overview, or for a new one, the way a
   comment goes: at once while the waiting command runs, else with the next message; but in a session
   with the Claude Code mod, the mod sees it waiting within two seconds and asks it of a fork of the
   session at once, as Review's own ask, nothing in the chat. **Comment** on an

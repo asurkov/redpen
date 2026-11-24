@@ -1144,7 +1144,9 @@ class Review:
     def write(self, key, file, target, data):
         place = self.places(key, file)[target]
         if target == 'disk':
+            was = sha(self.read(file, 'disk', place))
             self.write_disk(file, place, data)
+            self.follow_seen(key, was, data)
             if data is None:
                 self.remove_emptied(place)
             # What the review writes is not someone else's change: the session's hash follows it.
@@ -1420,11 +1422,24 @@ class Review:
         return (read_bytes(self.record / 'edited') or b'').decode()
 
     def is_outline_old(self, outline):
-        """Whether the session's edits changed its work since the overview was asked for: the record's
-        edited is not the one kept with it. One kept before edited was: by the times of the session's
-        edits (after/), which the review's Reject moves too. A git review's never is."""
+        """Whether the work changed since the overview was asked for. A session's: its edits, the record's
+        edited not the one kept with it; one kept before edited was, by the times of the session's edits
+        (after/), which the review's Reject moves too. A git review's: any change, a work file's text not
+        the one it saw (seen; the review's own writes follow it); one kept before seen was never is."""
         if self.git:
-            return False
+            seen = outline.get('seen')
+            if not isinstance(seen, dict):
+                return False
+            now = self.texts_seen(is_kept=False)
+            # A file it saw that has no change left now (all of it rejected, say): its text as it reads.
+            for gone in set(seen) - set(now):
+                try:
+                    file = self.file(gone)
+                except Refusal:
+                    continue
+                place = self.places(gone, file)['disk']
+                now[gone] = self.disk_hash(file, place, signature(place))
+            return seen != now
         if 'edited' in outline:
             return outline['edited'] != self.edited()
         try:
@@ -1475,15 +1490,27 @@ class Review:
         (self.folder / 'asked-edited').unlink(missing_ok=True)
         (self.folder / 'asked-seen').unlink(missing_ok=True)
 
-    def texts_seen(self):
-        """What an overview is written of: each work file's text as it reads now, kept among the blobs, by its
-        key; an update of the overview is asked about the changes since (changes_since())."""
+    def texts_seen(self, is_kept=True):
+        """What an overview is written of: each work file's text as it reads now, by its hash and key; is_kept,
+        the texts kept among the blobs too, as an update of the overview is asked about the changes since
+        (changes_since()), else only hashed, the latest hashes remembered."""
         seen = {}
         for listed in self.listing()['files']:
             if listed['all'] and not listed['isOther'] and not listed['isGenerated']:
                 file = self.file(listed['key'])
-                seen[listed['key']] = self.kept(self.read(file, 'disk', self.places(listed['key'], file)['disk']))
+                place = self.places(listed['key'], file)['disk']
+                seen[listed['key']] = (self.kept(self.read(file, 'disk', place)) if is_kept else
+                                       self.disk_hash(file, place, signature(place)))
         return seen
+
+    def follow_seen(self, key, was, data):
+        """The review wrote the file's text (Reject, Undo): the overview saw that write's, if it saw the text
+        before it, so the page's own writes leave it as new as it was."""
+        outline = read_json(self.folder / 'outline.json', None)
+        seen = outline.get('seen') if isinstance(outline, dict) else None
+        if isinstance(seen, dict) and seen.get(key) == was:
+            seen[key] = self.kept(data)
+            write_atomic(self.folder / 'outline.json', json.dumps(outline, indent=1).encode())
 
     def changes_since(self, seen):
         """The work's changes since an overview saw it (seen, as texts_seen() keeps it), as changes_shown()
@@ -1710,7 +1737,9 @@ class Review:
         it to review ('pending', 'accepted', 'unchanged', 'stale': its lines are gone), each item's
         pending blocks counted; the changes no block touches; and where an ask for it is. One the session's
         edits made old has no items: it would pass for one of the changes since (isOld)."""
-        shown = {'asked': self.asked_state(), 'time': None, 'isOld': False, 'items': [], 'uncovered': []}
+        # isAskedAtTurnEnd: a session's is asked for anew as a turn that edited ends; a git review's on Describe.
+        shown = {'asked': self.asked_state(), 'time': None, 'isOld': False, 'isAskedAtTurnEnd': not self.git,
+                 'items': [], 'uncovered': []}
         outline = read_json(self.folder / 'outline.json', None)
         if not isinstance(outline, dict):
             return shown

@@ -1489,7 +1489,9 @@ function renderOverview() {
     parts.push(Object.assign(document.createElement('p'), {
       className: 'none',
       textContent: written
-        ? `The overview written at ${written} came before the session's latest edits. The end of its turn asks ${state.agent} for one anew; Describe asks now.`
+        ? state.outline.isAskedAtTurnEnd
+          ? `The overview written at ${written} came before the session's latest edits. The end of its turn asks ${state.agent} for one anew; Describe asks now.`
+          : `The overview written at ${written} came before the latest changes to the files. Describe asks ${state.agent} for one anew.`
         : `No overview yet. Describe asks ${state.agent} for one: the changes by purpose, each part a way to its code.`,
     }));
   }
