@@ -49,7 +49,8 @@ STYLE = '''
 .rvb{display:inline-block;margin-left:3px;padding:0 5px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--muted);font:400 11px/15px -apple-system,BlinkMacSystemFont,sans-serif;vertical-align:2px;cursor:pointer;user-select:none;-webkit-user-select:none}
 .rvb::before{content:'💬'} .rvb-r::before{content:'✎'}
 .rvb-g{background:color-mix(in srgb,var(--muted) 32%,var(--bg));border-color:var(--muted);color:var(--fg)} .rvb-c{border-color:var(--rw);color:var(--rw)}
-.rvaud{font-weight:600} .rvaud-g{color:var(--fg)} .rvaud-c{color:var(--rw)} .rvaud-r{color:var(--muted)} .rvaud-new{color:var(--insb)}
+.rvb-s{border-color:var(--rw);border-style:dotted;color:var(--muted);opacity:.6} .rvb-s:hover,.rvb-s.rvb-new,.rvb-s.rvb-hit{opacity:1}
+.rvaud{font-weight:600} .rvaud-g{color:var(--fg)} .rvaud-c{color:var(--rw)} .rvaud-s{color:color-mix(in srgb,var(--rw) 60%,var(--muted))} .rvaud-r{color:var(--muted)} .rvaud-new{color:var(--insb)}
 .rvb-wait{border-style:dashed} .rvb-r.rvb-wait{border-color:var(--muted)} .rvb-wait::after{content:' …'} .rvb:hover{background:var(--code)} .rvb-g:hover{background:color-mix(in srgb,var(--muted) 44%,var(--bg))} .rvb-hit,.rvi-hit{outline:2px solid #bf8700} .rvi-hit{outline-offset:2px} .rvb-near{border-style:dashed}
 .rvb-new,.rvb-new:hover{background:var(--insb);color:var(--bg);font-weight:700} #rvt.rvt-new{font-weight:700;border-color:var(--insb)}
 .rvb-done{width:7px;height:7px;padding:0;border:4px solid transparent;border-radius:50%;background:var(--muted) content-box;opacity:.35;vertical-align:middle} .rvb-done::before{content:none} .rvb-done:hover{background:var(--muted) content-box;opacity:.8}
@@ -125,7 +126,7 @@ body:not(.show-diff,.show-since) #rvsd{display:none}
 #rvsd[aria-pressed=true]:not(:disabled){background:color-mix(in srgb,var(--fg) 10%,var(--bg));border-color:color-mix(in srgb,var(--fg) 45%,var(--bg));box-shadow:inset 0 1px 2px rgba(0,0,0,.12)}
 #rvsum{display:inline-flex;flex-wrap:wrap;align-items:center;gap:0 6px;font-size:13px;color:var(--muted)} #rvsum button:hover{text-decoration:underline} #rvsum .rvarmed{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px}
 .files .rvn button,.files .rvn button:hover,#rvsum button,#rvsum button:hover{border:0;background:none;padding:0;height:auto;line-height:inherit;font:inherit;color:var(--link);cursor:pointer}
-#rvsum .rvaud-g{color:var(--fg)} #rvsum .rvaud-c{color:var(--rw)} #rvsum .rvaud-r{color:var(--muted)} #rvsum .rvaud-new{color:var(--insb);font-weight:600}
+#rvsum .rvaud-g{color:var(--fg)} #rvsum .rvaud-c{color:var(--rw)} #rvsum .rvaud-s{color:color-mix(in srgb,var(--rw) 60%,var(--muted))} #rvsum .rvaud-r{color:var(--muted)} #rvsum .rvaud-new{color:var(--insb);font-weight:600}
 #rvp blockquote,#rvc blockquote{margin:4px 0;padding:2px 8px;border-left:3px solid color-mix(in srgb,var(--rw) 55%,var(--line));border-radius:0 4px 4px 0;background:var(--code);color:var(--muted);font-size:13px;max-height:4.8em;overflow:hidden}
 .rva{border-left:3px solid var(--insb);padding-left:8px;margin-top:6px} .rva>:first-child{margin-top:0} .rva>:last-child{margin-bottom:0}
 #rvp .rva blockquote,#rvc .rva blockquote{max-height:none;margin:6px 0 2px;padding:0 8px;border-left-color:var(--line);border-radius:0;background:none;font-size:inherit} .rvi-new{box-shadow:inset 3px 0 var(--insb)} .rvi-new>.rvm{font-weight:600}
@@ -193,8 +194,10 @@ const said=it=>it.kind==='c'||it.kind==='g'&&it.yours;
 // Who sees an item: everyone on its source, for a thread from elsewhere or a comment of yours posted there
 // (g); nobody there yet, for your comment not posted, a draft where a source takes posts (c); you and Claude,
 // for a question (r). Its tag says so, first on its card's and its panel entry's line.
-const audOf=it=>it.kind==='g'||it.posted?'g':it.kind,posting=()=>(data.remotes||[]).find(r=>r.posting);
-function tag(it){const k=audOf(it),s=(it.src||posting())?.source,p=pend(it),to=posting()?.source,sug=k==='c'&&it.by==='claude';
+// Who sees it: on GitHub (g), your drafts (c), Claude's drafts not yours yet (s: accept or edit one to make it
+// yours), or your questions to Claude (r).
+const audOf=it=>it.kind==='g'||it.posted?'g':it.kind==='c'&&it.by==='claude'?'s':it.kind,posting=()=>(data.remotes||[]).find(r=>r.posting);
+function tag(it){const k=audOf(it),s=(it.src||posting())?.source,p=pend(it),to=posting()?.source,sug=k==='s';
 return mk('span',{className:'rvaud rvaud-'+k,textContent:k==='g'?'💬 On '+s:k==='r'?'✎ Asked Claude · private':sug?'💬 Suggested by Claude':to?'💬 Draft · '+(p||'not posted'):'💬 Your comment',
 title:k==='g'?'Everyone who can read it on '+s+' sees it':k==='r'?'Between you and Claude: it never goes to '+(to||'anyone else'):
 sug?'Drafted by Claude, not yours until you accept or edit it; nobody '+(to?'on '+to+' ':'else ')+'sees it':
@@ -308,7 +311,7 @@ b.onmousedown=e=>e.preventDefault();b.onclick=e=>{e.preventDefault();e.stopPropa
 function dress(b){const its=b._its,cs=its.filter(i=>i.kind==='c'&&!i.done),open=its.filter(i=>i.kind==='r'&&!i.done),gs=its.filter(i=>i.kind==='g'&&!i.done);
 const n=cs.length+open.length+gs.reduce((k,g)=>k+g.shown,0),posted=cs.find(c=>c.posted),r=posted?.thread?.shown||0,
 ps=[...gs,...cs.map(c=>c.thread||c.ask).filter(Boolean)],wait=open.some(t=>t.wait)||ps.some(g=>g.wait),unread=open.some(t=>t.unread)||ps.some(g=>!g.wait&&g.unread);
-b.className='rvb rvb-'+(gs.length||posted?'g':cs.length?'c':'r')+(n?'':' rvb-done')+(wait?' rvb-wait':unread?' rvb-new':'')+(posted?' rvb-posted':'')+
+b.className='rvb rvb-'+(gs.length||posted?'g':cs.length?(cs.every(c=>c.by==='claude')?'s':'c'):'r')+(n?'':' rvb-done')+(wait?' rvb-wait':unread?' rvb-new':'')+(posted?' rvb-posted':'')+
 (gs.length===its.length&&gs.every(g=>g.near)?' rvb-near':'');b.textContent=n>1?' '+n:'';if(posted&&r)b.dataset.r=' '+r+'↩';else delete b.dataset.r;
 b.title=its.map(it=>it.kind==='g'?'On '+it.src.source+': '+it.root.author+': '+short(it.root.body)+(it.yours?' (yours)':'')+(it.done?' (resolved)':'')+(it.near?' (its text has changed: here at the closest match)':''):
 it.kind==='c'?(it.posted?'On '+posting().source+', your comment'+(r?' · '+r+(r>1?' replies':' reply'):'')+(it.done?' (resolved)':''):tag(it).textContent)+': '+short(it.body):
@@ -403,6 +406,7 @@ refreshCard();tally();chips();}
 function tallies(all){const o=all.filter(i=>!i.done&&!i.hidden&&Object.keys(i.at).length),of=k=>o.filter(i=>audOf(i)===k),to=posting()?.source,
 g=of('g'),on='on '+[...new Set(g.map(i=>(i.src||posting()).source))].join(' and '),w=i=>i.kind==='c'?i.thread||i.ask:i,one=W.revisits.replace(/s$/,'');
 return[['c',of('c'),to?'draft':'comment',to?'drafts':'comments',to?'Your comments not posted: nobody on '+to+' sees them yet':'Your comments'],
+['s',of('s'),'suggested','suggested','Drafted by Claude, not yours until you accept or edit them: nobody '+(to?'on '+to+' ':'else ')+'sees them'],
 ['g',g,on,on,'Threads '+on+', yours posted and others\\', which everyone there sees'],
 ['r',of('r'),one,W.revisits,'Your open '+W.revisits+' to Claude, which nobody else sees'],
 ['wait',o.filter(i=>w(i)?.wait),'pending','pending','Waiting for Claude']]
@@ -905,6 +909,7 @@ bd.after(act(unfolded.has(id)?'Show less':'Show more','',()=>{unfolded.has(id)?u
 let filter='open',folded=true,aud=null;
 const auds=()=>{const to=posting()?.source,on=[...new Set((data.remotes||[]).map(r=>r.source))].join(' · ');
 return[...(on?[['g',on,'On '+on+': everyone there sees them']]:[]),['c',to?'Drafts':'Comments',to?'Your comments not posted: nobody on '+to+' sees them yet':'Your comments'],
+['s','Suggested','Drafted by Claude, not yours until you accept or edit them: nobody '+(to?'on '+to+' ':'else ')+'sees them'],
 ['r','Claude','Your '+W.revisits+' to Claude, which nobody else sees']];};
 // Comments from elsewhere that have no place in the doc fold into a group per source (On GitHub, On Google
 // Docs), under the open ones.
@@ -940,7 +945,7 @@ setTimeout(()=>cm.textContent=cl,twins?3000:1500);};
 const ups=unposted(),fresh=ups.filter(c=>c.pushed?.body!==c.body).length,pb=ups.length&&(data.remotes||[]).some(r=>r.push)&&
 mk('button',{textContent:fresh?'⇪ Push '+fresh+' as a pending review':'⇪ Pending review',title:'Your comments not on GitHub yet, as your pending review on the PR, which you submit there'});
 if(pb)pb.onclick=openPush;
-x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:[...tallies(mine).filter(t=>'cgr'.includes(t[0])).map(t=>t[2]+(t[4].length?' ('+t[4].length+' unread)':'')),mine.filter(i=>i.done&&!i.hidden).length+' resolved'].join(' · ')}),...(unsent.length?[cm]:[]),...(pb?[pb]:[]),x);
+x.onclick=()=>toggle(false);h.append(mk('b',{textContent:'Review'}),mk('span',{className:'n',textContent:[...tallies(mine).filter(t=>'csgr'.includes(t[0])).map(t=>t[2]+(t[4].length?' ('+t[4].length+' unread)':'')),mine.filter(i=>i.done&&!i.hidden).length+' resolved'].join(' · ')}),...(unsent.length?[cm]:[]),...(pb?[pb]:[]),x);
 if(only){const o=mk('button',{className:'rvonly',textContent:'Only '+only+' · show all',title:'Show the entries on every doc'});o.onclick=()=>{only=null;pinned.clear();list();};h.append(o);}
 const bySource=new Map();for(const it of loose)bySource.set(it.src.source,[...(bySource.get(it.src.source)||[]),it]);
 const ghs=[...bySource].map(([n,l])=>{const gh=mk('details',{className:'rvg',open:!ghFolded});gh.ontoggle=()=>{ghFolded=!gh.open;if(gh.open)gh.querySelectorAll('.rvib').forEach(fold);};

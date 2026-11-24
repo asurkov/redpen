@@ -624,7 +624,9 @@ or in a rewritten block's old text, is on that block's stub line, which a settle
 mark holds something open (resolved, it shows with the diff, and going to it from the Review panel shows
 that). The header's **💬** opens
 the Review panel, and beside it what was said is counted by who sees it, with how many of each are unread:
-"2 drafts · 6 on GitHub (3 unread) · 5 questions (4 unread) · 1 pending". On GitHub counts what has a place
+"2 drafts · 4 suggested · 6 on GitHub (3 unread) · 5 questions (4 unread) · 1 pending". Drafts are yours;
+suggested are Claude's drafts not yours yet (accept or edit one and it counts with your drafts), and their
+💬 in the doc is faint and dotted, yours solid. On GitHub counts what has a place
 in the doc, and unread there is a thread with a comment or a drafted reply you have not read ([GitHub PR](#github-pr),
 Unread); a question is unread while its answer is; pending is what waits for Claude, drafted replies to
 threads from elsewhere too. Each count, unread ones too, steps through its own marks in the doc's order, as
@@ -659,7 +661,7 @@ whose last question has no answer yet stays open, and so does one on text outsid
 several. ↺ not reviewed reopens the threads its accept resolved, not ones resolved by hand. On your own
 docs accepting resolves nothing. Asking again reopens a thread. A resolved thread counts no more in its 💬,
 and alone it folds to a faint dot in the text, which opens its card to ↺ Reopen, and in the panel into a folded Resolved group under the open
-ones (Open / Resolved / All filter, and beside it who sees them, **GitHub · Drafts · Claude**, one at a
+ones (Open / Resolved / All filter, and beside it who sees them, **GitHub · Drafts · Suggested · Claude**, one at a
 time, pressed again for all; the header's 💬 opens the panel on Open and all, and a reload keeps both). A
 thread's header leads with its own words, its first question (cut at 70 characters; one that reads whole
 there is not said again under it), with ✎ Ask more and ✓ Resolve (↺ Reopen) beside them, and under them,
