@@ -151,9 +151,10 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   first one into the neighbouring file. The current change is the one the cursor is in, with the
   tinted bar: `a` accepts it in Pending and unaccepts it in Accepted, `r` opens a comment on the
   selected text, or else on it. `a` and a change's Accept, Reject and Unaccept leave the view where it
-  is, for a careful review; with **Go on** (the file bar's toggle, or `g`; the browser keeps the choice)
-  they then go on to the next change as `n` does, for a quick one. Reject has no key. Shift means
-  nothing here: Shift+click extends a selection, as in any editor. With lines selected, `a` and the Accept and
+  is, for a careful review; **Space**, or the **↓** beside Accept (Unaccept in Accepted), does the same
+  and then goes on to the next change as `n` does, for a quick one: each press chooses, no mode and no
+  key held. Reject has no key. Shift means nothing here: Shift+click extends a selection, as in any
+  editor. With lines selected, `a` and the Accept and
   Reject buttons at the selection, beside Comment, take only the selected lines of the
   changes, whole lines; removed lines go with the lines on both sides of them. While those buttons,
   or a comment box, are open, the bars of the changes they stand over are hidden, their room kept.

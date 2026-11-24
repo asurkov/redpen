@@ -602,6 +602,10 @@ export class DiffView {
       const made = button(bar, label, () => this.handlers.act(action, spans(change)));
       if (key) {
         made.dataset.key = key;
+        // Beside the action its key carries out: the same, then on to the next change, as Space does.
+        const goingOn = button(bar, '↓', () => this.handlers.act(action, spans(change), true), 'goOn');
+        goingOn.title = `${label}, then on to the next change (Space)`;
+        goingOn.dataset.key = '␣';
       }
     }
     button(bar, 'Comment', () => this.openBox(this.changeTarget(change)), 'quiet').dataset.key = 'r';

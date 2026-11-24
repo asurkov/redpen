@@ -169,7 +169,6 @@ body.compactTop #top .label {
 #views button.chosen,
 #unchangedButton.chosen,
 #reviewedButton.chosen,
-#goOnButton.chosen,
 #fileActions button.chosen {
   background: var(--chosen);
   color: var(--ink);
@@ -587,6 +586,12 @@ body.listHidden #splitter {
   padding: 0 8px;
   line-height: 18px;
   font-size: 11px;
+}
+
+/* The action beside it, then on to the next change: close to it, and small. */
+.changeBar button.goOn {
+  margin-left: -4px;
+  padding: 0 5px;
 }
 
 /* Under the selection's buttons, or a comment box, a change's own are hidden: the widget's stand in
