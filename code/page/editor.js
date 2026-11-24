@@ -12,12 +12,17 @@ const languageByEnding = {
 };
 const languageByName = { DEPS: 'python' };
 const barHeight = 24;
-// What stands in a thread for Claude's answer until it comes, by what became of the user's comment.
-export const awaitedWords = {
-  draft: 'Goes to Claude with your next message in the chat',
-  sent: 'Waiting for Claude to take it…',
-  taken: 'Claude is answering…',
-};
+// What stands in a thread for the agent's answer until it comes, by what became of the user's comment;
+// agent: the one the review's comments go to, Claude or Codex.
+export const awaitedWords = agent => ({
+  draft: `Goes to ${agent} with your next message in the chat`,
+  sent: `Waiting for ${agent} to take it…`,
+  taken: `${agent} is answering…`,
+});
+
+// Where a comment being written goes: to the agent at once while its command waits for comments.
+export const goesWords = (agent, isWatched) =>
+  isWatched ? `Goes to ${agent} at once` : `Goes to ${agent} with your next message in the chat`;
 
 export function loaded() {
   return new Promise(resolve => {
@@ -110,8 +115,10 @@ export class DiffView {
     // The threads shown, and the reply being written in one of them: {thread, text}.
     this.threads = [];
     this.reply = null;
-    // Whether Claude's command waits for comments now: a comment's words say where it goes.
+    // Whether the agent's command waits for comments now: a comment's words say where it goes.
     this.isWatched = false;
+    // The one the comments go to and the answers come from, by name: Claude or Codex.
+    this.agent = 'Claude';
     this.bars = [];
     this.changes = [];
     // The current change, the one the keys act on: its place in changes, -1 with none.
@@ -342,7 +349,7 @@ export class DiffView {
   // them what was said, in a zone. A poll that found nothing new leaves them alone.
   mark(threads) {
     const model = this.shown.getModel();
-    const drawing = JSON.stringify([threads, this.isWatched, this.reply?.thread, this.currentThread, this.openable?.()]);
+    const drawing = JSON.stringify([threads, this.isWatched, this.agent, this.reply?.thread, this.currentThread, this.openable?.()]);
     if (!model || drawing === this.threadsDrawn) {
       return;
     }
@@ -474,7 +481,7 @@ export class DiffView {
       const head = row.appendChild(document.createElement('div'));
       head.className = 'head';
       const who = head.appendChild(document.createElement('b'));
-      who.textContent = entry.by === 'claude' ? 'Claude' : 'You';
+      who.textContent = entry.by === 'claude' ? this.agent : 'You';
       head.append(new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), spring());
       if (entry.state === 'draft') {
         button(head, '✕', () => this.handlers.uncomment(entry.id), 'quiet').title = 'Delete the comment';
@@ -494,19 +501,20 @@ export class DiffView {
       }
     });
     const last = thread.entries.at(-1);
-    if (last.by === 'user' && awaitedWords[last.state]) {
+    const awaited = awaitedWords(this.agent)[last.state];
+    if (last.by === 'user' && awaited) {
       const row = box.appendChild(document.createElement('div'));
       row.className = `entry claude awaited ${last.state}`;
       row.appendChild(document.createElement('div')).className = 'head';
-      row.lastChild.appendChild(document.createElement('b')).textContent = 'Claude';
-      row.appendChild(document.createElement('div')).textContent = awaitedWords[last.state];
+      row.lastChild.appendChild(document.createElement('b')).textContent = this.agent;
+      row.appendChild(document.createElement('div')).textContent = awaited;
       row.lastChild.className = 'said';
     }
     const foot = document.createElement('div');
     foot.className = 'foot';
     if (this.reply?.thread === thread.id) {
       const input = box.appendChild(document.createElement('textarea'));
-      input.placeholder = 'Reply to Claude';
+      input.placeholder = `Reply to ${this.agent}`;
       input.value = this.reply.text;
       input.addEventListener('input', () => {
         this.reply.text = input.value;
@@ -526,7 +534,7 @@ export class DiffView {
           this.replyIn(null);
         }
       });
-      foot.append(this.isWatched ? 'Goes to Claude at once' : 'Goes to Claude with your next message in the chat', spring());
+      foot.append(goesWords(this.agent, this.isWatched), spring());
       button(foot, 'Cancel', () => this.replyIn(null), 'quiet');
       button(foot, 'Add reply', send, 'main');
     } else if (thread.entries.some(entry => entry.state !== 'draft')) {
@@ -684,13 +692,13 @@ export class DiffView {
     const head = box.appendChild(document.createElement('div'));
     head.className = 'head';
     const lines = target.start === target.end ? `line ${target.start}` : `lines ${target.start}–${target.end}`;
-    head.append(`Comment for Claude on ${target.isFile ? 'the whole file' : `${target.isRemoved ? 'the removed ' : ''}${lines}`}`, spring());
+    head.append(`Comment for ${this.agent} on ${target.isFile ? 'the whole file' : `${target.isRemoved ? 'the removed ' : ''}${lines}`}`, spring());
     button(head, '✕', () => this.dropWidget('box'), 'quiet').title = 'Close';
     const input = box.appendChild(document.createElement('textarea'));
     input.placeholder = 'What should change here?';
     const foot = box.appendChild(document.createElement('div'));
     foot.className = 'foot';
-    foot.append(this.isWatched ? 'Goes to Claude at once' : 'Goes to Claude with your next message in the chat', spring());
+    foot.append(goesWords(this.agent, this.isWatched), spring());
     const send = () => {
       if (input.value.trim()) {
         this.handlers.comment({

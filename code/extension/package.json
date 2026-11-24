@@ -1,7 +1,7 @@
 {
   "name": "redpen",
   "displayName": "redpen",
-  "description": "A status-bar item that counts the files Claude Code sessions changed, as redpen's recorder keeps them, and opens their review on redpen's page.",
+  "description": "A status-bar item that counts the files Claude Code and Codex sessions changed, as redpen's recorder keeps them, and opens their review on redpen's page.",
   "publisher": "local",
   "version": "0.7.0",
   "license": "UNLICENSED",

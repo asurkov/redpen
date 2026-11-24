@@ -118,6 +118,9 @@ function ago(iso) {
 
 const counted = count => `${count} file${count === 1 ? '' : 's'} to review`;
 
+// Whose changes the sessions' are, by their agents' names (session.json's agent): Claude, Codex, or both.
+const agentsOf = sessions => [...new Set(sessions.map(session => session.agent || 'Claude'))].join(' and ');
+
 // The session's review page, its server started unless it runs.
 function reviewUrl(session) {
   return new Promise((resolve, reject) => execFile('python3', [reviewScript, '--session', session],
@@ -161,7 +164,7 @@ function activate(context) {
       return;
     }
     item.text = `$(checklist) redpen · ${files.size} to review`;
-    item.tooltip = new vscode.MarkdownString(['Open the review of Claude\'s changes', '',
+    item.tooltip = new vscode.MarkdownString([`Open the review of ${agentsOf(sessions)}'s changes`, '',
       ...sessions.map(session => `- ${session.title}: ${counted(session.changed.length)}, ${ago(session.updated)}`)].join('\n'));
     item.show();
   };
@@ -177,7 +180,7 @@ function activate(context) {
         refresh();
         if (sessions.length < 2) {
           return sessions[0] ? openReview(sessions[0]) :
-            vscode.window.showInformationMessage('Nothing of Claude\'s to review in this window.');
+            vscode.window.showInformationMessage('Nothing to review in this window.');
         }
         const picked = await vscode.window.showQuickPick(sessions.map(session => ({
           label: session.title,

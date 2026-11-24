@@ -795,7 +795,7 @@ class Review:
             while folder not in ('', '/') and folder not in gone_folders and not os.path.isdir(folder):
                 gone_folders.add(folder)
                 folder = os.path.dirname(folder)
-        return {'session': self.session, 'title': info.get('title') or 'Claude session', 'files': files,
+        return {'session': self.session, 'title': info.get('title') or 'Claude session', 'agent': self.agent(), 'files': files,
                 'goneFolders': sorted(gone_folders),
                 'comments': [comment for comment in self.comments() if not comment.get('describe')],
                 'threads': self.threads(),
@@ -1371,6 +1371,14 @@ class Review:
         outline = read_json(self.folder / 'outline.json', {})
         is_kept_with_edits = not self.git and isinstance(outline, dict) and 'edited' in outline
         return shown['isOld'] or bool(shown['uncovered']) and not is_kept_with_edits
+
+    def agent(self):
+        """Whom the page names as the one its comments go to and its answers come from: the session's
+        agent, Claude or Codex, as the recorder keeps it; a git review's, that of the session its comments
+        reach; Claude where nothing says."""
+        session = self.git.get('owner') or '' if self.git else self.session
+        info = read_json(store / session / 'session.json', {}) if re.fullmatch(r'[\w-]+', session) else {}
+        return (info.get('agent') if isinstance(info, dict) else None) or 'Claude'
 
     def edited(self):
         """When the session's own edits last changed its work, as the recorder keeps it; '' before any."""

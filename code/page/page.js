@@ -1,5 +1,5 @@
 // The review page: the session's files, the one open in the diff editor, and what is done to them.
-import { DiffView, awaitedWords as waitingWords, button, loaded, marked } from './editor.js';
+import { DiffView, awaitedWords, button, goesWords, loaded, marked } from './editor.js';
 
 const session = location.pathname.split('/').at(-2);
 const api = `../../api/${session}`;
@@ -56,6 +56,8 @@ const state = {
   threads: [],
   // Whether Claude's command waits for comments now.
   isWatched: false,
+  // The one the review's comments go to and its answers come from, by name: Claude or Codex.
+  agent: 'Claude',
   // The thread last stepped to, by its id.
   thread: null,
   // The open file: its key, what the server sent for it, its signature then, and whether the editor
@@ -345,6 +347,10 @@ async function refresh() {
   state.goneFolders = new Set((listing.goneFolders || []).map(path => `${path}/`));
   state.isWatched = listing.isWatched;
   diffView.isWatched = listing.isWatched;
+  state.agent = listing.agent || 'Claude';
+  diffView.agent = state.agent;
+  byId('describeButton').title = `Ask ${state.agent} to describe the changes`;
+  byId('overviewButton').title = `Overview: the changes by purpose, as ${state.agent} describes them, each part a way to its code`;
   state.isScanning = listing.isScanning;
   state.outlineStamp = JSON.stringify([listing.outline, listing.files.map(file => file.signature),
     listing.threads.filter(thread => thread.item != null).map(thread => [thread.id, thread.entries.length, thread.entries.at(-1).state])]);
@@ -617,7 +623,7 @@ async function show(key, place) {
     diff.title = 'Show the removed lines and the changes in colour; off, the file as it is, its changes marked in the margin (d)';
   }
   if (isShown) {
-    button(byId('fileActions'), 'Comment', () => diffView.openBox(diffView.fileTarget()), 'quiet').title = 'Comment for Claude on the whole file';
+    button(byId('fileActions'), 'Comment', () => diffView.openBox(diffView.fileTarget()), 'quiet').title = `Comment for ${state.agent} on the whole file`;
   }
   for (const [action, label, kind] of view.fileActions) {
     const made = button(byId('fileActions'), label, () => act(action, null), kind);
@@ -1303,7 +1309,7 @@ function drawList() {
           event.preventDefault();
           event.stopPropagation();
           openFolderBox(folder.path);
-        }, 'quiet'), 'comment').title = 'Comment for Claude on this folder';
+        }, 'quiet'), 'comment').title = `Comment for ${state.agent} on this folder`;
       }
       if (acted.length && views[state.view].fileActions.length) {
         for (const [action] of views[state.view].fileActions) {
@@ -1326,7 +1332,7 @@ function drawList() {
     }
     if (isChanged && (thread || writing)) {
       const box = fold.appendChild(threadBox(thread, writing, {
-        placeholder: 'Comment for Claude on this folder',
+        placeholder: `Comment for ${state.agent} on this folder`,
         send: text => commentFolder(folder.path, text, thread?.id),
         cancel: () => {
           state.folderReply = null;
@@ -1436,11 +1442,11 @@ async function drawJournal() {
 }
 
 // What an ask for the overview waits on, as the drawer says it.
-const askedWords = {
-  draft: 'Asked: Claude writes it with your next message in the chat.',
-  sent: 'Asked: Claude takes it next.',
-  taken: 'Claude is writing it.',
-};
+const askedWords = agent => ({
+  draft: `Asked: ${agent} writes it with your next message in the chat.`,
+  sent: `Asked: ${agent} takes it next.`,
+  taken: `${agent} is writing it.`,
+});
 const blockStates = { pending: 'pending', accepted: 'accepted', unchanged: 'unchanged', stale: 'changed since' };
 
 // Where a block or a change left out is, by its file's name and lines.
@@ -1472,7 +1478,7 @@ function renderOverview() {
   byId('describeButton').disabled = Boolean(askedState);
   const parts = [];
   if (askedState) {
-    parts.push(Object.assign(document.createElement('p'), { className: 'asked', textContent: askedWords[askedState] }));
+    parts.push(Object.assign(document.createElement('p'), { className: 'asked', textContent: askedWords(state.agent)[askedState] }));
   }
   // One written before the session's latest edits is not shown: it would pass for one of them.
   if (!items.length && !askedState) {
@@ -1482,8 +1488,8 @@ function renderOverview() {
     parts.push(Object.assign(document.createElement('p'), {
       className: 'none',
       textContent: written
-        ? `The overview written at ${written} came before the session's latest edits. The end of its turn asks Claude for one anew; Describe asks now.`
-        : 'No overview yet. Describe asks Claude for one: the changes by purpose, each part a way to its code.',
+        ? `The overview written at ${written} came before the session's latest edits. The end of its turn asks ${state.agent} for one anew; Describe asks now.`
+        : `No overview yet. Describe asks ${state.agent} for one: the changes by purpose, each part a way to its code.`,
     }));
   }
   let at = 0;
@@ -1499,7 +1505,7 @@ function renderOverview() {
       button(head, 'Accept', () => acceptItem(index, item), 'quiet').title = 'Accept what is pending in these blocks, as one History line';
     }
     if (!state.threads.some(thread => thread.item === item.title) && state.itemReply?.title !== item.title) {
-      button(head, 'Comment', () => openItemBox(item), 'quiet').title = 'Comment for Claude on this item';
+      button(head, 'Comment', () => openItemBox(item), 'quiet').title = `Comment for ${state.agent} on this item`;
     }
     if (item.text) {
       section.append(Object.assign(document.createElement('p'), { textContent: item.text }));
@@ -1542,7 +1548,7 @@ function itemThread(item, index) {
     return [];
   }
   return [threadBox(thread, writing, {
-    placeholder: 'Comment for Claude on this item',
+    placeholder: `Comment for ${state.agent} on this item`,
     send: text => commentItem(index, item, text, thread?.id),
     cancel: () => {
       state.itemReply = null;
@@ -1563,7 +1569,7 @@ function threadBox(thread, writing, on) {
     row.className = `entry ${entry.by} ${entry.state || ''}`;
     const head = row.appendChild(document.createElement('div'));
     head.className = 'head';
-    head.appendChild(document.createElement('b')).textContent = entry.by === 'claude' ? 'Claude' : 'You';
+    head.appendChild(document.createElement('b')).textContent = entry.by === 'claude' ? state.agent : 'You';
     head.append(new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), span('spring', ''));
     if (entry.state === 'draft') {
       button(head, '✕', () => uncomment(entry.id), 'quiet').title = 'Delete the comment';
@@ -1571,18 +1577,18 @@ function threadBox(thread, writing, on) {
     row.appendChild(marked(entry.text));
   }
   const last = thread?.entries.at(-1);
-  if (last?.by === 'user' && waitingWords[last.state]) {
+  if (last?.by === 'user' && awaitedWords(state.agent)[last.state]) {
     const row = box.appendChild(document.createElement('div'));
     row.className = `entry claude awaited ${last.state}`;
     row.appendChild(document.createElement('div')).className = 'head';
-    row.lastChild.appendChild(document.createElement('b')).textContent = 'Claude';
-    row.appendChild(Object.assign(document.createElement('div'), { className: 'said', textContent: waitingWords[last.state] }));
+    row.lastChild.appendChild(document.createElement('b')).textContent = state.agent;
+    row.appendChild(Object.assign(document.createElement('div'), { className: 'said', textContent: awaitedWords(state.agent)[last.state] }));
   }
   const foot = document.createElement('div');
   foot.className = 'foot';
   if (writing) {
     const input = box.appendChild(document.createElement('textarea'));
-    input.placeholder = thread ? 'Reply to Claude' : on.placeholder;
+    input.placeholder = thread ? `Reply to ${state.agent}` : on.placeholder;
     input.value = writing.text;
     input.addEventListener('input', () => (writing.text = input.value));
     const send = () => input.value.trim() && on.send(input.value);
@@ -1595,7 +1601,7 @@ function threadBox(thread, writing, on) {
         cancel();
       }
     });
-    foot.append(state.isWatched ? 'Goes to Claude at once' : 'Goes to Claude with your next message in the chat', span('spring', ''));
+    foot.append(goesWords(state.agent, state.isWatched), span('spring', ''));
     button(foot, 'Cancel', cancel, 'quiet');
     button(foot, thread ? 'Add reply' : 'Add comment', send, 'main');
     // Focused as it opens, and again when drawn anew while it has the keys.
@@ -1737,7 +1743,7 @@ function describe() {
   return queued(async () => {
     try {
       const { asked: askedState } = await asked('/describe', {});
-      toast(askedWords[askedState] || 'Asked Claude for an overview.');
+      toast(askedWords(state.agent)[askedState] || `Asked ${state.agent} for an overview.`);
     } catch (error) {
       toast(error.message);
     }
@@ -1748,8 +1754,8 @@ function describe() {
 // The strip at the bottom: how many threads there are and how many of them wait for Claude; and,
 // opened, the threads of every file, each a way to its line.
 function drawWaiting() {
-  const { comments, threads, isWatched } = state;
-  const drawing = JSON.stringify({ comments, threads, isWatched });
+  const { comments, threads, isWatched, agent } = state;
+  const drawing = JSON.stringify({ comments, threads, isWatched, agent });
   if (drawing === drawn.waiting) {
     return;
   }
@@ -1758,8 +1764,8 @@ function drawWaiting() {
   byId('waiting').hidden = !threads.length;
   const awaited = threads.filter(thread => thread.entries.at(-1).by === 'user').length;
   byId('waitingButton').hidden = !threads.length;
-  byId('waitingButton').textContent = [counted(threads.length, 'thread'), awaited ? `${awaited} waiting for Claude` : '',
-    comments.length && !isWatched ? 'Claude takes them with your next message in the chat' : ''].filter(Boolean).join(' · ');
+  byId('waitingButton').textContent = [counted(threads.length, 'thread'), awaited ? `${awaited} waiting for ${agent}` : '',
+    comments.length && !isWatched ? `${agent} takes them with your next message in the chat` : ''].filter(Boolean).join(' · ');
   byId('waitingList').replaceChildren(...threads.map(thread => {
     const row = document.createElement('li');
     const last = thread.entries.at(-1);
@@ -1767,7 +1773,7 @@ function drawWaiting() {
     const where = thread.item != null ? `Overview: ${thread.item}` : thread.folder != null ? `Folder: ${folderShown(thread.folder)}`
       : thread.isFile ? nameOf(thread.path) : `${nameOf(thread.path)}:${lines}`;
     row.append(span('where', where));
-    row.append(span(`state ${last.by}`, last.by === 'claude' ? 'Claude' : { draft: 'not sent', sent: 'sent', taken: 'Claude answers' }[last.state]));
+    row.append(span(`state ${last.by}`, last.by === 'claude' ? agent : { draft: 'not sent', sent: 'sent', taken: `${agent} answers` }[last.state]));
     const text = button(row, last.text, () => queued(() => showThread(thread)));
     text.className = 'text';
     if (thread.entries.length === 1 && last.state === 'draft') {

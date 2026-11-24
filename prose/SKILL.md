@@ -598,7 +598,7 @@ click elsewhere) at the end of the first header's. A comment reads rendered, as 
 A button acts on the text right above it, never from a header: a comment of yours has its buttons under
 its text, the same in its card and, after its body, in its panel entry: **Accept** on one Claude
 suggested (it becomes yours as it reads), or else **Post** (with a token: ⇪ Push of it alone to your
-pending review; none without one, or on your own docs); then **Edit**, **✎ Ask Claude** and **Delete**
+pending review; none without one, or on your own docs); then **Edit**, **✎ Ask** and **Delete**
 (pressed twice). Its place, `path:line ↗` or `path:start–end ↗` where its quote spans lines (a push takes
 the range too), opens it on GitHub, and **Copy** beside it copies its text as it will be posted, to paste
 there by hand. **Delete** only ever
@@ -688,7 +688,7 @@ comment. A comment drafted outside an answer (asked for in chat) goes on the pag
 own later edits pass `by: 'claude'` too, or the edit makes it the user's. Using a draft resolves nothing: once every draft in a thread is used, dismissed or replaced, its
 header says "drafts handled" and urges Resolve, where the card has no change to accept.
 
-A comment of yours not posted has **✎ Ask Claude** in its editor, card and panel entry: the revisit panel on
+A comment of yours not posted has **✎ Ask** in its editor, card and panel entry: the revisit panel on
 the comment's text, for "shorter", "as a question" or anything else about it; from the editor, text edited
 there is saved first. What you ask about it, and
 Claude's answers, show under the comment as **✎ Asked Claude · private**, in a tinted box of its own (not
@@ -703,8 +703,8 @@ ones proposed before it (asked for before it, or answered before it to the same 
 fold as replaced, so a stale one cannot be used over it.
 While a reworked draft is proposed, the asks fold under Discussion with Claude, as a drafted reply's do.
 
-Text selected in a card or panel entry when you press its ✎ Ask Claude, ↩ Reply or ✎ Ask more (or in the
-editor's text, for its ✎ Ask Claude) is what the ask is about: the revisit panel shows that part, and
+Text selected in a card or panel entry when you press its ✎ Ask, ↩ Reply or ✎ Ask more (or in the
+editor's text, for its ✎ Ask) is what the ask is about: the revisit panel shows that part, and
 Claude gets the whole text with the part after it (the request's `focus`); the thread shows it as
 on “…” above the question.
 

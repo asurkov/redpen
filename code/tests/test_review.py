@@ -86,6 +86,23 @@ class Actions(unittest.TestCase):
         self.assertIsNotNone(listed(rv)['src/b.py']['pending'])
 
 
+class Agents(unittest.TestCase):
+    def test_the_page_names_the_sessions_agent_and_a_git_reviews_owners(self):
+        top = repo({'a.py': 'a\n'})
+        claude, codex = scratch.session(), scratch.session()
+        for who in (claude, codex):
+            scratch.hook('pre', who, top, 'Edit', {'file_path': str(top / 'a.py')})
+            write(top, {'a.py': f'{who}\n'})
+            scratch.hook('post', who, top, 'Edit', {'file_path': str(top / 'a.py')})
+        # The recorder keeps the agent in session.json; a Codex session's says Codex.
+        info = scratch.home / '.redpen/code' / codex / 'session.json'
+        info.write_text(json.dumps({**json.loads(info.read_text()), 'agent': 'Codex'}))
+        self.assertEqual(review.Review(claude).listing()['agent'], 'Claude')
+        self.assertEqual(review.Review(codex).listing()['agent'], 'Codex')
+        self.assertEqual(review.Review(review.git_review(str(top), 'HEAD', codex)).listing()['agent'], 'Codex')
+        self.assertEqual(reviewed(top).listing()['agent'], 'Claude')
+
+
 class FolderComments(unittest.TestCase):
     def test_a_comment_on_a_folder_lists_its_changed_files_and_is_answered_under_it(self):
         top = repo({'src/a.py': 'a\n', 'src/same.py': 's\n', 'src/gone.py': 'g\n', 'other.py': 'o\n'})

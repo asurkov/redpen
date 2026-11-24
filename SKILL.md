@@ -29,7 +29,7 @@ The page shows what the session's Edit and Write calls changed, and what its she
 a git work tree of the files each names (by name anywhere in it, a script on its input too, by a glob,
 or, for an `rm` or `mv`, by a folder): a change a command does not name is not recorded, so name the
 files a script or a formatter writes, or use Edit. A git review (below) shows a work tree's every
-change, whoever made it.
+change, whoever made it. The page names the session's agent, Claude or Codex, over its answers.
 
 **Links into the page.** `<page URL>#<path>:<line>` opens the page at that file and line, in a view
 that has it (the path from the repository's top, or absolute; `:<line>` and a range's `-<line>` may be

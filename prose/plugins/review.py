@@ -155,10 +155,10 @@ SCRIPT = '''
 (()=>{const mk=(t,p)=>Object.assign(document.createElement(t),p),norm=t=>(t||'').replace(/\\s+/g,' ').trim();
 let data={comments:[],revisits:[]},seen=null,items=[],draft=null,mine={};
 // The editor, laid out as the revisit panel: what it is on (muted), the text, then Delete apart, in red, and
-// ✎ Ask Claude beside it on a comment not posted, then Cancel and Save.
+// ✎ Ask beside it on a comment not posted, then Cancel and Save.
 const cp=mk('div',{id:'cp',className:'panel',hidden:true}),ch=mk('div',{className:'n rvcmh'}),cq=mk('blockquote'),ct=mk('textarea',{placeholder:'Comment'});
 const cs=mk('button',{className:'primary',textContent:'Save'}),cd=mk('button',{className:'rvdel',textContent:'Delete'}),cc=mk('button',{textContent:'Cancel'});
-const ca=mk('button',{textContent:'✎ Ask Claude',title:'Ask Claude about this draft: “shorter”, “as a question”; a reworked draft comes back to use in its place'});
+const ca=mk('button',{textContent:'✎ Ask',title:'Ask Claude about this draft: “shorter”, “as a question”; a reworked draft comes back to use in its place'});
 cs.dataset.key='↵';cc.dataset.key='esc';cp.append(ch,cq,ct,cd,ca,mk('span',{className:'hint n',textContent:'⇧↵ adds a line'}),cc,cs);
 // The comment's box is as tall as its text, up to near half the window, as it opens and as it is typed
 // in: a comment opened to edit shows whole, not its last lines in a slit.
@@ -603,7 +603,7 @@ m.append(...(own?postedAs(own,it):line(tag(it),[ghLabel(it.root),it.near&&'its t
 it.members.length+' comment'+(it.members.length>1?'s':''),it.done&&ghSettled(it)])));h.append(m,...(it.file&&!it.done?[reply(it)]:[]),...ghSettle(it),ghOpen(it));
 bd.append(...(own?[mk('blockquote',{textContent:own.quote})]:[]),...ghBodies(it,own),...drafts(it,true),...sentLine(it),
 ...(opened.has(it.rid)&&!it.done?[box(it.rid,{it})]:[]),...(own?[local(own)]:[]));}
-// ✎ Ask Claude about a comment of yours not posted ("shorter", "as a question"): a revisit naming it as its
+// ✎ Ask, about a comment of yours not posted ("shorter", "as a question"): a revisit naming it as its
 // comment and quoting its text, in the thread of what you asked about it before; a reworked draft in the
 // answer offers Use, in its place. What you asked shows under the comment, private.
 const askAbout=(c,focus=takeHeldPart())=>{card.hidden=true;
@@ -614,7 +614,7 @@ let heldPart=null;const takeHeldPart=()=>{const t=heldPart;heldPart=null;return 
 document.addEventListener('mousedown',e=>{const b=e.target.closest?.('.rvx'),s=getSelection(),box=b?.closest('.rvpart,.rvi');
 heldPart=box&&!s.isCollapsed&&s.rangeCount&&box.contains(s.anchorNode)&&box.contains(s.focusNode)?quoteOf(s):null;},true);
 document.addEventListener('click',()=>setTimeout(()=>heldPart=null),true);
-const askDraft=c=>act('✎ Ask Claude',ca.title,()=>askAbout(c));
+const askDraft=c=>act('✎ Ask',ca.title,()=>askAbout(c));
 // A comment's text as it will read (rendered: html), or as typed while that is not back yet.
 const bodyOf=c=>{const t=mk('div',{className:'rvt rvmd'});if(c.html)t.innerHTML=c.html;else t.textContent=c.body;suggested(t,c.github?.old);return t;};
 // Each suggestion block (```suggestion) in rendered text as a suggested change: the lines it replaces,
@@ -623,7 +623,7 @@ function suggested(root,old){for(const pre of root.querySelectorAll('pre.suggest
 b.append(mk('div',{className:'rvsugh',textContent:'Suggested change'+(old?'':' (the lines it replaces are where it is posted)')}),
 ...(old||[]).map(l=>mk('div',{className:'rvsdel',textContent:l})),...now.map(l=>mk('div',{className:'rvsins',textContent:l})));pre.replaceWith(b);}}
 // A draft's buttons, the same in its card and its panel entry: Accept, on one Claude suggested (it becomes
-// yours as it reads), or else Post; then Edit, ✎ Ask Claude and Delete (pressed twice). They stand under
+// yours as it reads), or else Post; then Edit, ✎ Ask and Delete (pressed twice). They stand under
 // its text (ownRow), as a draft of Claude's has its own under it, never in a header: a button acts on the
 // text above it. While Claude's rework of it is proposed they give way to that draft's (CSS, rvown).
 const draftButtons=it=>{const x=act('Delete','Delete this comment',()=>{if(x.textContent==='Delete'){x.textContent='Delete?';return;}card.hidden=true;save({id:it.id,delete:true});}),
@@ -698,7 +698,7 @@ m.answers.some(a=>a.drafts.some(d=>it.proposals.get(d.hash)?.state==='proposed')
 const d=mk('details',{className:'rvmid'});d.open=openMid.has(m.time);d.ontoggle=()=>d.open?openMid.add(m.time):openMid.delete(m.time);
 d.append(mk('summary',{textContent:(short(m.prompt)||'no notes')+' · answered'}),...els);return[d];}
 // Claude's last answer in a thread ends in a link-style Reply, which goes on in the thread as ✎ Ask more does
-// (or, for a question about a comment of yours, as its ✎ Ask Claude); a drafted reply's thread has its own box.
+// (or, for a question about a comment of yours, as its ✎ Ask); a drafted reply's thread has its own box.
 function replyTo(it){const last=it.members[it.members.length-1],c=it.draftOf&&items.find(i=>i.kind==='c'&&i.id===it.draftOf);
 if(it.reply||!last?.answers.length||it.draftOf&&!c)return[];
 const b=act('↩ Reply','Go on in this thread',()=>c?askAbout(c):more(it));b.classList.add('rvreply');return[b];}
