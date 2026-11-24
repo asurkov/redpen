@@ -21,7 +21,7 @@ before the session's first edit), and `prose/` reviews what git has. The ends ar
 | | `code/` | `prose/` |
 |---|---|---|
 | What records the changes | `recorder.py`, a Claude Code or Codex hook on its edit tools (Codex's `apply_patch`), and on its shell commands for what they change in a git work tree | nothing: git has them |
-| How a comment reaches the agent | `review.py --wait`, a command the skill has Claude keep waiting: a comment is handed over as it is made; else `review.py --prompt-hook`, a Claude Code or Codex hook, with the user's next message | `base/channel.py --wait`, a command the skill has Claude keep waiting on the review's `revisit.jsonl` |
+| How a comment reaches the agent | `review.py --wait`, a command the skill has Claude keep waiting: a comment is handed over as it is made; else `review.py --prompt-hook`, a Claude Code or Codex hook, with the user's next message, or in Claude Code with the mod's own prompt, sent while the session is idle or as its turn ends | `base/channel.py --wait`, a command the skill has Claude keep waiting on the review's `revisit.jsonl` |
 | Where the state is kept | `~/.redpen/code/<session>/`, under Claude Code's session id or Codex's thread id | `~/.docdiff/<name>/` |
 
 `review.py --git` needs neither end to show a page: it reviews a git work tree against a commit, whoever
@@ -133,7 +133,10 @@ than guessed; a [git review](#a-git-review) shows a work tree's every change.
   until the answer comes. Otherwise it goes to Claude when the command next starts, or with the user's
   next message in that session, through the `UserPromptSubmit` hook
   `python3 ~/.claude/skills/redpen/code/review.py --prompt-hook` in `~/.claude/settings.json`; without
-  that hook they stay unsent.
+  that hook they stay unsent. In a session with the Claude Code mod no message is needed: the mod sends
+  one of its own, at once while the session is idle, else as its turn ends ([code/ in Claude
+  Code](#code-in-claude-code)). The comment box and the thread say which: "Goes to Claude at once",
+  "when its turn ends", or "with your next message in the chat".
 - **Generated files** fold into "N generated" at the end of the list, with **Accept generated** for
   those with something pending, as one History line: the files the project's `.gitattributes` marks
   `linguist-generated` (as GitHub reads it), and where it says nothing, lockfiles (`package-lock.json`,
@@ -256,7 +259,8 @@ branch's upstream, else `HEAD`. The script prints the page's URL,
   so while it does). A file that changes after the page was opened appears when the page is reloaded
   or the command is run again.
 - Comments reach the session that ran the command last: at once while its `review.py --wait` runs
-  (the one command waits on the git reviews too), else with the user's next message there.
+  (the one command waits on the git reviews too), else by the mod's prompt there, or with the user's
+  next message there.
 The page's editor is Monaco, in `code/vendor/monaco/`; `code/vendor/fetch_monaco.py` fetches it where it
 is missing.
 
@@ -349,6 +353,19 @@ baseline. A turn that used the Browser pane itself leaves it as the turn left it
 failed turn, or one in the terminal, leaves it to the row. Such a turn's end, but an interrupted or failed
 one's, also asks for the overview, in the terminal too and whether the page opens or not, so it is there
 when you look: one fork of the session per such turn, mostly read from the prompt cache.
+
+A comment made on the page while no `review.py --wait` of Claude's waits reaches the session without a
+message of yours. The server marks it in the record of the session it reaches
+(`review/unwatched-comment`, a git review's in its owner's); every 1.5 s the mod looks at the mark, and
+while the main loop runs no turn it has `review.py --count-comments` count the comments waiting (of the
+session's page and its git reviews', not an ask for an overview, which goes to the fork) and submits a
+prompt of its own (`$.prompt.submit`), "2 new comments on the review page.", which the redpen plugin's
+frame names in the chat. The prompt hook hands the comments over with it, as with a message you type.
+While a turn runs, they wait for its end and go a beat after it, unless a message you queued meanwhile
+took them first. The mod also rewrites `review/mod-watcher` every beat, `idle` or `busy`, and the page
+says by it where a comment goes; a word older than 5 seconds is nobody's (the session closed). Comments
+left waiting before the session started or reloaded its plugins go with the next message, as before.
+A prompt the engine refuses leaves them for that message too, with a toast.
 
 The folder is its own marketplace, `redpen`, and the plugin is read from it as it is on disk, so an edit
 there reaches a session with `/reload-plugins`. It loads in every session once the user has installed it
@@ -464,7 +481,9 @@ status took git over 1.5 seconds is watched, for a day, only around an `rm`, `mv
 folder; of the comments: `comments.json`, those waiting to be sent, `sent.jsonl`, the batches sent,
 `handed.jsonl`, which of the batches Claude was handed and how (`base/channel.py` keeps it),
 `answers.jsonl`, Claude's answers and the threads the user resolved, and `outline.json`, the overview
-(an ask for one goes among the comments as `{describe: true}`).
+(an ask for one goes among the comments as `{describe: true}`); of the session's Claude Code mod:
+`unwatched-comment`, when the last comment no command waited for was made, and `mod-watcher`, `idle` or
+`busy` (code/ in Claude Code).
 
 A git review's record, `~/.redpen/code/git-<…>/`, has the same files, made by `review.py --git` from a
 commit, and `git.json` (repository, base commit, branch, title, the session its comments reach, the

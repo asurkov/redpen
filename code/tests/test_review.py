@@ -1,6 +1,7 @@
 """review.py on git reviews of scratch repositories: what the page lists, what its actions do to the
-files and the journal, moves, generated files, and the overview."""
-import json, os, time, unittest
+files and the journal, moves, generated files, the overview, and how a comment reaches Claude."""
+import contextlib, io, json, os, time, unittest
+from unittest import mock
 
 import scratch
 from scratch import git, listed, repo, reviewed, write
@@ -556,6 +557,61 @@ class SessionOverview(unittest.TestCase):
         for when, is_old in (('2000-01-01T00:00:00.000+00:00', True), ('2999-01-01T00:00:00.000+00:00', False)):
             place.write_text(json.dumps({**kept, 'time': when}))
             self.assertEqual(self.rv.outline_shown()['isOld'], is_old)
+
+
+class CommentDelivery(unittest.TestCase):
+    """A comment no command of Claude's waits for reaches the session by its Claude Code mod: marked
+    for it, counted for its prompt, and handed over by the prompt hook with that prompt."""
+
+    def setUp(self):
+        self.who = scratch.session()
+        self.top = repo({'a.py': 'a\n'})
+        write(self.top, {'a.py': 'A\n'})
+        self.rv = review.Review(review.git_review(str(self.top), 'HEAD', self.who))
+        self.key = listed(self.rv)['a.py']['key']
+        self.mine = review.store / self.who / 'review'
+
+    def comment(self, text):
+        return self.rv.comment({'key': self.key, 'side': 'disk', 'start': 1, 'end': 1, 'quote': 'A', 'text': text})
+
+    def counted(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            review.count_comments(self.who)
+        return int(out.getvalue())
+
+    def test_the_mods_state_says_where_a_comment_goes(self):
+        self.assertEqual(self.rv.listing()['delivery'], 'message')
+        for state, delivery in (('idle', 'now'), ('busy', 'turn')):
+            write(self.mine, {'mod-watcher': state})
+            self.assertEqual(self.rv.listing()['delivery'], delivery)
+        # The mod stopped: its word is old.
+        os.utime(self.mine / 'mod-watcher', (time.time() - 60,) * 2)
+        self.assertEqual(self.rv.listing()['delivery'], 'message')
+        review.shared('channel').beat(self.rv.sent)
+        self.assertEqual(self.rv.listing()['delivery'], 'now')
+
+    def test_a_comment_nobody_waits_for_is_marked_counted_and_handed_with_the_mods_prompt(self):
+        self.comment('Why?')
+        self.rv.describe()
+        mark = (self.mine / 'unwatched-comment').read_text()
+        time.sleep(0.01)
+        self.comment('And this?')
+        self.assertNotEqual((self.mine / 'unwatched-comment').read_text(), mark)
+        # The ask for an overview is the fork's, no comment.
+        self.assertEqual(self.counted(), 2)
+        with mock.patch('sys.stdin', io.StringIO(json.dumps({'session_id': self.who}))), \
+                contextlib.redirect_stdout(io.StringIO()) as told:
+            review.prompt_hook()
+        self.assertIn('Comment: And this?', told.getvalue())
+        self.assertEqual(self.counted(), 0)
+        self.assertEqual({entry['state'] for thread in self.rv.threads() for entry in thread['entries']}, {'taken'})
+
+    def test_a_comment_the_waiting_command_takes_is_not_marked(self):
+        review.shared('channel').beat(self.rv.sent)
+        self.comment('Why?')
+        self.assertFalse((self.mine / 'unwatched-comment').exists())
+        self.assertEqual(self.counted(), 0)
 
 
 if __name__ == '__main__':

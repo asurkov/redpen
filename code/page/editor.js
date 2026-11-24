@@ -13,16 +13,19 @@ const languageByEnding = {
 const languageByName = { DEPS: 'python' };
 const barHeight = 24;
 // What stands in a thread for the agent's answer until it comes, by what became of the user's comment;
-// agent: the one the review's comments go to, Claude or Codex.
-export const awaitedWords = agent => ({
-  draft: `Goes to ${agent} with your next message in the chat`,
+// agent: the one the review's comments go to, Claude or Codex; delivery, as goesWords() takes it.
+export const awaitedWords = (agent, delivery) => ({
+  draft: goesWords(agent, delivery),
   sent: `Waiting for ${agent} to take it…`,
   taken: `${agent} is answering…`,
 });
 
-// Where a comment being written goes: to the agent at once while its command waits for comments.
-export const goesWords = (agent, isWatched) =>
-  isWatched ? `Goes to ${agent} at once` : `Goes to ${agent} with your next message in the chat`;
+// Where a comment being written goes, by the review's delivery (review.py's Review.delivery()): 'now',
+// to the agent at once, by its waiting command or by the Claude Code mod of its idle session; 'turn', by
+// that mod once the session's turn ends; else with the user's next message in the chat.
+export const goesWords = (agent, delivery) =>
+  delivery === 'now' ? `Goes to ${agent} at once` : delivery === 'turn' ? `Goes to ${agent} when its turn ends`
+    : `Goes to ${agent} with your next message in the chat`;
 
 export function loaded() {
   return new Promise(resolve => {
@@ -115,8 +118,8 @@ export class DiffView {
     // The threads shown, and the reply being written in one of them: {thread, text}.
     this.threads = [];
     this.reply = null;
-    // Whether the agent's command waits for comments now: a comment's words say where it goes.
-    this.isWatched = false;
+    // When a comment made now reaches the agent (goesWords()): a comment's words say so.
+    this.delivery = 'message';
     // The one the comments go to and the answers come from, by name: Claude or Codex.
     this.agent = 'Claude';
     this.bars = [];
@@ -357,7 +360,7 @@ export class DiffView {
   // them what was said, in a zone. A poll that found nothing new leaves them alone.
   mark(threads) {
     const model = this.shown.getModel();
-    const drawing = JSON.stringify([threads, this.isWatched, this.agent, this.reply?.thread, this.currentThread, this.openable?.()]);
+    const drawing = JSON.stringify([threads, this.delivery, this.agent, this.reply?.thread, this.currentThread, this.openable?.()]);
     if (!model || drawing === this.threadsDrawn) {
       return;
     }
@@ -509,7 +512,7 @@ export class DiffView {
       }
     });
     const last = thread.entries.at(-1);
-    const awaited = awaitedWords(this.agent)[last.state];
+    const awaited = awaitedWords(this.agent, this.delivery)[last.state];
     if (last.by === 'user' && awaited) {
       const row = box.appendChild(document.createElement('div'));
       row.className = `entry claude awaited ${last.state}`;
@@ -542,7 +545,7 @@ export class DiffView {
           this.replyIn(null);
         }
       });
-      foot.append(goesWords(this.agent, this.isWatched), spring());
+      foot.append(goesWords(this.agent, this.delivery), spring());
       button(foot, 'Cancel', () => this.replyIn(null), 'quiet');
       button(foot, 'Add reply', send, 'main');
     } else if (thread.entries.some(entry => entry.state !== 'draft')) {
@@ -706,7 +709,7 @@ export class DiffView {
     input.placeholder = 'What should change here?';
     const foot = box.appendChild(document.createElement('div'));
     foot.className = 'foot';
-    foot.append(goesWords(this.agent, this.isWatched), spring());
+    foot.append(goesWords(this.agent, this.delivery), spring());
     const send = () => {
       if (input.value.trim()) {
         this.handlers.comment({

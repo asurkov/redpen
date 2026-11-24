@@ -54,8 +54,8 @@ const state = {
   comments: [],
   // The comments with what followed them, Claude's answers too: what the editor and the strip show.
   threads: [],
-  // Whether Claude's command waits for comments now.
-  isWatched: false,
+  // When a comment made now reaches Claude: 'now', 'turn' or 'message' (goesWords()).
+  delivery: 'message',
   // The one the review's comments go to and its answers come from, by name: Claude or Codex.
   agent: 'Claude',
   // The thread last stepped to, by its id.
@@ -345,8 +345,8 @@ async function refresh() {
   state.comments = listing.comments;
   state.threads = listing.threads;
   state.goneFolders = new Set((listing.goneFolders || []).map(path => `${path}/`));
-  state.isWatched = listing.isWatched;
-  diffView.isWatched = listing.isWatched;
+  state.delivery = listing.delivery;
+  diffView.delivery = listing.delivery;
   state.agent = listing.agent || 'Claude';
   diffView.agent = state.agent;
   byId('describeButton').title = `Ask ${state.agent} to describe the changes`;
@@ -1578,12 +1578,13 @@ function threadBox(thread, writing, on) {
     row.appendChild(marked(entry.text));
   }
   const last = thread?.entries.at(-1);
-  if (last?.by === 'user' && awaitedWords(state.agent)[last.state]) {
+  const awaited = awaitedWords(state.agent, state.delivery)[last?.state];
+  if (last?.by === 'user' && awaited) {
     const row = box.appendChild(document.createElement('div'));
     row.className = `entry claude awaited ${last.state}`;
     row.appendChild(document.createElement('div')).className = 'head';
     row.lastChild.appendChild(document.createElement('b')).textContent = state.agent;
-    row.appendChild(Object.assign(document.createElement('div'), { className: 'said', textContent: awaitedWords(state.agent)[last.state] }));
+    row.appendChild(Object.assign(document.createElement('div'), { className: 'said', textContent: awaited }));
   }
   const foot = document.createElement('div');
   foot.className = 'foot';
@@ -1602,7 +1603,7 @@ function threadBox(thread, writing, on) {
         cancel();
       }
     });
-    foot.append(goesWords(state.agent, state.isWatched), span('spring', ''));
+    foot.append(goesWords(state.agent, state.delivery), span('spring', ''));
     button(foot, 'Cancel', cancel, 'quiet');
     button(foot, thread ? 'Add reply' : 'Add comment', send, 'main');
     // Focused as it opens, and again when drawn anew while it has the keys.
@@ -1755,8 +1756,8 @@ function describe() {
 // The strip at the bottom: how many threads there are and how many of them wait for Claude; and,
 // opened, the threads of every file, each a way to its line.
 function drawWaiting() {
-  const { comments, threads, isWatched, agent } = state;
-  const drawing = JSON.stringify({ comments, threads, isWatched, agent });
+  const { comments, threads, delivery, agent } = state;
+  const drawing = JSON.stringify({ comments, threads, delivery, agent });
   if (drawing === drawn.waiting) {
     return;
   }
@@ -1766,7 +1767,8 @@ function drawWaiting() {
   const awaited = threads.filter(thread => thread.entries.at(-1).by === 'user').length;
   byId('waitingButton').hidden = !threads.length;
   byId('waitingButton').textContent = [counted(threads.length, 'thread'), awaited ? `${awaited} waiting for ${agent}` : '',
-    comments.length && !isWatched ? `${agent} takes them with your next message in the chat` : ''].filter(Boolean).join(' · ');
+    comments.length && delivery !== 'now' ? `${agent} takes them ${delivery === 'turn' ? 'when its turn ends' : 'with your next message in the chat'}` : '']
+    .filter(Boolean).join(' · ');
   byId('waitingList').replaceChildren(...threads.map(thread => {
     const row = document.createElement('li');
     const last = thread.entries.at(-1);

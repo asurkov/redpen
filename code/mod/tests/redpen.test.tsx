@@ -33,7 +33,7 @@ const bandSite = {
 // are the record's after/<key> marks, by path, with when each was written; `surfaces`, where the session draws.
 type Hashes = { base: string; now: string; after: string; taken?: string }
 function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boolean; isGenerated?: boolean; numstat: string; hashes?: Hashes }[]) {
-  const disk = new Set<string>()
+  const disk = new Set<string>([record])
   const entries = new Map<string, string>()
   const counts = new Map<string, string>()
   const hashOf = new Map<string, string>()
@@ -58,8 +58,10 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
   const surfaces: ('terminal' | 'desktop')[] = ['desktop']
   // What review.py --ask-overview prints (the question for an overview, or nothing); the questions the mod asked
   // a fork of the session, and the fork's replies, in turn; what review.py --outline was given, and its
-  // refusals, in turn; and the files' times, by path, for those a test rewrites.
+  // refusals, in turn; how many comments review.py --count-comments says wait; and the files' times, by
+  // path, for those a test rewrites.
   const asking = { text: '' }
+  const waiting = { count: 0 }
   const forked: string[] = []
   const replies: string[] = []
   const outlines: string[] = []
@@ -111,6 +113,7 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
       return done(0, edited.filter(file => file.isGenerated && asked.includes(file.path)).map(file => `${file.path}\n`).join(''))
     }
     if (e.argv[2] === '--ask-overview') return done(0, asking.text)
+    if (e.argv[2] === '--count-comments') return done(0, `${waiting.count}\n`)
     if (e.argv[2] === '--outline') {
       outlines.push(e.init?.stdin ?? '')
       const refusal = refusals.shift()
@@ -120,14 +123,21 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
     return done(0)
   })
   // Writes the record's overview, as review.py --outline does, and the page's comments waiting for the
-  // next message, as the page's server does.
+  // next message, as the page's server does; and marks the last of them, which count more comments
+  // waiting, as the server does when no command of Claude's waits.
   const written = (place: string, data: unknown) => {
     entries.set(place, JSON.stringify(data))
     times.set(place, (times.get(place) ?? 1) + 1)
   }
   const writeOverview = (data: unknown) => written(`${record}/review/outline.json`, data)
   const writeComments = (data: unknown) => written(`${record}/review/comments.json`, data)
-  return { ran, opened, marks, surfaces, clock, asking, forked, replies, outlines, refusals, writeOverview, writeComments, repos }
+  const markComments = (count: number) => {
+    waiting.count = count
+    written(`${record}/review/unwatched-comment`, 'time')
+  }
+  const watcher = () => entries.get(`${record}/review/mod-watcher`)
+  return { ran, opened, marks, surfaces, clock, asking, forked, replies, outlines, refusals, writeOverview, writeComments,
+    markComments, watcher, repos }
 }
 
 test('the pane lists the edited files with their counts', async ($, on) => {
@@ -172,6 +182,44 @@ test("the page's Describe, waiting for the next message, is answered by a fork a
   // Read again only once the file changes: no second ask meanwhile.
   await clock.advance(1500)
   expect(forked.length).toBe(1)
+})
+
+test("a comment no command waits for reaches the idle session by the mod's prompt, a busy one's as its turn ends", async ($, on) => {
+  const { clock, markComments, watcher } = session(on, [{ path: file, numstat: '2\t1' }])
+  const submitted: string[] = []
+  on('prompt.submit', (_, e) => {
+    submitted.push(e.text)
+    return { text: e.text }
+  })
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  // Marked before this start: it goes with the next message, as it would have.
+  markComments(1)
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
+  await clock.advance(1500)
+  expect([submitted, watcher()]).toEqual([[], 'idle'])
+  // Idle: sent on at the next beat, once.
+  markComments(1)
+  await clock.advance(1500)
+  await clock.settle()
+  expect(submitted).toEqual(['1 new comment on the review page.'])
+  await clock.advance(1500)
+  expect(submitted.length).toBe(1)
+  // A turn runs: the page says so, and the comments wait for its end.
+  await $.turn.start({ text: '', turnId: 't1' })
+  markComments(2)
+  await clock.advance(1500)
+  expect([submitted.length, watcher()]).toEqual([1, 'busy'])
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
+  await clock.advance(1500)
+  await clock.settle()
+  expect([submitted.at(-1), watcher()]).toEqual(['2 new comments on the review page.', 'idle'])
+  // A subagent's turn is no turn of the session's; comments a typed message took meanwhile send nothing.
+  await $.turn.start({ text: '', turnId: 't2', agentId: 'a1' })
+  markComments(0)
+  await clock.advance(1500)
+  await clock.settle()
+  expect([submitted.length, watcher()]).toEqual([2, 'idle'])
 })
 
 test("a file someone else changed since all of the session's changes to it were accepted is not counted", async ($, on) => {

@@ -48,8 +48,10 @@ It waits on the session's page and on the git reviews made from the session, tho
 waits too. It prints the comments as they are made and ends; those made between one wait and the next
 are printed by the next as it starts. When it ends with comments, start it again at once, then answer
 or act on each. A comment reaches you once: from this command, or from the `UserPromptSubmit` hook with
-the user's next message. While a git review of the session's has no command waiting, the hook says so
-with the prompt: start the command then.
+the user's next message, or, in Claude Code with redpen's mod, with the redpen plugin's own message
+("2 new comments on the review page."), which the mod sends while you are idle or as your turn ends:
+answer those the same way. While a git review of the session's has no command waiting and no mod sends
+its comments on, the hook says so with the prompt: start the command then.
 
 Each comment names its file and lines and quotes them as the user saw them, and carries its id; one on
 "the whole file" quotes nothing. A comment "of the accepted text" or "of the file as it was before your

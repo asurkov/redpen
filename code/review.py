@@ -17,6 +17,9 @@ Usage: review.py [--session ID] [--port N]   start the server unless it runs; pr
                                              it leaves out
        review.py --prompt-hook               UserPromptSubmit hook: hands the session's comments to
                                              the model, those no waiting command took
+       review.py --count-comments            print how many comments of the session's and its git
+                                             reviews' pages wait for the hook: the Claude Code mod's
+                                             prompt sends them on
 
 The server is redpen's (../base/server.py): it has the pages under /code/, lists the sessions in its
 index, and runs this file as it is on disk at each request.
@@ -34,6 +37,12 @@ measured from. Beside them, in the record's review/ folder, the page keeps:
   sent.jsonl        the batches of comments sent, one per line: by the page as each is made, while
                     the command Claude keeps waiting (--wait) runs; by that command as it starts;
                     or else by the hook, with the session's next message
+  unwatched-comment the time of the last comment made while no command waited, for one of this
+                    session's pages or a git review's it made: the Claude Code mod's mark to send
+                    the comments on with a prompt of its own
+  mod-watcher       'idle' or 'busy', rewritten every 1.5 s by the session's Claude Code mod while
+                    it runs: whether a comment made now reaches the session at once or as its
+                    turn ends
   handed.jsonl      which of them Claude was handed, and how (see ../base/channel.py)
   answers.jsonl     Claude's answers, each naming the comment it is under, and the threads the user
                     resolved, one per line
@@ -803,8 +812,8 @@ class Review:
                 # edits last changed the work, which may make it old.
                 'outline': {'signature': signature(self.folder / 'outline.json'), 'asked': self.asked_state(),
                             'edited': self.edited()},
-                # Whether Claude's command waits for comments now, and how many sent ones nobody took.
-                'isWatched': channel.watching(self.sent) == 'wait',
+                # When a comment made now reaches Claude (delivery()), and how many sent ones nobody took.
+                'delivery': self.delivery(),
                 # Whether a git review's files are still being found.
                 'isScanning': self.session in scans,
                 # The last move of a git review to another base commit: {from, to, time}.
@@ -1248,7 +1257,7 @@ class Review:
 
     def kept_comment(self, comment, body):
         """Keeps a comment to be sent, in the thread it replies in if any; sends it at once while
-        Claude's command waits."""
+        Claude's command waits, else marks it for the Claude Code mod of the session it reaches."""
         if body.get('thread'):
             if not any(thread['id'] == body['thread'] for thread in self.threads()):
                 raise Refusal(404, 'No such thread.')
@@ -1260,7 +1269,22 @@ class Review:
             # Claude's command waits for comments now: this one is sent, with any made before it.
             if channel.watching(self.sent) == 'wait':
                 self.post(channel)
+            elif re.fullmatch(r'[\w-]+', self.reached_session()):
+                write_atomic(store / self.reached_session() / 'review' / 'unwatched-comment', now().encode())
         return comment
+
+    def reached_session(self):
+        """The session the review's comments reach: its own, or a git review's, the one that ran
+        --git last ('' where none did)."""
+        return self.git.get('owner') or '' if self.git else self.session
+
+    def delivery(self):
+        """When a comment made now reaches Claude: 'now', taken by its waiting command (--wait) or sent
+        on by the Claude Code mod of its idle session; 'turn', by that mod once the session's turn
+        ends; 'message', with the user's next message there."""
+        if shared('channel').watching(self.sent) == 'wait':
+            return 'now'
+        return {'idle': 'now', 'busy': 'turn'}.get(mod_state(self.reached_session()), 'message')
 
     def uncomment(self, comment_id):
         with shared('channel').locked(self.sent):
@@ -1842,12 +1866,46 @@ def prompt_hook():
         print(f'redpen review hook: {e!r}', file=sys.stderr)
 
 
+def count_comments(session):
+    """Prints how many comments of the session's page and of its git reviews' wait for the prompt hook:
+    made while no command of the session's waited, and handed to nobody yet. The Claude Code mod's
+    prompt says so, and the hook hands them over with it. An ask for an overview is no comment: the
+    mod asks a fork for it."""
+    channel = shared('channel')
+    count = 0
+    for name in [session] + owned(session) if re.fullmatch(r'[\w-]+', session or '') else []:
+        folder = store / name / 'review'
+        if not folder.is_dir() or channel.watching(folder / 'sent.jsonl') == 'wait':
+            continue
+        told = (read_json(folder / 'comments.json', []) +
+                [comment for ask in channel.waiting(folder / 'sent.jsonl') for comment in ask.get('comments') or []])
+        count += sum(1 for comment in told if isinstance(comment, dict) and not comment.get('describe'))
+    print(count)
+
+
+def mod_state(session):
+    """What the session's Claude Code mod says of it while the mod runs (review/mod-watcher, rewritten
+    every 1.5 s): 'idle', a comment made now reaches the session at once, by a prompt of the mod's;
+    'busy', once its turn ends. None where no mod runs: a closed session, Codex, no mod."""
+    if not re.fullmatch(r'[\w-]+', session or ''):
+        return None
+    watcher = store / session / 'review' / 'mod-watcher'
+    try:
+        if time.time() - watcher.stat().st_mtime >= shared('channel').fresh_seconds:
+            return None
+        state = watcher.read_text().strip()
+    except OSError:
+        return None
+    return state if state in ('idle', 'busy') else None
+
+
 def unwaited_reviews(session):
     """What tells the model to start its waiting command: said while a git review of the session's
-    that something was done in lately has no command waiting for its comments."""
+    that something was done in lately has no command waiting for its comments, and no Claude Code mod
+    sends them on."""
     channel = shared('channel')
     titles = []
-    for name in owned(session):
+    for name in owned(session) if not mod_state(session) else []:
         folder = store / name / 'review'
         marks = [store / name / 'git.json', folder / 'journal.json', folder / 'comments.json',
                  folder / 'sent.jsonl', folder / 'answers.jsonl']
@@ -2670,6 +2728,7 @@ def main():
     parser.add_argument('--port', type=int)
     parser.add_argument('--prompt-hook', action='store_true')
     parser.add_argument('--wait', action='store_true')
+    parser.add_argument('--count-comments', action='store_true')
     parser.add_argument('--answer', metavar='ID')
     parser.add_argument('--outline', nargs='?', const='', metavar='REVIEW')
     parser.add_argument('--generated', nargs='+', metavar='PATH')
@@ -2689,6 +2748,8 @@ def main():
         return prompt_hook()
     if args.wait:
         return wait(args.session)
+    if args.count_comments:
+        return count_comments(args.session)
     if args.answer:
         return answer(args.session, args.answer, args.change)
     if args.outline is not None:

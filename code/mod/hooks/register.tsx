@@ -185,6 +185,37 @@ function scan($: EngineInterface, force = false): Promise<void> {
   return scanning
 }
 
+// Comments made on the review page while no command of Claude's waits for them (review.py --wait) reach
+// the session without a message of yours: review.py marks the last one in the record's
+// review/unwatched-comment, and while the session is idle, or a beat after its turn ends, the mod submits a
+// prompt that says how many; review.py's prompt hook hands them over with it, as with a message you type.
+// Each beat, review/mod-watcher says the mod runs and whether a turn does: the page says where a comment
+// goes by it. Whether the main loop runs a turn, or the mod is sending; the mark as last sent on.
+let isBusy = false
+let isSending = false
+let sentMark = ''
+
+async function beat($: EngineInterface) {
+  const { record, home } = await places($)
+  if (!(await $.fs.exists(record))) return
+  await $.fs.write(`${record}/review/mod-watcher`, isBusy || isSending ? 'busy' : 'idle')
+  const mark = await signatureOf($, `${record}/review/unwatched-comment`)
+  if (isBusy || isSending || mark === sentMark) return
+  sentMark = mark
+  isSending = true
+  try {
+    const ran = await $.process.run(['python3', `${home}/.claude/skills/redpen/code/review.py`, '--count-comments',
+      '--session', await $.session.id()]).catch(() => undefined)
+    // None, when a message typed meanwhile took them.
+    const count = Number(ran?.stdout.trim()) || 0
+    if (!count) return
+    const sent = await $.prompt.submit({ text: `${count} new comment${count === 1 ? '' : 's'} on the review page.` })
+    if (sent.drop !== undefined) $.ui.toast(`redpen: the comments go with your next message (${sent.drop})`)
+  } finally {
+    isSending = false
+  }
+}
+
 // The desktop's Browser pane and the view of its side panes, as /mcp lists them.
 const browserServer = 'Claude Browser'
 const viewServer = 'ccd_view'
@@ -399,6 +430,9 @@ export const register: Register = on => {
       await update($, lookedMarks, () => now)
     }
     $.clock.every(1500, () => void scan($))
+    // Comments left waiting before this start go with the next message, as they would have.
+    sentMark = await signatureOf($, `${(await places($)).record}/review/unwatched-comment`)
+    $.clock.every(1500, () => void beat($).catch(() => undefined))
     return started
   })
 
@@ -410,9 +444,11 @@ export const register: Register = on => {
 
   // A turn of the session's own that edited the work's files opens the review as it ends, as Open
   // review does, unless the turn showed something in the Browser pane itself; an interrupted one,
-  // or one that failed, leaves it to the row above the prompt.
+  // or one that failed, leaves it to the row above the prompt. While the main loop's turn runs, comments
+  // made on the page wait for its end (beat()).
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
+      isBusy = true
       marksAtStart = await editMarks($)
       isBrowserUsed = false
     }
@@ -426,6 +462,7 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     const ended = await next(e)
+    if (e.agentId === undefined) isBusy = false
     const before = e.agentId === undefined ? marksAtStart : undefined
     if (!before) return ended
     marksAtStart = undefined
