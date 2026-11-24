@@ -23,7 +23,7 @@ review = load('review')
 recorder = load('recorder')
 # The repositories are made under the scratch home: the work's files, not Claude's own or temporary
 # ones, as they would be under the system's temporary folder.
-review.other_roots = (f'{home}/.claude/',)
+review.other_roots = review.agent_homes
 # A file Reject takes away goes, not to the user's Trash.
 review.trash_command = ['/bin/rm', '-f']
 

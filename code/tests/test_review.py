@@ -637,5 +637,16 @@ class CommentDelivery(unittest.TestCase):
         self.assertEqual(self.counted(), 0)
 
 
+class AgentFiles(unittest.TestCase):
+    def test_codexs_own_files_stand_apart_unless_kept_in_a_repository(self):
+        codex = scratch.home / '.codex'
+        skill = codex / 'skills' / 'mine'
+        skill.mkdir(parents=True, exist_ok=True)
+        git(skill, 'init', '-q')
+        self.assertTrue(review.is_other(f'{codex}/config.toml'))
+        self.assertFalse(review.is_other(f'{skill}/SKILL.md'))
+        self.assertTrue(review.is_other(f'{scratch.home}/.claude/settings.json'))
+
+
 if __name__ == '__main__':
     unittest.main()

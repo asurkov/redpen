@@ -1403,7 +1403,7 @@ function drawList() {
     fold.className = 'others';
     fold.open = state.areOthersOpen || others.some(file => file.key === state.key);
     fold.addEventListener('toggle', () => (state.areOthersOpen = fold.open));
-    fold.appendChild(document.createElement('summary')).textContent = `${others.length} other: Claude's own and temporary`;
+    fold.appendChild(document.createElement('summary')).textContent = `${others.length} other: ${state.agent}'s own and temporary`;
     // Their folders from the top, as they are far from the work's.
     const fromTop = treeOf(others, '/');
     fold.append(...rowsOf({ ...fromTop, folders: fromTop.folders.map(folder => ({ ...folder, name: `/${folder.name}` })) }, 0));

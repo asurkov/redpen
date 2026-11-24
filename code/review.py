@@ -78,9 +78,10 @@ home = pathlib.Path.home()
 store = home / '.redpen/code'
 history = home / '.claude/file-history'
 here = pathlib.Path(__file__).resolve().parent
-# Files under these are Claude's own and temporary ones, not the work's: the page lists them apart;
-# ~/.claude first, as is_other() makes an exception there.
-other_roots = (f'{home}/.claude/', '/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/',
+# The agents' own folders, Claude Code's and Codex's: their settings, skills, sessions and memory.
+agent_homes = (f'{home}/.claude/', f"{(os.environ.get('CODEX_HOME') or f'{home}/.codex').rstrip('/')}/")
+# Files under these are the agents' own and temporary ones, not the work's: the page lists them apart.
+other_roots = (*agent_homes, '/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/',
                f'{home}/Library/Application Support/Claude/')
 # A text past this is not sent to the page.
 shown_bytes = 16 << 20
@@ -2202,11 +2203,12 @@ def unchanged_text(top, path):
 
 
 def is_other(path):
-    """Whether the file is Claude's own or a temporary one, not the work's. One under ~/.claude in a
-    git work tree of its own, a skill kept in its repository say, is the work's."""
-    if path.startswith(other_roots[0]) and repository_top(os.path.dirname(path)):
+    """Whether the file is an agent's own (Claude Code's, Codex's) or a temporary one, not the work's.
+    One under an agent's folder in a git work tree of its own, a skill kept in its repository say, is
+    the work's."""
+    if path.startswith(agent_homes) and repository_top(os.path.dirname(path)):
         return False
-    return any(path.startswith(root) for root in other_roots)
+    return path.startswith(other_roots)
 
 
 def git_info(record):

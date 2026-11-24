@@ -269,16 +269,18 @@ test("Claude's own files and the temporary ones stay folded until asked for", as
   await ui.unmount()
 })
 
-test("a skill kept in its own repository is the work's; the desktop app's side-session notes are Claude's own", async ($, on) => {
+test("a skill kept in its own repository is the work's; side-session notes and Codex's folder are the agents' own", async ($, on) => {
   const skill = '/h/.claude/skills/redpen/code/review.py'
   const notes = '/h/Library/Application Support/Claude/side-session-notes/local_1/plan.md'
-  const { repos } = session(on, [skill, notes].map(path => ({ path, numstat: '2\t1' })))
+  const codex = '/h/.codex/config.toml'
+  const { repos } = session(on, [skill, notes, codex].map(path => ({ path, numstat: '2\t1' })))
   repos.add('/h/.claude/skills/redpen/code')
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...paneSite, surface: 'desktop' })
   expect((await ui.find({ type: 'Text', text: /files changed/ }))?.text).toBe('1 of 1 files changed')
   expect(await ui.find({ key: `file:${skill}` })).toBeDefined()
   expect(await ui.find({ key: `file:${notes}` })).toBeUndefined()
+  expect(await ui.find({ key: `file:${codex}` })).toBeUndefined()
   await ui.unmount()
 })
 

@@ -322,9 +322,10 @@ line, `redpen · <what is new> +N · Review ×`, leaving the side of the window 
 what the session edited since you last looked (you look by closing the row or opening the review from it
 or the pane): the overview's item that covers the newest edit, where the overview was written after it,
 else that file's name, and +N the new files it leaves out; with nothing new, the count of the files
-changed. Only that title gives way, cut at its end. Claude's own and temporary files (under `~/.claude`,
-unless in a git work tree of their own, as a skill kept in its repository; the desktop app's
-side-session notes; `/tmp`), and generated ones, are not counted. **×** closes the row until the session edits a file of the work again: its recorder's
+changed. Only that title gives way, cut at its end. The agents' own and temporary files (under
+`~/.claude` and Codex's `~/.codex` (or `$CODEX_HOME`), unless in a git work tree of their own, as a
+skill kept in its repository; the desktop app's side-session notes; `/tmp`), and generated ones, are
+not counted; the page folds them apart, as "Claude's own" or "Codex's own" by the session's agent. **×** closes the row until the session edits a file of the work again: its recorder's
 `after/` mark of the file rewritten. What the session edited before it started (a resume) is not new.
 
 Opening the review yourself (from the row or the pane), and the end of a turn that edited the work (below), asks
