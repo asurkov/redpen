@@ -439,5 +439,61 @@ class Overview(unittest.TestCase):
         self.assertEqual(refused.exception.status, 409)
 
 
+class SessionOverview(unittest.TestCase):
+    """The overview of a session's review against the session's edits since: one they made old is not
+    shown, and the next turn's end asks for one anew."""
+
+    def setUp(self):
+        self.top, self.who = repo({'a.py': 'a1\na2\n', 'b.py': 'b1\n'}), scratch.session()
+        self.edit('a.py', 'A1\na2\n')
+        self.edit('b.py', 'B1\n')
+        self.rv = review.Review(self.who)
+
+    def edit(self, name, text):
+        scratch.hook('pre', self.who, self.top, 'Edit', {'file_path': str(self.top / name)})
+        write(self.top, {name: text})
+        scratch.hook('post', self.who, self.top, 'Edit', {'file_path': str(self.top / name)})
+
+    def outline(self):
+        # Blocks on the whole files: every change to them counts as covered.
+        return self.rv.set_outline({'items': [{'title': 'both', 'blocks': [
+            {'path': f'{self.top}/a.py'}, {'path': f'{self.top}/b.py'}]}]})
+
+    def test_an_overview_the_sessions_edits_made_old_is_not_shown_and_asked_for_anew(self):
+        self.assertFalse(self.outline()['isOld'])
+        self.assertFalse(self.rv.needs_overview())
+        self.edit('a.py', 'A1\nA2\n')
+        shown = self.rv.outline_shown()
+        self.assertEqual((shown['isOld'], shown['items']), (True, []))
+        self.assertTrue(self.rv.needs_overview())
+        # Asked anew, naming the old one's items; its answer is shown.
+        self.assertIn('"both"', self.rv.describe_by_fork())
+        self.assertFalse(self.outline()['isOld'])
+
+    def test_the_reviews_reject_and_a_commit_leave_it_current(self):
+        self.outline()
+        key = listed(self.rv)['b.py']['key']
+        self.rv.apply(key, 'reject', None, scratch.expected(self.rv, key, 'reject'))
+        self.assertEqual((self.top / 'b.py').read_text(), 'b1\n')
+        scratch.shell(self.who, self.top, 'git commit -qam a.py')
+        shown = self.rv.outline_shown()
+        self.assertEqual((shown['isOld'], len(shown['items'])), (False, 1))
+
+    def test_an_edit_while_the_fork_writes_makes_its_overview_old(self):
+        self.rv.describe_by_fork()
+        self.edit('a.py', 'A1\nA2\n')
+        self.assertTrue(self.outline()['isOld'])
+        self.assertTrue(self.rv.needs_overview())
+
+    def test_one_kept_before_edited_was_is_old_by_the_times_of_the_edits(self):
+        place = self.rv.folder / 'outline.json'
+        self.outline()
+        kept = json.loads(place.read_text())
+        del kept['edited']
+        for when, is_old in (('2000-01-01T00:00:00.000+00:00', True), ('2999-01-01T00:00:00.000+00:00', False)):
+            place.write_text(json.dumps({**kept, 'time': when}))
+            self.assertEqual(self.rv.outline_shown()['isOld'], is_old)
+
+
 if __name__ == '__main__':
     unittest.main()

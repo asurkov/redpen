@@ -39,7 +39,9 @@ measured from. Beside them, in the record's review/ folder, the page keeps:
                     resolved, one per line
   outline.json      the overview Claude wrote when asked (an ask among the comments, {describe}):
                     items by purpose, each with the blocks of lines it is made of, each block with
-                    those lines as they were, to find them again
+                    those lines as they were, to find them again; and the record's edited as it was
+                    when asked, so an overview the session's edits since made old is not shown
+  asked-edited      the record's edited when a fork was asked for an overview, till it answers
 
 So a file has three texts: orig, base and disk (the file itself). Pending changes are base → disk:
 Accept moves one into base, Reject writes base's lines back into the file. Accepted changes are
@@ -793,8 +795,10 @@ class Review:
                 'goneFolders': sorted(gone_folders),
                 'comments': [comment for comment in self.comments() if not comment.get('describe')],
                 'threads': self.threads(),
-                # The overview kept, by its file's signature, and where an ask for one is.
-                'outline': {'signature': signature(self.folder / 'outline.json'), 'asked': self.asked_state()},
+                # The overview kept, by its file's signature, where an ask for one is, and when the session's
+                # edits last changed the work, which may make it old.
+                'outline': {'signature': signature(self.folder / 'outline.json'), 'asked': self.asked_state(),
+                            'edited': self.edited()},
                 # Whether Claude's command waits for comments now, and how many sent ones nobody took.
                 'isWatched': channel.watching(self.sent) == 'wait',
                 # Whether a git review's files are still being found.
@@ -1339,7 +1343,25 @@ class Review:
         shown = self.outline_shown()
         if shown['time'] is None:
             return any(file['all'] and not file['isOther'] and not file['isGenerated'] for file in self.listing()['files'])
-        return bool(shown['uncovered'])
+        return shown['isOld'] or bool(shown['uncovered'])
+
+    def edited(self):
+        """When the session's own edits last changed its work, as the recorder keeps it; '' before any."""
+        return (read_bytes(self.record / 'edited') or b'').decode()
+
+    def is_outline_old(self, outline):
+        """Whether the session's edits changed its work since the overview was asked for: the record's
+        edited is not the one kept with it. One kept before edited was: by the times of the session's
+        edits (after/), which the review's Reject moves too. A git review's never is."""
+        if self.git:
+            return False
+        if 'edited' in outline:
+            return outline['edited'] != self.edited()
+        try:
+            written = datetime.datetime.fromisoformat(str(outline.get('time'))).timestamp()
+        except ValueError:
+            return False
+        return any(after.stat().st_mtime > written for after in (self.record / 'after').glob('*'))
 
     def describe_by_fork(self):
         """Asks for the overview by a question over the session's own conversation, which the Claude Code
@@ -1357,6 +1379,8 @@ class Review:
                              json.dumps([comment for comment in comments if not comment.get('describe')], indent=1).encode())
             ask = channel.append(self.sent, {'comments': drafted or [{'id': f'{time.time_ns():x}', 'time': now(), 'describe': True}]})
             channel.mark(self.sent, [ask], 'fork')
+            # The work the fork describes: an edit of the session's while it writes makes its overview old.
+            write_atomic(self.folder / 'asked-edited', self.edited().encode())
         outline = read_json(self.folder / 'outline.json', {})
         titles = [item.get('title') for item in outline.get('items') or []] if isinstance(outline, dict) else []
         changes = f"the changes in {self.git['repo']} against {self.git['spec']}" if self.git else 'your changes'
@@ -1370,6 +1394,7 @@ class Review:
                 if isinstance(comment, dict) and comment.get('describe')]
         if asks:
             channel.add_line(self.folder / 'handed.jsonl', {'ask': asks[-1].get('id'), 'time': channel.stamp(), 'dropped': True})
+        (self.folder / 'asked-edited').unlink(missing_ok=True)
 
     def changes_shown(self):
         """The work's changes as a model with no tools reads them: by file, each changed stretch with the
@@ -1505,7 +1530,13 @@ class Review:
             raise Refusal(400, 'The overview was not kept:\n' + '\n'.join(problems))
         channel = shared('channel')
         with channel.locked(self.sent):
-            write_atomic(self.folder / 'outline.json', json.dumps({'time': now(), 'items': kept_items}, indent=1).encode())
+            # The work as it was when the fork was asked, else as it is.
+            asked_edited = self.folder / 'asked-edited'
+            edited = read_bytes(asked_edited)
+            write_atomic(self.folder / 'outline.json', json.dumps({
+                'time': now(), 'edited': self.edited() if edited is None else edited.decode(), 'items': kept_items,
+            }, indent=1).encode())
+            asked_edited.unlink(missing_ok=True)
             # An ask for it still waiting is answered: it goes, and is not told again.
             left = [comment for comment in self.comments() if not comment.get('describe')]
             if len(left) != len(self.comments()):
@@ -1519,11 +1550,14 @@ class Review:
     def outline_shown(self):
         """The overview as the page shows it: each block where its lines are now and what is left of
         it to review ('pending', 'accepted', 'unchanged', 'stale': its lines are gone), each item's
-        pending blocks counted; the changes no block touches; and where an ask for it is."""
-        shown = {'asked': self.asked_state(), 'time': None, 'items': [], 'uncovered': []}
+        pending blocks counted; the changes no block touches; and where an ask for it is. One the session's
+        edits made old has no items: it would pass for one of the changes since (isOld)."""
+        shown = {'asked': self.asked_state(), 'time': None, 'isOld': False, 'items': [], 'uncovered': []}
         outline = read_json(self.folder / 'outline.json', None)
         if not isinstance(outline, dict):
             return shown
+        if self.is_outline_old(outline):
+            return {**shown, 'time': outline.get('time'), 'isOld': True}
         listed = {file['key']: file for file in self.listing()['files']}
         # A moved file's blocks may name its old place: they are the file's at its new one.
         owner = {key(file['movedFrom']): file['key'] for file in listed.values() if file.get('movedFrom')}
@@ -1881,6 +1915,10 @@ def outline(name):
         shown = Review(name).set_outline(data)
     except Refusal as e:
         sys.exit(str(e))
+    if shown['isOld']:
+        print(f'The overview is kept, but the page of {name} does not show it: the session edited its files since it '
+              'was asked for. The end of the turn asks for one anew.')
+        return
     blocks = sum(len(item['blocks']) for item in shown['items'])
     print(f"The overview is on the page of {name}: {len(shown['items'])} items, {blocks} blocks.")
     if shown['uncovered']:

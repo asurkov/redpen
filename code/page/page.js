@@ -1474,10 +1474,16 @@ function renderOverview() {
   if (askedState) {
     parts.push(Object.assign(document.createElement('p'), { className: 'asked', textContent: askedWords[askedState] }));
   }
+  // One written before the session's latest edits is not shown: it would pass for one of them.
   if (!items.length && !askedState) {
+    const time = new Date(state.outline.time);
+    const day = time.toDateString() === new Date().toDateString() ? {} : { month: 'short', day: 'numeric' };
+    const written = state.outline.isOld && time.toLocaleString([], { ...day, hour: '2-digit', minute: '2-digit' });
     parts.push(Object.assign(document.createElement('p'), {
       className: 'none',
-      textContent: 'No overview yet. Describe asks Claude for one: the changes by purpose, each part a way to its code.',
+      textContent: written
+        ? `The overview written at ${written} came before the session's latest edits. The end of its turn asks Claude for one anew; Describe asks now.`
+        : 'No overview yet. Describe asks Claude for one: the changes by purpose, each part a way to its code.',
     }));
   }
   let at = 0;

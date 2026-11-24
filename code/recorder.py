@@ -17,6 +17,8 @@ the hook's JSON on stdin. Each session's record is in ~/.redpen/code/<session>/:
                     it: a file that differs was changed since by someone or something else
   outside/<key>     there when the file was changed so before one of the session's edits: its diff
                     takes in changes not the session's
+  edited            when the session's own edits last changed its work (the review's Reject does
+                    not): an overview written before it is old
 
 <key> is the first 16 hex digits of the SHA-256 of the file's path, as in Claude Code's file history.
 pre keeps the file's text in pending/ the first time the session goes to edit the file, and post moves
@@ -166,10 +168,19 @@ def disk_text(path, is_link=False):
 
 def keep_after(session, path):
     """Keeps a hash of the file as the session's own edit left it: a file that differs from it was
-    changed since by someone or something else."""
+    changed since by someone or something else. A hash unlike the one kept is a change to the session's
+    work, and edited says when: an overview written before it is old."""
     entry = read_json(store / session / 'files' / f'{key(path)}.json')
     if entry is not None:
-        write_atomic(store / session / 'after' / key(path), sha(disk_text(path, entry.get('link'))).encode())
+        kept = store / session / 'after' / key(path)
+        hashed = sha(disk_text(path, entry.get('link'))).encode()
+        try:
+            was = kept.read_bytes()
+        except OSError:
+            was = None
+        if was != hashed:
+            write_atomic(store / session / 'edited', now().encode())
+        write_atomic(kept, hashed)
 
 
 def note_outside(session, path):

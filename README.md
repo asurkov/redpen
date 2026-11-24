@@ -140,7 +140,9 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   block on a whole file, or on a deleted one, takes the file whole; a moved file and a link are left
   to their own file bar). A block follows its lines when lines above them move, and is struck through
   as changed since when they are gone. **Not in the overview** lists the changes no block covers, so
-  nothing hides behind it. **Describe** asks Claude for the overview, or for a new one, the way a
+  nothing hides behind it. An overview of a session's review asked for before the session's latest
+  edits is not shown, as its items would pass for theirs: the drawer says when it was written, and the
+  end of the turn asks for one anew (the page's Reject and a commit leave it shown). **Describe** asks Claude for the overview, or for a new one, the way a
   comment goes: at once while the waiting command runs, else with the next message; but in a session
   with the Claude Code mod, the mod sees it waiting within two seconds and asks it of a fork of the
   session at once, as Review's own ask, nothing in the chat. **Comment** on an
@@ -308,7 +310,9 @@ are not counted. **×** closes the row until the session edits a file of the wor
 `after/` mark of the file rewritten. What the session edited before it started (a resume) is not new.
 
 Opening the review yourself (from the row or the pane), and the end of a turn that edited the work (below), asks
-Claude for an overview when the review has none yet or has changes no block of it covers: `review.py
+Claude for an overview when the review has none yet, has changes no block of it covers, or has one the
+session's edits made old since it was asked for (the recorder's `edited`, when they last changed the
+work, is not the one kept with it): `review.py
 --ask-overview` says whether one is needed, none while an ask waits (an ask Claude took 20 minutes ago
 with no overview written waits no more: its turn was cut short), and prints the question, logged as
 handed over: how to write it, the items written before, and the changes, each line numbered. The mod

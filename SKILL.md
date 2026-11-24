@@ -83,8 +83,9 @@ Items by purpose, in the order to read them; lines from 1 in the file as it is n
 file. The command keeps each block's lines to find them again, refuses a path the review does not have
 or lines its file does not have, saying which, and lists the changes no block covers: add each to an
 item, unless it needs no word. Leave out the files the project generates. Writing one answers the ask
-still waiting. The redpen plugin asks the same, when the user opens the review with changes no overview
-covers, of a fork of the session with no tools (`$.model.fork`): nothing shows in the chat, and the fork's
+still waiting. The page does not show an overview asked for before the session's latest edits. The
+redpen plugin asks the same, when the user opens the review and at the end of a turn that edited the
+work, with changes no overview covers or one older than those edits, of a fork of the session with no tools (`$.model.fork`): nothing shows in the chat, and the fork's
 answer, the JSON alone, goes to `--outline` by the plugin, not by you.
 
 ### A git review
