@@ -616,6 +616,17 @@ body.listHidden #splitter {
   opacity: 0.55;
 }
 
+/* With the focus outside the page, in the chat say, the keys do nothing: the bar says so instead. */
+body.unfocused .changeBar.current button[data-key]::after {
+  content: none;
+}
+
+body.unfocused .changeBar.current::after {
+  content: 'Click the page to use the keys';
+  color: var(--dim);
+  font-size: 11px;
+}
+
 .currentEdge {
   border-left: 2px solid var(--accent);
 }

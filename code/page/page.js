@@ -1925,6 +1925,11 @@ async function main() {
   byId('waitingButton').addEventListener('click', () => (byId('waitingList').hidden = !byId('waitingList').hidden));
   document.addEventListener('keydown', takeKey, true);
   document.addEventListener('pointerdown', () => (isFocusTabbed = false), true);
+  // Keys reach the page only while it has the focus, and the app leaves the focus in the chat when
+  // it opens the page; nor can the page take it. The current bar says so in the keys' place.
+  window.addEventListener('focus', () => document.body.classList.remove('unfocused'));
+  window.addEventListener('blur', () => document.body.classList.add('unfocused'));
+  document.body.classList.toggle('unfocused', !document.hasFocus());
   await queued(refresh);
   // A page loaded again goes back where it was, its link taken already; else a link into it opens
   // what it names.

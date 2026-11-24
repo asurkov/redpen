@@ -155,7 +155,8 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   and then goes on to the next change as `n` does, for a quick one: each press chooses, no mode and no
   key held. Reject has no key. Shift means nothing here: Shift+click extends a selection, as in any
   editor. A button or folder reached by Tab takes Space as its own press; one clicked leaves Space
-  to accept. With lines selected, `a`, Space and the Accept, ↓ and
+  to accept. The keys need the page to have the focus, which the app leaves in the chat when it opens
+  the page; till then the current bar says "Click the page to use the keys" in the keys' place. With lines selected, `a`, Space and the Accept, ↓ and
   Reject buttons at the selection, beside Comment, take only the selected lines of the
   changes, whole lines; removed lines go with the lines on both sides of them. While those buttons,
   or a comment box, are open, the bars of the changes they stand over are hidden, their room kept.
