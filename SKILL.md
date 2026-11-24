@@ -26,7 +26,10 @@ yourself, nor press `a`: those are the user's. `--session <id>` prints another s
 server's index, http://127.0.0.1:7878/, lists every review.
 
 The page shows what the session's Edit and Write calls changed, and what its shell commands changed in
-a git work tree; a git review (below) shows a work tree's every change, whoever made it.
+a git work tree of the files each names (by name anywhere in it, a script on its input too, by a glob,
+or, for an `rm` or `mv`, by a folder): a change a command does not name is not recorded, so name the
+files a script or a formatter writes, or use Edit. A git review (below) shows a work tree's every
+change, whoever made it.
 
 **Links into the page.** `<page URL>#<path>:<line>` opens the page at that file and line, in a view
 that has it (the path from the repository's top, or absolute; `:<line>` and a range's `-<line>` may be
@@ -85,7 +88,8 @@ or lines its file does not have, saying which, and lists the changes no block co
 item, unless it needs no word. Leave out the files the project generates. Writing one answers the ask
 still waiting. The page does not show an overview asked for before the session's latest edits. The
 redpen plugin asks the same, when the user opens the review and at the end of a turn that edited the
-work, with changes no overview covers or one older than those edits, of a fork of the session with no tools (`$.model.fork`): nothing shows in the chat, and the fork's
+work, with no overview or one older than those edits, of a fork of the session with no tools
+(`$.model.fork`): nothing shows in the chat, and the fork's
 answer, the JSON alone, goes to `--outline` by the plugin, not by you.
 
 ### A git review

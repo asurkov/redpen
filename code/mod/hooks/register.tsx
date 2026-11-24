@@ -108,6 +108,7 @@ async function scanOnce($: EngineInterface, force: boolean) {
     saved.push({ key, path: entry.saved.path, isNew: entry.saved.new })
   }
   await markGenerated($, saved.map(entry => entry.path)).catch(() => undefined)
+  await markClaudeRepos($, saved.map(entry => entry.path)).catch(() => undefined)
   for (const { key, path, isNew } of saved) {
     const signature = `${await signatureOf($, path)} ${await signatureOf($, `${record}/base/${key}`)}`
     const isGenerated = generatedVerdicts.get(path)?.isGenerated ?? false
@@ -301,10 +302,27 @@ async function showRedpen($: EngineInterface, surface: string, path?: string) {
   if (view?.isConnected) await $.mcp.call(view.server, 'show_pane', { pane: 'preview' }).catch(() => undefined)
 }
 
-// Claude's own files (its settings, skills, mods and memory) and temporary ones stand apart from the
-// work's: the pane folds them until asked for, and the row above the prompt leaves them out.
+// Claude's own files (its settings, skills, mods and memory, the desktop app's side-session notes) and
+// temporary ones stand apart from the work's: the pane folds them until asked for, and the row above the
+// prompt leaves them out. One under ~/.claude in a git work tree of its own, a skill kept in its
+// repository say, is the work's, as review.py's is_other() has it.
 const isOther = (file: EditedFile, home: string) =>
-  file.path.startsWith(`${home}/.claude/`) || /^\/(private\/)?(tmp|var\/folders)\//.test(file.path)
+  file.path.startsWith(`${home}/.claude/`) ? !claudeRepos.get(file.path.slice(0, file.path.lastIndexOf('/'))) :
+    file.path.startsWith(`${home}/Library/Application Support/Claude/`) || /^\/(private\/)?(tmp|var\/folders)\//.test(file.path)
+
+// Of the folders under ~/.claude the record's files are in, whether each is in a git work tree: asked
+// once each.
+const claudeRepos = new Map<string, boolean>()
+
+async function markClaudeRepos($: EngineInterface, paths: string[]) {
+  const { home } = await places($)
+  for (const path of paths) {
+    const folder = path.slice(0, path.lastIndexOf('/'))
+    if (!path.startsWith(`${home}/.claude/`) || claudeRepos.has(folder)) continue
+    const ran = await $.process.run(['git', '-C', folder, 'rev-parse', '--show-toplevel']).catch(() => undefined)
+    claudeRepos.set(folder, ran?.exitCode === 0)
+  }
+}
 
 // The work's files and those of them changed, as the pane's head and the row above the prompt count
 // them: not Claude's own, nor those the project generates.

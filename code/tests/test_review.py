@@ -142,6 +142,23 @@ class Commits(unittest.TestCase):
         rv.flip(entry['id'])
         self.assertEqual(rv.opened(listed(rv)['a.py']['key'])['texts']['base']['sha'], review.sha(b'a1\n'))
 
+    def test_files_committed_before_head_was_kept_are_settled_once(self):
+        top, who = repo({'a.py': 'a1\n', 'b.py': 'b1\n'}), scratch.session()
+        self.edit(top, who, 'a.py', 'a2\n')
+        self.edit(top, who, 'b.py', 'b2\n')
+        git(top, 'commit', '-qm', 'a2', 'a.py')
+        # A record kept before HEAD was: its HEAD seen first after the commit, nothing settled yet.
+        rv = review.Review(who)
+        (rv.folder / 'heads.json').write_text(json.dumps({str(top): git(top, 'rev-parse', 'HEAD').strip()}))
+        entry = rv.checkpoint()
+        self.assertEqual(entry['files'], 1)
+        self.assertIsNone(listed(rv)['a.py']['pending'])
+        self.assertEqual(counts(listed(rv)['b.py']), (1, 1))
+        # Once: undone, it stays undone.
+        rv.flip(entry['id'])
+        self.assertIsNone(rv.checkpoint())
+        self.assertEqual(counts(listed(rv)['a.py']), (1, 1))
+
     def test_a_commit_before_the_page_ever_looked_counts_too(self):
         top, who = repo({'a.py': 'a1\n'}), scratch.session()
         self.edit(top, who, 'a.py', 'a2\n')
@@ -469,6 +486,12 @@ class SessionOverview(unittest.TestCase):
         # Asked anew, naming the old one's items; its answer is shown.
         self.assertIn('"both"', self.rv.describe_by_fork())
         self.assertFalse(self.outline()['isOld'])
+
+    def test_a_change_its_writer_left_out_is_not_asked_for_again(self):
+        self.rv.set_outline({'items': [{'title': 'a', 'blocks': [{'path': f'{self.top}/a.py'}]}]})
+        shown = self.rv.outline_shown()
+        self.assertEqual([os.path.basename(change['path']) for change in shown['uncovered']], ['b.py'])
+        self.assertFalse(self.rv.needs_overview())
 
     def test_the_reviews_reject_and_a_commit_leave_it_current(self):
         self.outline()

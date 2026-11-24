@@ -46,8 +46,11 @@ first edit to it, which does not exist yet, and a way to hand the agent a commen
 ## The review page
 
 The page shows what the session's Edit and Write calls changed, and what its shell commands changed
-in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not outside one; a
-[git review](#a-git-review) shows a work tree's every change.
+in a git work tree (a `sed -i`, a script, an `rm` or `mv`), but not outside one: of a shell command,
+only the files it names, by name anywhere in it (in a script on its input too), by a glob, or, for an
+`rm` or `mv`, by a folder of theirs. A hook cannot tell who wrote a file, so a change the command does
+not name (a formatter's on `.`, a background job's, another session's, an editor's) is left out rather
+than guessed; a [git review](#a-git-review) shows a work tree's every change.
 
 - **Pending** is what is not accepted yet (accepted text → the file). **Accept** records a change as
   accepted and leaves the file alone. **Reject** writes the old lines back into the file on disk, right
@@ -67,7 +70,9 @@ in a git work tree (a `sed -i`, a script, a formatter, an `rm` or `mv`), but not
   gets a file there); where HEAD moved, each file of the record the new commits touched gets the
   committed text as its baseline. Any commit counts, whoever made it; the recorder asks the server to
   look right after a git command of the session's that moves HEAD, and the page looks as it reads its
-  list. A session's record is one, across all its commits.
+  list. A session's record is one, across all its commits. A file committed as it is before the review
+  kept HEAD (its text HEAD's, its baseline not) counts as accepted too, once, at the first look
+  (`review/settled` marks it done).
 - A file a subagent of the session edited (the Agent tool) says so in the list: "by Explore", its type.
   The record holds the session's own edits and its subagents', never another session's.
 - A file deleted is "gone", its name struck through in the removed lines' colour, in the list and
@@ -305,14 +310,16 @@ line, `redpen · <what is new> +N · Review ×`, leaving the side of the window 
 what the session edited since you last looked (you look by closing the row or opening the review from it
 or the pane): the overview's item that covers the newest edit, where the overview was written after it,
 else that file's name, and +N the new files it leaves out; with nothing new, the count of the files
-changed. Only that title gives way, cut at its end. Claude's own and temporary files, and generated ones,
-are not counted. **×** closes the row until the session edits a file of the work again: its recorder's
+changed. Only that title gives way, cut at its end. Claude's own and temporary files (under `~/.claude`,
+unless in a git work tree of their own, as a skill kept in its repository; the desktop app's
+side-session notes; `/tmp`), and generated ones, are not counted. **×** closes the row until the session edits a file of the work again: its recorder's
 `after/` mark of the file rewritten. What the session edited before it started (a resume) is not new.
 
 Opening the review yourself (from the row or the pane), and the end of a turn that edited the work (below), asks
-Claude for an overview when the review has none yet, has changes no block of it covers, or has one the
-session's edits made old since it was asked for (the recorder's `edited`, when they last changed the
-work, is not the one kept with it): `review.py
+Claude for an overview when the review has none yet, or has one the session's edits made old since it
+was asked for (the recorder's `edited`, when they last changed the work, is not the one kept with it);
+the changes its writer left out stay under **Not in the overview** and ask for nothing (an overview
+kept before `edited` was, and a git review's, are asked for anew while they leave changes out): `review.py
 --ask-overview` says whether one is needed, none while an ask waits (an ask Claude took 20 minutes ago
 with no overview written waits no more: its turn was cut short), and prints the question, logged as
 handed over: how to write it, the items written before, and the changes, each line numbered. The mod

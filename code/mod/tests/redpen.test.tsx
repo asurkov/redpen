@@ -37,6 +37,8 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
   const entries = new Map<string, string>()
   const counts = new Map<string, string>()
   const hashOf = new Map<string, string>()
+  // The folders git says are in a work tree; none unless a test adds them.
+  const repos = new Set<string>()
   edited.forEach(({ path, isNew = false, onDisk = true, numstat, hashes }, i) => {
     entries.set(`${record}/files/k${i}.json`, JSON.stringify({ path, new: isNew }))
     if (!isNew) disk.add(`${record}/base/k${i}`)
@@ -97,6 +99,7 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
     ran.push(e.argv.join(' '))
     const done = (exitCode: number, stdout = '') =>
       ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+    if (e.argv[0] === 'git' && e.argv[3] === 'rev-parse') return done(repos.has(e.argv[2] ?? '') ? 0 : 128)
     if (e.argv[0] === 'git') {
       const [before = '', after = ''] = e.argv.slice(-2)
       const numstat = counts.get(after) ?? counts.get(before) ?? ''
@@ -124,7 +127,7 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
   }
   const writeOverview = (data: unknown) => written(`${record}/review/outline.json`, data)
   const writeComments = (data: unknown) => written(`${record}/review/comments.json`, data)
-  return { ran, opened, marks, surfaces, clock, asking, forked, replies, outlines, refusals, writeOverview, writeComments }
+  return { ran, opened, marks, surfaces, clock, asking, forked, replies, outlines, refusals, writeOverview, writeComments, repos }
 }
 
 test('the pane lists the edited files with their counts', async ($, on) => {
@@ -215,6 +218,19 @@ test("Claude's own files and the temporary ones stay folded until asked for", as
   expect((await ui.find({ type: 'Text', text: /files changed/ }))?.text).toBe('1 of 1 files changed')
   expect((await ui.find({ key: `file:${own}` }))?.text).toBe('SKILL.md+2−1~/.claude/skills/review')
   expect(await ui.find({ key: `file:${temporary}` })).toBeDefined()
+  await ui.unmount()
+})
+
+test("a skill kept in its own repository is the work's; the desktop app's side-session notes are Claude's own", async ($, on) => {
+  const skill = '/h/.claude/skills/redpen/code/review.py'
+  const notes = '/h/Library/Application Support/Claude/side-session-notes/local_1/plan.md'
+  const { repos } = session(on, [skill, notes].map(path => ({ path, numstat: '2\t1' })))
+  repos.add('/h/.claude/skills/redpen/code')
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...paneSite, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /files changed/ }))?.text).toBe('1 of 1 files changed')
+  expect(await ui.find({ key: `file:${skill}` })).toBeDefined()
+  expect(await ui.find({ key: `file:${notes}` })).toBeUndefined()
   await ui.unmount()
 })
 

@@ -42,6 +42,9 @@ measured from. Beside them, in the record's review/ folder, the page keeps:
                     those lines as they were, to find them again; and the record's edited as it was
                     when asked, so an overview the session's edits since made old is not shown
   asked-edited      the record's edited when a fork was asked for an overview, till it answers
+  heads.json        the HEAD of each work tree of the record's files, as last seen: a commit since
+                    takes what it committed of the session's changes as accepted
+  settled           there once the files committed as they are before HEAD was kept were taken so
 
 So a file has three texts: orig, base and disk (the file itself). Pending changes are base → disk:
 Accept moves one into base, Reject writes base's lines back into the file. Accepted changes are
@@ -68,7 +71,8 @@ history = home / '.claude/file-history'
 here = pathlib.Path(__file__).resolve().parent
 # Files under these are Claude's own and temporary ones, not the work's: the page lists them apart;
 # ~/.claude first, as is_other() makes an exception there.
-other_roots = (f'{home}/.claude/', '/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/')
+other_roots = (f'{home}/.claude/', '/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/',
+               f'{home}/Library/Application Support/Claude/')
 # A text past this is not sent to the page.
 shown_bytes = 16 << 20
 # What takes a file away: to the Trash, where it can be got back from.
@@ -1043,12 +1047,16 @@ class Review:
         """Of a session's review, what a commit took of the session's changes counts as accepted: for each
         work tree the record's files are in, the HEAD seen last is kept (review/heads.json), and where it
         moved since, each file of the record the new commits touched gets the committed text as its
-        baseline, as one History entry, which Undo takes back. The first look only notes HEAD, so a part
+        baseline, as one History entry, which Undo takes back. The first look at a work tree, and once
+        each record's first look since redpen does so, take only a file whose text is HEAD's though its
+        baseline is not: committed as it is before HEAD was kept (review/settled marks that once). So a part
         accepted is never taken back to an older commit. Returns that entry, or None."""
         if self.git:
             return None
         place = self.folder / 'heads.json'
         seen = read_json(place, {})
+        settled_mark = self.folder / 'settled'
+        is_settling = not settled_mark.exists()
         trees = {}
         for key, file in self.entries():
             top = None if file.get('link') else repository_top(os.path.dirname(file['path']) or '/')
@@ -1060,12 +1068,14 @@ class Review:
             if not head:
                 continue
             heads[top] = head
+            settled = self.committed_as_is(top, head, files) if is_settling or not seen.get(top) else []
+            todo.extend(settled)
             if not seen.get(top) or seen[top] == head:
                 continue
             touched = set((git(top, 'diff', '--name-only', '-z', seen[top], head) or b'').decode().split('\0'))
             for key, file in files:
                 name = os.path.relpath(file['path'], top)
-                if name not in touched:
+                if name not in touched or any(key == done[0] for done in settled):
                     continue
                 base = read_bytes(self.places(key, file)['base'])
                 now_text = committed_text(top, head, name)
@@ -1079,7 +1089,20 @@ class Review:
                                             {'commit': head[:10], 'files': len(todo)}))
         if any(seen.get(top) != head for top, head in heads.items()):
             write_atomic(place, json.dumps({**seen, **heads}, indent=1).encode())
+        if is_settling:
+            write_atomic(settled_mark, b'')
         return shown_entry(entries[0], entries) if entries else None
+
+    def committed_as_is(self, top, head, files):
+        """Of the record's files in a work tree, each whose text is HEAD's while its baseline is not, a
+        deletion too: committed as it is. [(key, file, baseline, HEAD's text, head)]"""
+        found = []
+        for key, file in files:
+            now_text = committed_text(top, head, os.path.relpath(file['path'], top))
+            base = read_bytes(self.places(key, file)['base'])
+            if now_text != base and read_bytes(pathlib.Path(file['path'])) == now_text:
+                found.append((key, file, base, now_text, head))
+        return found
 
     def last_commit(self):
         """The newest commit's entry in History, as the page shows it, not undone; None with none: the
@@ -1343,7 +1366,11 @@ class Review:
         shown = self.outline_shown()
         if shown['time'] is None:
             return any(file['all'] and not file['isOther'] and not file['isGenerated'] for file in self.listing()['files'])
-        return shown['isOld'] or bool(shown['uncovered'])
+        # One kept with the session's edited: asked anew once they made it old, not for the changes its
+        # writer left out, at each look. A git review's, or one kept before: for those too.
+        outline = read_json(self.folder / 'outline.json', {})
+        is_kept_with_edits = not self.git and isinstance(outline, dict) and 'edited' in outline
+        return shown['isOld'] or bool(shown['uncovered']) and not is_kept_with_edits
 
     def edited(self):
         """When the session's own edits last changed its work, as the recorder keeps it; '' before any."""

@@ -64,17 +64,18 @@ class ShellCommands(unittest.TestCase):
 
     def test_a_change_made_while_another_sessions_command_runs_is_theirs(self):
         top, mine, theirs = repo({'a.py': 'a\n', 'b.py': 'b\n'}), session(), session()
-        # My command runs; theirs starts while it does, and changes b.py (a formatter, an install).
-        hook('pre', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')
+        # My command runs; theirs starts while it does, and changes b.py (a formatter). Each names it by a
+        # glob alone.
+        hook('pre', mine, top, 'Bash', {'command': 'for f in *.py; do :; done'}, 'm1')
         time.sleep(0.02)
-        hook('pre', theirs, top, 'Bash', {'command': 'npx prettier --write .'}, 't1')
+        hook('pre', theirs, top, 'Bash', {'command': 'npx prettier --write "*.py"'}, 't1')
         time.sleep(0.02)
         write(top, {'b.py': 'B\n'})
         # Mine ends first: b.py is not mine.
-        hook('post', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')
+        hook('post', mine, top, 'Bash', {'command': 'for f in *.py; do :; done'}, 'm1')
         self.assertEqual(recorded(mine), {})
-        hook('post', theirs, top, 'Bash', {'command': 'npx prettier --write .'}, 't1')
-        # Theirs, and marked: their command does not name it either.
+        hook('post', theirs, top, 'Bash', {'command': 'npx prettier --write "*.py"'}, 't1')
+        # Theirs, and marked: their command does not name it by its name.
         self.assertEqual(recorded(theirs), {'b.py': (False, 'b\n', True)})
 
     def test_a_change_my_command_names_is_mine_while_another_sessions_command_runs(self):
@@ -109,18 +110,30 @@ class ShellCommands(unittest.TestCase):
         hook('post', theirs, top, 'Bash', {'command': 'git push origin develop'}, 't1')
         self.assertEqual(recorded(theirs), {})
 
-    def test_a_change_in_a_folder_my_command_names_is_theirs_when_theirs_began_after(self):
+    def test_a_file_made_in_a_folder_my_test_run_names_is_the_command_naming_it(self):
         top, mine, theirs = repo({'tests/t.py': 't\n'}), session(), session()
-        # My test run names its folder; their command, begun after it, leaves a file there.
+        # My test run names its folder; their command, begun after it, writes a file there by its name.
         hook('pre', mine, top, 'Bash', {'command': 'python3 -m unittest discover tests'}, 'm1')
         time.sleep(0.02)
-        hook('pre', theirs, top, 'Bash', {'command': 'python3 -c pass'}, 't1')
+        hook('pre', theirs, top, 'Bash', {'command': 'F=tests/scratch.tmp; cat > $F'}, 't1')
         time.sleep(0.02)
         write(top, {'tests/scratch.tmp': 'x\n'})
         hook('post', mine, top, 'Bash', {'command': 'python3 -m unittest discover tests'}, 'm1')
         self.assertEqual(recorded(mine), {})
-        hook('post', theirs, top, 'Bash', {'command': 'python3 -c pass'}, 't1')
-        self.assertEqual(recorded(theirs), {'scratch.tmp': (True, None, True)})
+        hook('post', theirs, top, 'Bash', {'command': 'F=tests/scratch.tmp; cat > $F'}, 't1')
+        self.assertEqual(recorded(theirs), {'scratch.tmp': (True, None, False)})
+
+    def test_a_file_no_command_names_is_nobodys(self):
+        top, mine = repo({'a.py': 'a\n'}), session()
+        # A background job writes while my command runs (a push, a test run): mine does not name it.
+        shell(mine, top, 'python3 -c pass && sleep 0',
+              between=lambda: write(top, {'a.py': 'job\n', 'results.json': '{}\n'}))
+        self.assertEqual(recorded(mine), {})
+
+    def test_an_rm_of_a_folder_names_the_files_in_it(self):
+        top, mine = repo({'build/a.js': 'a\n', 'build/deep/b.js': 'b\n', 'keep.js': 'k\n'}), session()
+        shell(mine, top, 'rm -r build')
+        self.assertEqual(recorded(mine), {'a.js': (False, 'a\n', False), 'b.js': (False, 'b\n', False)})
 
     def test_a_change_another_sessions_command_names_is_theirs_whenever_it_began(self):
         top, mine, theirs = repo({'b.py': 'b\n'}), session(), session()
@@ -136,15 +149,15 @@ class ShellCommands(unittest.TestCase):
 
     def test_a_command_cut_short_in_another_session_runs_no_more(self):
         top, mine, theirs = repo({'a.py': 'a\n'}), session(), session()
-        # Their command was cut short an hour and more ago: its post hook never came.
-        hook('pre', theirs, top, 'Bash', {'command': 'npx prettier --write .'}, 't1')
+        # Their command, which names the file, was cut short an hour and more ago: its post hook never came.
+        hook('pre', theirs, top, 'Bash', {'command': 'npx prettier --write a.py'}, 't1')
         snapshot = next((store / theirs / 'pending').glob('shell-*.json'))
         kept = json.loads(snapshot.read_text())
         kept['time'] -= recorder.stale_hours * 3600 + 5
         snapshot.write_text(json.dumps(kept))
-        hook('pre', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')
+        hook('pre', mine, top, 'Bash', {'command': 'for f in *.py; do :; done'}, 'm1')
         write(top, {'a.py': 'mine\n'})
-        hook('post', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')
+        hook('post', mine, top, 'Bash', {'command': 'for f in *.py; do :; done'}, 'm1')
         self.assertEqual(recorded(mine), {'a.py': (False, 'a\n', True)})
         self.assertFalse(snapshot.exists())
 
@@ -204,18 +217,18 @@ class ShellCommands(unittest.TestCase):
 
     def test_a_change_made_before_another_sessions_command_began_stays_mine(self):
         top, mine, theirs = repo({'a.py': 'a\n'}), session(), session()
-        hook('pre', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')
+        hook('pre', mine, top, 'Bash', {'command': 'for f in *.py; do :; done'}, 'm1')
         write(top, {'a.py': 'mine\n'})
         time.sleep(0.02)
-        hook('pre', theirs, top, 'Bash', {'command': 'npx prettier --write .'}, 't1')
-        hook('post', mine, top, 'Bash', {'command': 'python3 -c pass'}, 'm1')
+        hook('pre', theirs, top, 'Bash', {'command': 'npx prettier --write "*.py"'}, 't1')
+        hook('post', mine, top, 'Bash', {'command': 'for f in *.py; do :; done'}, 'm1')
         self.assertEqual(recorded(mine), {'a.py': (False, 'a\n', True)})
 
-    def test_a_file_the_command_does_not_mention_is_marked(self):
+    def test_a_file_the_command_does_not_name_is_not_recorded(self):
         top, who = repo({'a.py': 'a\n', 'b.py': 'b\n'}), session()
         # The command writes a.py, which it names; b.py changes meanwhile (an editor's save, say).
         shell(who, top, "printf 'mine\\n' >> a.py", between=lambda: write(top, {'b.py': 'yours\n'}))
-        self.assertEqual(recorded(who), {'a.py': (False, 'a\n', False), 'b.py': (False, 'b\n', True)})
+        self.assertEqual(recorded(who), {'a.py': (False, 'a\n', False)})
 
     def test_a_subagents_edits_are_the_sessions_by_its_type(self):
         top, who = repo({'a.py': 'a\n', 'b.py': 'b\n'}), session()

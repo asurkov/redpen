@@ -27,13 +27,17 @@ it into the record once the edit has succeeded, so an edit that is denied or fai
 Of a shell command that may write (any but one made of reading commands alone: ls, cat, grep, git log,
 sed without -i, …, with no output into a file), pre keeps what git says is changed, deleted and made
 in the work trees the session works in, of the places the command names (all of the trees when it
-names none), with each changed file's signature, and post records what the command changed of it: a
-tracked file it changed or deleted, with its last committed text as its baseline, and a file it made,
-as new; a link as a link. A file that was changed already before the command, or that changed during a
-long one, is marked as taking in changes not the session's (outside/); one another session's own edit
-left as it is, during the command, is that session's and not recorded, and so is one made while another
-session's command ran in the tree that names the file, or else began after this command did, before the
-change, unless this command names the file. In a work tree whose status
+names none), with each changed file's signature, and post records what the command changed of it, of
+the files it names: by name anywhere in it (in a script given on its input too), by a glob, or, for
+a command that deletes or moves, by a folder of theirs. A hook cannot tell who wrote a file, so a
+change the command does not name (a formatter's on ".", a background job's, another session's, an
+editor's) is not recorded. Of what it names: a tracked file it changed or deleted, with its last
+committed text as its baseline, and a file it made, as new; a link as a link. A file that was changed
+already before the command, or that changed during a long one, is marked as taking in changes not the
+session's (outside/); one another session's own edit left as it is, during the command, is that
+session's and not recorded, and so is one made while another session's command ran in the tree that
+names the file, or else began after this command did, before the change, unless this command names the
+file. In a work tree whose status
 took git long, only a command that can delete or move files (rm, mv, unlink, trash, find -delete) is
 watched, for a day. Of a chmod, a file it names that it made executable, or no longer, is recorded
 with its text as it is and its executable bit as it was. A failure never blocks an edit: it goes to
@@ -43,7 +47,7 @@ Once a day post deletes the records, sessions' and git reviews', that nothing wa
 no edit, no action or comment on their page. Their review is the files' history by then, not the
 page's; the files themselves are never touched.
 """
-import datetime, hashlib, json, os, pathlib, re, shlex, shutil, subprocess, sys, tempfile, time
+import datetime, fnmatch, hashlib, json, os, pathlib, re, shlex, shutil, subprocess, sys, tempfile, time
 
 home = pathlib.Path.home()
 store = home / '.redpen/code'
@@ -52,6 +56,8 @@ link_mark = b'\0symlink\0'
 # A shell command that can delete or move files: an rm, mv, unlink or trash among its words, or find's
 # -delete.
 moving = re.compile(r'(^|[\s;&|(`])(rm|mv|unlink|trash)(?=\s)|\s-delete(?=\s|;|$)')
+# A word of a shell command that is a glob.
+glob_marks = re.compile(r'[*?[]')
 # One that can make a file executable, or no longer.
 chmodding = re.compile(r'(^|[\s;&|(`])chmod(?=\s)')
 # A git command that moves HEAD: what a commit took of the session's changes counts as accepted at once.
@@ -310,7 +316,7 @@ def stage_shell(session, data, name):
     modes = {path: is_executable(path) for path in named_files(command, cwd)} if chmodding.search(command) else {}
     if trees or modes:
         write_atomic(store / session / 'pending' / name,
-                     json.dumps({'trees': trees, 'modes': modes, 'time': time.time(), 'command': command}).encode())
+                     json.dumps({'trees': trees, 'modes': modes, 'time': time.time(), 'command': command, 'cwd': cwd}).encode())
 
 
 def commit_shell(session, name, agent=None):
@@ -343,6 +349,9 @@ def commit_shell(session, name, agent=None):
         for path, kind in changed(top, kept['paths']).items():
             # As it was: in the same state, and, for a file there, as it was written.
             if was.get(path) == kind and (kind == 'gone' or marks.get(path, file_signature(path)) == file_signature(path)):
+                continue
+            # A change the command does not name may be anyone's: a hook cannot tell who wrote a file.
+            if not is_named(path, command, before.get('cwd') or '/', kept['paths']):
                 continue
             # Another session's own edit, made while the command ran, is that session's.
             if kind != 'gone' and is_others_edit(session, path, began):
@@ -383,6 +392,21 @@ def commit_shell(session, name, agent=None):
         if agent:
             note_agent(session, path, agent)
     return added
+
+
+def is_named(path, command, cwd, named):
+    """Whether a shell command names a file it changed: by the file's name anywhere in it (in a script
+    given on its input too), by a glob of it that matches the file, or, for a command that deletes or
+    moves, by a folder of the file's among the places it names (named, as git spells them)."""
+    if os.path.basename(path) in command:
+        return True
+    if moving.search(command) and any(path.startswith(place.rstrip(os.sep) + os.sep) for place in named):
+        return True
+    words = command_words(command)
+    folders = [os.path.realpath(folder) for folder in [cwd] + [os.path.join(cwd, os.path.expanduser(word))
+                                                             for before, word in zip([''] + words, words) if before == 'cd']]
+    return any(fnmatch.fnmatchcase(path, os.path.normpath(os.path.join(folder, os.path.expanduser(word.rstrip(';')))))
+               for word in words if glob_marks.search(word) for folder in folders)
 
 
 def note_agent(session, path, agent):
@@ -532,15 +556,20 @@ def work_trees(session, cwd):
     return sorted(tops)
 
 
+def command_words(command):
+    """A shell command's words, as the shell splits them; by blanks where it cannot be split so."""
+    try:
+        return shlex.split(command)
+    except ValueError:
+        return command.split()
+
+
 def named_paths(command, cwd):
     """The places a shell command names, read from the command's folder and from each folder a cd in
     it goes to: of a word that is a file, its folder, where a file moved next to it lands too; of one
     that is a folder, the folder; and of one with a / in it, or given to an mv, that is not there yet
     but its folder is, the path (where a folder moved lands), a * in it matching as in a git pathspec."""
-    try:
-        words = shlex.split(command)
-    except ValueError:
-        words = command.split()
+    words = command_words(command)
     folders = [cwd] + [os.path.normpath(os.path.join(cwd, os.path.expanduser(word)))
                        for before, word in zip([''] + words, words) if before == 'cd']
     paths = set()
