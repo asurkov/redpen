@@ -1938,6 +1938,13 @@ async function main() {
   byId('waitingButton').addEventListener('click', () => (byId('waitingList').hidden = !byId('waitingList').hidden));
   document.addEventListener('keydown', takeKey, true);
   document.addEventListener('pointerdown', () => (isFocusTabbed = false), true);
+  // Text dragged off the page lands where it is dropped, in the chat beside it say, as words of a message:
+  // the page's text is copied, never dragged, but in a field (a comment box's own).
+  document.addEventListener('dragstart', event => {
+    if (!event.target.closest?.('input, textarea')) {
+      event.preventDefault();
+    }
+  }, true);
   // Keys reach the page only while it has the focus, and the app leaves the focus in the chat when
   // it opens the page; nor can the page take it. The current bar says so in the keys' place.
   window.addEventListener('focus', () => document.body.classList.remove('unfocused'));

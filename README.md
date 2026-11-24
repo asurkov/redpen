@@ -122,7 +122,10 @@ than guessed; a [git review](#a-git-review) shows a work tree's every change.
   whole file, whose thread stands above its first line) stays under its lines as a thread,
   which says whether it is sent and whether Claude has it, and shows Claude's answer under it. The
   page names the session's agent, Claude or Codex (session.json's `agent`; a git review, that of the
-  session its comments reach), in these words and over its answers; buttons are verbs alone.
+  session its comments reach), in these words and over its answers; buttons are verbs alone. The
+  page's own words around a comment (its box's heading and the note on where it goes), and a change's
+  buttons, cannot be selected, and the page's text is not dragged anywhere but in a field: a stray drag
+  once carried a box's note and a code line into the chat as the user's message.
   **Reply** adds to the thread, **Resolve** takes it off the page. An answer that came with a change
   links to that change. The header counts the open threads, with how many Claude answered last, and
   steps to the next one on a click; the strip at the bottom lists the threads of every file. While Claude's
