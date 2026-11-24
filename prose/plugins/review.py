@@ -230,9 +230,13 @@ const c=q.replace(/ /g,'');if(r.length||!c)return r;
 if(!x.c){x.c='';x.ci=[];for(let i=0;i<x.s.length;i++)if(x.s[i]!==' '){x.c+=x.s[i];x.ci.push(i);}}
 for(let at=x.c.indexOf(c);at>=0;at=x.c.indexOf(c,at+1))r.push([x.ci[at],x.ci[at+c.length-1]+1]);return r;}
 // On a change in view v: after its last inline part, or at the end of its block's new text (in its
-// folded summary when it only removes).
-function onChange(v,k){const els=v.querySelectorAll('.chg[data-k="'+k+'"]'),e=els[els.length-1];if(!e)return null;
-if(!e.classList.contains('blk'))return b=>e.after(b);let t=e.querySelector('.now');if(!t){const m=e.querySelector('summary');return b=>m.append(b);}
+// folded summary when it only removes). A thread from elsewhere (it) is on a line, not on all of its
+// change: in a block change, at the end of the paragraph or list item of it that its quote starts in.
+function onChange(v,k,it,text){const els=v.querySelectorAll('.chg[data-k="'+k+'"]'),e=els[els.length-1];if(!e)return null;
+if(!e.classList.contains('blk'))return b=>e.after(b);
+if(it?.kind==='g'){const x=text(v,it.side),f=findEnd(x,it.quote,it.before,'','.chg[data-k="'+k+'"]'),l=f&&x.ns[f[2]].parentElement.closest(blocks);
+if(l&&[...els].some(c=>c.contains(l)))return atEnd(l);}
+let t=e.querySelector('.now');if(!t){const m=e.querySelector('summary');return b=>m.append(b);}
 while(t.lastElementChild&&/^(P|UL|OL|LI|DL|DT|DD|DIV|BLOCKQUOTE|H[1-6])$/.test(t.lastElementChild.tagName))t=t.lastElementChild;return b=>t.append(b);}
 // Where view v has neither its change nor its quote (an accepted change, removed words): at the end of the
 // paragraph or list item holding the words before it in its block, c.before (the most of its last 8 that
@@ -243,9 +247,11 @@ for(const side of['R','L']){const x=text(v,side);let n=null,e;
 for(let i=Math.min(8,b.length);!n&&i>=3;i--)if(e=findEnd(x,b.slice(-i).join(' '),b.slice(0,-i).join(' '),sec,''))n=e[0];
 for(let i=Math.min(8,a.length);!n&&i>=3;i--)if(e=findEnd(x,a.slice(0,i).join(' '),'',sec,''))n=x.ns[e[2]];
 if(!n)continue;let t=n.parentElement.closest('p,li,dt,dd,td,th,h1,h2,h3,h4,h5,h6,pre,blockquote,figcaption');if(!t||!v.contains(t))t=blockOf(n);
-const f=t.closest('.was');if(f)return b=>f.querySelector('summary').append(b);
-const k=[...t.children].find(e=>/^(P|UL|OL|DL|DIV|BLOCKQUOTE|PRE|TABLE)$/.test(e.tagName));return b=>k?k.before(b):t.append(b);}
+return atEnd(t);}
 return null;}
+// At the end of block t, before a block in it; in a removed block's folded text, on its summary.
+function atEnd(t){const f=t.closest('.was');if(f)return b=>f.querySelector('summary').append(b);
+const k=[...t.children].find(e=>/^(P|UL|OL|DL|DIV|BLOCKQUOTE|PRE|TABLE)$/.test(e.tagName));return b=>k?k.before(b):t.append(b);}
 // The words around a quote found at e in text x, as far as its block goes, for near() where only the quote
 // was kept (a revisit on selected text).
 function around(x,e){const k=blockOf(x.ns[e[2]]);let i=e[2],j=e[3];
@@ -334,7 +340,7 @@ for(const t of items)if(t.kind==='r'){const p=[...t.proposals.values()].filter(p
 c=p?.state==='used'&&p.comment&&items.find(i=>i.kind==='c'&&i.id===p.comment.id&&!i.thread);if(c){t.lead=c;c.inThread=t;}}
 for(const it of items){it.at={};it.on={};if(it.hidden)continue;for(const s of document.querySelectorAll('section'))if(s.dataset.file===it.file)for(const v of s.querySelectorAll('.v')){
 // Made on a change, it is looked for in change markup first where its change has another key.
-const w=v.dataset.view,b=badge(it),on=it.key&&onChange(v,it.key),x=!on&&text(v,it.side),
+const w=v.dataset.view,b=badge(it),on=it.key&&onChange(v,it.key,it,text),x=!on&&text(v,it.side),
 end=x&&findEnd(x,it.quote,it.before,it.section,it.chg||(it.key?it.side==='L'?'del,.old':'ins,.now':''));
 if(on){on(b);it.on[w]=new Set([it.key]);}
 else if(end){put.push([end[0],end[1],b]);it.on[w]=new Set(x.ns.slice(end[2],end[3]).map(n=>n.parentElement.closest('.chg')?.dataset.k).filter(Boolean));if(!cx(it))it.ctx=around(x,end);}

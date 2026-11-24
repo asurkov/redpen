@@ -1,10 +1,11 @@
 """docdiff's plugins on a scratch repository with a base and a head commit, as a PR's review reads it:
-where a comment's quote is in the PR's files (its line range and the text there), and what a push to
-GitHub sends, GitHub played by a stand-in. docdiff keeps its state in a scratch DOCDIFF_HOME.
+where a comment's quote is in the PR's files (its line range and the text there), what a push to
+GitHub sends, GitHub played by a stand-in, and where the page draws a comment's mark, as headless Chrome
+renders it from a server of the test's own. docdiff keeps its state in a scratch DOCDIFF_HOME.
 
 Run them all: python3 -m unittest discover -s ~/.claude/skills/redpen/prose/tests
 """
-import atexit, os, pathlib, shutil, subprocess, sys, tempfile, unittest
+import atexit, json, os, pathlib, re, shutil, socket, subprocess, sys, tempfile, time, unittest, urllib.request
 
 home = pathlib.Path(os.path.realpath(tempfile.mkdtemp(prefix='docdiff-tests-')))
 atexit.register(shutil.rmtree, home, ignore_errors=True)
@@ -17,14 +18,20 @@ github = next(m for m in docdiff.PLUGINS if m.__name__.endswith('github_pr'))
 
 BASE = '# Notes\n\nAlpha beta gamma\ndelta epsilon.\nZeta eta theta.\n\nIota kappa lambda.\n'
 HEAD = '# Notes\n\nAlpha beta gamma\ndelta epsilon.\nZeta eta theta.\n\nIota kappa lambda mu.\n'
+# A head that adds a paragraph and the list after it, one change of two blocks; the paragraph starts on line 7.
+STEPS = BASE.replace('Iota', "To frob a widget, given a gadget,\nperform the following steps:\n\n1. Let knob be the gadget's knob.\n"
+                             "2. Turn knob.\n\nIota")
+CHROME = next((c for c in ('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', shutil.which('google-chrome'),
+                           shutil.which('chromium')) if c and os.path.exists(c)), None)
 
 
 def git(top, *args):
     return subprocess.run(['git', '-C', str(top), *args], check=True, capture_output=True, text=True).stdout.strip()
 
 
-def pr_run():
-    """A repository with docs/a.md at a base and a head commit, and the run of a review of it as a PR."""
+def pr_run(head=HEAD):
+    """A repository with docs/a.md at a base and a head commit (head its text), and the run of a review of
+    it as a PR."""
     top = pathlib.Path(tempfile.mkdtemp(dir=home, prefix='repo-'))
     git(top, 'init', '-q')
     git(top, 'config', 'user.email', 'test@example.com')
@@ -34,7 +41,7 @@ def pr_run():
     git(top, 'add', '-A')
     git(top, 'commit', '-qm', 'base')
     base = git(top, 'rev-parse', 'HEAD')
-    (top / 'docs/a.md').write_text(HEAD)
+    (top / 'docs/a.md').write_text(head)
     git(top, 'commit', '-qam', 'head')
     return {'repo': str(top), 'base': base, 'head': git(top, 'rev-parse', 'HEAD'), 'pr': 'owner/repo#1', 'paths': []}
 
@@ -110,6 +117,65 @@ class Pushes(unittest.TestCase):
             {'path': 'docs/a.md', 'start_line': 3, 'line': 4, 'side': 'RIGHT'},
             {'path': 'docs/a.md', 'start_line': None, 'line': 7, 'side': 'RIGHT'},
         ])
+
+
+@unittest.skipUnless(CHROME, 'no Chrome to draw the page with')
+class Marks(unittest.TestCase):
+    def page(self, run, on_github, comments):
+        """The page of run's review as a PR, its line comments on_github (as GitHub's API lists them) and
+        comments its own, as headless Chrome draws it."""
+        name, prs = f"marks-{pathlib.Path(run['repo']).name}", home / 'pr-comments.json'
+        prs.write_text(json.dumps({'review': on_github, 'issue': [], 'reviews': []}))
+        env, here = {**os.environ, 'DOCDIFF_GITHUB_API': 'http://127.0.0.1:9'}, pathlib.Path(docdiff.__file__).parent
+        subprocess.run([sys.executable, '-I', str(here / 'docdiff.py'), '--repo', run['repo'], '--base', run['base'],
+                        '--head', run['head'], '--pr', run['pr'], '--pr-comments', str(prs), '--me', 'me', '--name', name],
+                       env=env, check=True, capture_output=True)
+        (docdiff.HOME / name / 'review.json').write_text(json.dumps({'comments': comments}))
+        with socket.socket() as s:
+            s.bind(('127.0.0.1', 0))
+            port = s.getsockname()[1]
+        server = subprocess.Popen([sys.executable, '-I', str(here.parent / 'base/server.py'), '--serve', '--port', str(port)],
+                                  env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(server.wait)
+        self.addCleanup(server.terminate)
+        url = f'http://127.0.0.1:{port}/{name}/index.html'
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url, timeout=1).close()
+                break
+            except OSError:
+                time.sleep(0.1)
+        return subprocess.run([CHROME, '--headless=new', '--disable-gpu', '--no-first-run', f'--user-data-dir={home / "chrome"}',
+                               '--virtual-time-budget=5000', '--dump-dom', url], capture_output=True, text=True, timeout=60).stdout
+
+    def test_a_github_comment_on_the_first_block_of_a_change_is_marked_there_with_a_comment_of_yours(self):
+        run = pr_run(STEPS)
+        dom = self.page(run, [{'id': 101, 'user': {'login': 'someone'}, 'created_at': '2026-11-23T12:00:00Z',
+                               'body': 'Move this out?', 'path': 'docs/a.md', 'side': 'RIGHT', 'line': 7}],
+                        [{**comment('To frob a widget, given a gadget, perform the following steps:', body='Rename it?'),
+                          'time': '2026-11-23T11:00:00', 'view': 'new', 'key': None, 'section': 'Notes'}])
+        diff, new = view(dom, 'diff'), view(dom, 'new')
+        # In Diff, on the change: one mark at the end of the paragraph, the GitHub thread's and yours.
+        marks = re.findall(r'<span class="rvb[^"]*" title="([^"]*)"', block(diff, 'To frob'))
+        self.assertEqual(len(marks), 1, marks)
+        self.assertIn('On GitHub: someone', marks[0])
+        self.assertIn('Rename it?', marks[0])
+        self.assertNotIn('class="rvb', block(diff, 'Let knob'))
+        # In Head, where its quote reads.
+        self.assertIn('On GitHub: someone', block(new, 'To frob'))
+        self.assertNotIn('class="rvb', block(new, 'Let knob'))
+
+
+def view(dom, v):
+    """One view of the page's doc, its markup."""
+    i = dom.index(f'<div class="v v-{v}"')
+    j = dom.find('<div class="v ', i + 1)
+    return dom[i:j if j >= 0 else None]
+
+
+def block(markup, start):
+    """The paragraph or list item whose text starts with start, its markup."""
+    return re.search(r'<(p|li)>' + re.escape(start) + r'.*?</\1>', markup, re.S).group(0)
 
 
 if __name__ == '__main__':

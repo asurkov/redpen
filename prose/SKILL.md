@@ -771,8 +771,8 @@ in `github.json`). With neither, every GitHub comment is someone else's.
 
 A line comment is placed on the diff by its `path`, `side` and `line`, the inverse of a change's GitHub
 button: the words of that source line, with the words around it, are matched against the diff's blocks,
-and the block whose matching run passes through the line holds it, on the change there or in unchanged
-text. Each thread (a comment and its replies) goes in the 💬 at its place, counting each of its comments,
+and the block whose matching run passes through the line holds it, on the change there (in a change of
+several blocks, at the end of the paragraph or list item its line starts in) or in unchanged text. Each thread (a comment and its replies) goes in the 💬 at its place, counting each of its comments,
 in every view where its text reads, or else its block, as your comment does; in the card it is read only: author, time, the body as
 Markdown (rendered as answers are), the replies, ✓ Resolve (below) and Open on GitHub ↗. Outdated comments, ones that
 could not be placed, the PR's own comments and review bodies are listed in the Review panel under
