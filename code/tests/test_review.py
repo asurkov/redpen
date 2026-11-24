@@ -479,10 +479,16 @@ class Overview(unittest.TestCase):
         self.outline(('three', [('a.py', 3, 3)]), ('eight', [('a.py', 8, 8)]), ('b', [('b.py', 2, 2)]))
         self.assertIsNone(self.rv.asked_state())
         self.assertFalse(self.rv.needs_overview())
-        # A change since that no block covers: asked again, naming the items written before.
+        # A change since that no block covers: asked again, as an update of the items written before, numbered,
+        # with that change alone.
         write(self.top, {'a.py': (self.top / 'a.py').read_text().replace('a1\n', 'A1\n')})
         self.assertTrue(self.rv.needs_overview())
-        self.assertIn('"three"; "eight"; "b"', self.rv.describe_by_fork())
+        asked = self.rv.describe_by_fork()
+        for n, title in enumerate(['three', 'eight', 'b']):
+            self.assertIn(f'[{n}] "{title}"', asked)
+        self.assertIn('- | a1\n+ 1 | A1', asked)
+        self.assertIn('as it was at the base commit', asked)
+        self.assertNotIn(f'=== {self.top}/b.py', asked)
 
     def test_the_pages_describe_waiting_for_the_next_message_is_the_forks_to_answer(self):
         self.outline(('three', [('a.py', 3, 3)]), ('eight', [('a.py', 8, 8)]), ('b', [('b.py', 2, 2)]))
@@ -539,6 +545,38 @@ class SessionOverview(unittest.TestCase):
         # Blocks on the whole files: every change to them counts as covered.
         return self.rv.set_outline({'items': [{'title': 'both', 'blocks': [
             {'path': f'{self.top}/a.py'}, {'path': f'{self.top}/b.py'}]}]})
+
+    def test_an_old_overview_is_asked_for_as_an_update_of_the_changes_since(self):
+        self.rv.set_outline({'items': [{'title': 'a', 'text': 'A1', 'blocks': [{'path': f'{self.top}/a.py', 'start': 1, 'end': 1}]},
+                                       {'title': 'b', 'blocks': [{'path': f'{self.top}/b.py'}]}]})
+        self.edit('a.py', 'A1\nA2\n')
+        asked = self.rv.describe_by_fork()
+        # Its items numbered, where their lines are now; the change since alone, not b.py's, seen before.
+        self.assertIn('"keep"', asked)
+        self.assertIn(f'[0] "a": A1\n    {self.top}/a.py:1-1 (', asked)
+        self.assertIn(f'=== {self.top}/a.py\n@@\n  1 | A1\n- | a2\n+ 2 | A2', asked)
+        self.assertNotIn(f'=== {self.top}/b.py', asked)
+        # The answer keeps b as it is and rewrites a in its place, with the line since.
+        shown = self.rv.set_outline({'keep': [1], 'items': [{'title': 'a, both lines', 'replaces': 0,
+                                                             'blocks': [{'path': f'{self.top}/a.py', 'start': 1, 'end': 2}]}]})
+        self.assertEqual([item['title'] for item in shown['items']], ['a, both lines', 'b'])
+        self.assertFalse(shown['isOld'])
+        # A new one goes after them; numbers it does not have, or one kept and replaced, are refused.
+        self.edit('b.py', 'B1\nB2\n')
+        self.rv.describe_by_fork()
+        shown = self.rv.set_outline({'keep': [0, 1], 'items': [{'title': 'b2', 'blocks': [{'path': f'{self.top}/b.py', 'start': 2, 'end': 2}]}]})
+        self.assertEqual([item['title'] for item in shown['items']], ['a, both lines', 'b', 'b2'])
+        for wrong in ({'keep': [3], 'items': []}, {'keep': [0], 'items': [{'title': 'x', 'replaces': 0, 'blocks': []}]}):
+            with self.assertRaises(review.Refusal):
+                self.rv.set_outline(wrong)
+
+    def test_the_users_describe_asks_for_the_whole_anew(self):
+        self.outline()
+        self.edit('a.py', 'A1\nA2\n')
+        self.rv.describe()
+        asked = self.rv.describe_by_fork()
+        self.assertNotIn('"keep"', asked)
+        self.assertIn(f'=== {self.top}/b.py', asked)
 
     def test_an_overview_the_sessions_edits_made_old_is_not_shown_and_asked_for_anew(self):
         self.assertFalse(self.outline()['isOld'])

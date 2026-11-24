@@ -1451,9 +1451,17 @@ class Review:
             channel.mark(self.sent, [ask], 'fork')
             # The work the fork describes: an edit of the session's while it writes makes its overview old.
             write_atomic(self.folder / 'asked-edited', self.edited().encode())
+            # The files as the fork reads them: an update of what it writes is asked about the changes since.
+            write_atomic(self.folder / 'asked-seen', json.dumps(self.texts_seen()).encode())
         outline = read_json(self.folder / 'outline.json', {})
-        titles = [item.get('title') for item in outline.get('items') or []] if isinstance(outline, dict) else []
+        outline = outline if isinstance(outline, dict) else {}
+        titles = [item.get('title') for item in outline.get('items') or []]
         changes = f"the changes in {self.git['repo']} against {self.git['spec']}" if self.git else 'your changes'
+        # Asked by itself, of one that saw the files: an update, the changes since and the items it had, which it
+        # keeps by their numbers. The user's Describe: the whole anew.
+        if not drafted and titles and isinstance(outline.get('seen'), dict):
+            items = self.outline_shown(is_whole=True)['items']
+            return outline_update_asked(changes, items, self.git) + '\n\n' + self.changes_since(outline['seen'])
         return (outline_asked(changes, self.git, self.session, titles, is_forked=True, is_users=bool(drafted)) + '\n\n' +
                 self.changes_shown())
 
@@ -1465,6 +1473,63 @@ class Review:
         if asks:
             channel.add_line(self.folder / 'handed.jsonl', {'ask': asks[-1].get('id'), 'time': channel.stamp(), 'dropped': True})
         (self.folder / 'asked-edited').unlink(missing_ok=True)
+        (self.folder / 'asked-seen').unlink(missing_ok=True)
+
+    def texts_seen(self):
+        """What an overview is written of: each work file's text as it reads now, kept among the blobs, by its
+        key; an update of the overview is asked about the changes since (changes_since())."""
+        seen = {}
+        for listed in self.listing()['files']:
+            if listed['all'] and not listed['isOther'] and not listed['isGenerated']:
+                file = self.file(listed['key'])
+                seen[listed['key']] = self.kept(self.read(file, 'disk', self.places(listed['key'], file)['disk']))
+        return seen
+
+    def changes_since(self, seen):
+        """The work's changes since an overview saw it (seen, as texts_seen() keeps it), as changes_shown()
+        shows them: of a file whose text is not the one seen, the stretches changed since, their lines taken
+        away with no number; a file it saw no change of, its changes whole, numbered as changes_shown()
+        numbers them; and the files it saw changed that have no change now."""
+        out, left, listed_keys, size = [], [], set(), 0
+        for file in self.listing()['files']:
+            if not file['all'] or file['isOther'] or file['isGenerated']:
+                continue
+            listed_keys.add(file['key'])
+            record = self.file(file['key'])
+            disk = self.read(record, 'disk', self.places(file['key'], record)['disk'])
+            if seen.get(file['key']) == sha(disk):
+                continue
+            if size > shown_change_chars:
+                left.append(file['path'])
+                continue
+            lines = self.lines_of(file['key'])
+            was = read_bytes(self.folder / 'blobs' / str(seen.get(file['key'])))
+            was_lines = None if was is None else was.decode(errors='replace').split('\n')
+            if lines['disk'] is None or (was_lines or lines['orig']) is None:
+                part = [f"=== {file['path']}: no text to show by lines (a link, binary, or too long)"]
+            else:
+                state = ' (deleted)' if file['isGone'] else '' if was_lines is not None else ' (new)' if file['isNew'] else ' (changed before too)'
+                part = [f"=== {file['path']}{state}"]
+                matcher = difflib.SequenceMatcher(None, was_lines or lines['orig'], lines['disk'], autojunk=False)
+                for group in matcher.get_grouped_opcodes(3):
+                    part.append('@@')
+                    for tag, a1, a2, b1, b2 in group:
+                        if tag == 'equal':
+                            part += [f'  {b + 1} | {shown_line(lines["disk"][b])}' for b in range(b1, b2)]
+                            continue
+                        part += [f'- {"" if was_lines is not None else f"({a + 1}) "}| {shown_line((was_lines or lines["orig"])[a])}'
+                                 for a in range(a1, a2)]
+                        part += [f'+ {b + 1} | {shown_line(lines["disk"][b])}' for b in range(b1, b2)]
+            size += sum(len(line) + 1 for line in part)
+            out += part
+        for gone in sorted(set(seen) - listed_keys):
+            try:
+                out.append(f"=== {self.file(gone)['path']}: no change left in it")
+            except Refusal:
+                continue
+        if left:
+            out.append('=== Not shown, past what the question holds: ' + ', '.join(left))
+        return '\n'.join(out) or '(No file changed since: keep the items that still hold.)'
 
     def changes_shown(self):
         """The work's changes as a model with no tools reads them: by file, each changed stretch with the
@@ -1547,16 +1612,28 @@ class Review:
 
     def set_outline(self, data):
         """Keeps Claude's overview, each block's lines read from its file as it is now; refuses one that
-        names a file the review does not have, or lines its file does not have, saying which."""
+        names a file the review does not have, or lines its file does not have, saying which. An update
+        (keep, as outline_update_asked() asks for it) keeps the items of the one before that keep numbers,
+        as they are, each new item in the place of the one it replaces, else after them all."""
         items = data.get('items') if isinstance(data, dict) else None
-        if not isinstance(items, list) or not items:
+        keep = data.get('keep') if isinstance(data, dict) else None
+        before = (read_json(self.folder / 'outline.json', {}) or {}).get('items') or [] if keep is not None else []
+        if keep is not None and (not isinstance(keep, list) or
+                                 not all(isinstance(n, int) and 0 <= n < len(before) for n in keep)):
+            raise Refusal(400, f'keep lists the numbers of the items before that still hold, 0 to {len(before) - 1}.')
+        if not isinstance(items, list) or not items and keep is None:
             raise Refusal(400, 'The overview has no items: {"items": [{"title", "text", "blocks": [...]}]}.')
         if len(items) > outline_items:
             raise Refusal(400, f'The overview has {len(items)} items: at most {outline_items}.')
-        problems, kept_items = [], []
+        problems, kept_items, replaced = [], [], []
         for n, item in enumerate(items, 1):
             if not isinstance(item, dict) or not isinstance(item.get('title'), str) or not item['title'].strip():
                 problems.append(f'Item {n} has no title.')
+                continue
+            place = item.get('replaces') if keep is not None else None
+            if place is not None and (not isinstance(place, int) or not 0 <= place < len(before) or place in keep
+                                      or place in replaced):
+                problems.append(f'Item {n}: replaces names an item before, by its number, that keep leaves out, once.')
                 continue
             blocks = []
             for m, block in enumerate(item.get('blocks') or [], 1):
@@ -1593,6 +1670,14 @@ class Review:
                 blocks.append(kept)
             kept_items.append({'title': item['title'].strip()[:160], 'text': str(item.get('text') or '').strip()[:1200],
                                'blocks': blocks})
+            replaced.append(place)
+        if keep is not None:
+            # The items before, kept or replaced, in their order; then the new ones.
+            by_place = {place: item for item, place in zip(kept_items, replaced) if place is not None}
+            kept_items = ([before[n] if n in keep else by_place[n] for n in range(len(before)) if n in keep or n in by_place] +
+                          [item for item, place in zip(kept_items, replaced) if place is None])
+            if len(kept_items) > outline_items:
+                problems.append(f'The overview has {len(kept_items)} items: at most {outline_items}.')
         count = sum(len(item['blocks']) for item in kept_items)
         if count > outline_blocks:
             problems.append(f'The overview has {count} blocks: at most {outline_blocks}.')
@@ -1600,13 +1685,16 @@ class Review:
             raise Refusal(400, 'The overview was not kept:\n' + '\n'.join(problems))
         channel = shared('channel')
         with channel.locked(self.sent):
-            # The work as it was when the fork was asked, else as it is.
-            asked_edited = self.folder / 'asked-edited'
+            # The work as it was when the fork was asked, else as it is: what the session last changed, and
+            # each file's text, which an update of it is asked about the changes since (changes_since()).
+            asked_edited, asked_seen = self.folder / 'asked-edited', self.folder / 'asked-seen'
             edited = read_bytes(asked_edited)
             write_atomic(self.folder / 'outline.json', json.dumps({
-                'time': now(), 'edited': self.edited() if edited is None else edited.decode(), 'items': kept_items,
+                'time': now(), 'edited': self.edited() if edited is None else edited.decode(),
+                'seen': read_json(asked_seen) or self.texts_seen(), 'items': kept_items,
             }, indent=1).encode())
             asked_edited.unlink(missing_ok=True)
+            asked_seen.unlink(missing_ok=True)
             # An ask for it still waiting is answered: it goes, and is not told again.
             left = [comment for comment in self.comments() if not comment.get('describe')]
             if len(left) != len(self.comments()):
@@ -1617,7 +1705,7 @@ class Review:
                 channel.mark(self.sent, answered, 'outline')
         return self.outline_shown()
 
-    def outline_shown(self):
+    def outline_shown(self, is_whole=False):
         """The overview as the page shows it: each block where its lines are now and what is left of
         it to review ('pending', 'accepted', 'unchanged', 'stale': its lines are gone), each item's
         pending blocks counted; the changes no block touches; and where an ask for it is. One the session's
@@ -1626,7 +1714,7 @@ class Review:
         outline = read_json(self.folder / 'outline.json', None)
         if not isinstance(outline, dict):
             return shown
-        if self.is_outline_old(outline):
+        if not is_whole and self.is_outline_old(outline):
             return {**shown, 'time': outline.get('time'), 'isOld': True}
         listed = {file['key']: file for file in self.listing()['files']}
         # A moved file's blocks may name its old place: they are the file's at its new one.
@@ -1830,6 +1918,40 @@ def outline_asked(changes, git, name, titles=None, is_forked=False, is_users=Fal
         'those no block covers. Leave out the '
         'files the project generates (lockfiles, those marked linguist-generated or by a generator\'s banner). Each note says '
         'what its block does, in a few words; say only what the code shows.', *again, *shown])
+
+
+def outline_update_asked(changes, items, git=None):
+    """What asks a fork with no tools to bring an overview of the changes up to date: the items it has, each
+    numbered, with its blocks where their lines are now; it answers with the numbers of those to keep, as
+    they are, and the items it writes anew, each new one or in the place of one (replaces)."""
+    states = {'pending': 'to review', 'accepted': 'accepted', 'unchanged': 'no change now', 'stale': 'its lines are gone'}
+    shown = []
+    for n, item in enumerate(items):
+        shown.append(f'[{n}] "{item["title"]}": {item["text"]}')
+        for block in item['blocks']:
+            lines = '' if block['isFile'] else f":{block['start']}-{block['end']}"
+            side = ' (as it was)' if block['side'] == 'orig' else ''
+            shown.append(f"    {block['path']}{lines}{side} ({states.get(block['state'], block['state'])}) — {block['note']}")
+    return '\n'.join([
+        f'The redpen review page has an overview of {changes}, written before the changes below were made, and asks '
+        'for it brought up to date. Its items, numbered, each with its blocks where their lines are now:',
+        '', *shown, '',
+        'Answer with JSON alone, no words and no fence around it:',
+        '```json',
+        '{"keep": [<the numbers of the items above that still hold as they are>],',
+        ' "items": [{"title": "<a few words>", "text": "<one or two sentences: what it does and why>",',
+        '   "replaces": <the number of the item above it rewrites; none for a new one>,',
+        '   "blocks": [{"path": "<absolute path>", "start": <first line>, "end": <last line>, "note": "<a short line>"}]}]}',
+        '```',
+        'Keep an item whose code and words still hold. Rewrite one that the changes alter or add to, with all its '
+        'blocks, as "replaces" it; leave out one whose code is gone. Let each change below belong to a block, of an '
+        'item rewritten or new. Lines are counted from 1 in the file as it is now; a block with no start and end is '
+        'the whole file. Leave out the files the project generates. Each note says what its block does, in a few '
+        'words; say only what the code shows.',
+        'You have no tools here: the changes since are below, by file, each changed stretch with the lines around '
+        'it. A line starts with + (added), - (taken away) or neither (unchanged), then its number in the file as it '
+        'is now; a line taken away has none, but in a file the overview saw no change of, its number in brackets, '
+        f"in the file as it was{' at the base commit' if git else ' before your edits'}."])
 
 
 def prompt_hook():

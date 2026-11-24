@@ -87,7 +87,9 @@ Items by purpose, in the order to read them; lines from 1 in the file as it is n
 `"side": "orig"` in the file as it was (lines taken away, a deleted file); no start and end for a whole
 file. The command keeps each block's lines to find them again, refuses a path the review does not have
 or lines its file does not have, saying which, and lists the changes no block covers: add each to an
-item, unless it needs no word. Leave out the files the project generates. Writing one answers the ask
+item, unless it needs no word. Leave out the files the project generates. `--outline` also takes an update
+of the overview there is, `{"keep": [<numbers of its items that still hold>], "items": [...]}`, each new item
+with `"replaces": <number>` in the place of the one it rewrites, else after them. Writing one answers the ask
 still waiting. The page does not show an overview asked for before the session's latest edits. The
 redpen plugin asks the same, when the user opens the review and at the end of a turn that edited the
 work, with no overview or one older than those edits, of a fork of the session with no tools

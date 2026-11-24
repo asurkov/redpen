@@ -335,7 +335,13 @@ the changes its writer left out stay under **Not in the overview** and ask for n
 kept before `edited` was, and a git review's, are asked for anew while they leave changes out): `review.py
 --ask-overview` says whether one is needed, none while an ask waits (an ask Claude took 20 minutes ago
 with no overview written waits no more: its turn was cut short), and prints the question, logged as
-handed over: how to write it, the items written before, and the changes, each line numbered. The mod
+handed over: how to write it, the items written before, and the changes, each line numbered. Once an
+overview saw the files (`seen` in `outline.json`: each work file's text as it read, kept among the
+blobs), the ask that comes by itself is an update: the items numbered, with their blocks where their
+lines are now, and only the changes since; the answer keeps items by their numbers
+(`{"keep": [...], "items": [...]}`, an item with `replaces` in the place of the one it rewrites), so a
+large overview is not written whole again for a turn's few edits. The user's Describe asks for the
+whole anew. The mod
 asks it of a fork of the session (`$.model.fork`): one question over the session's own conversation, so
 Claude knows why it made the changes, with no tools, served mostly from the prompt cache, and nothing in
 the chat, no turn. The answer, its JSON, goes to `review.py --outline`; one refused is asked again once,
