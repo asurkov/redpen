@@ -1802,7 +1802,8 @@ def prompt_hook():
     and the sent ones no waiting command took, of the session's own record and of the git reviews
     made from it. A failure never blocks the prompt: it goes to stderr and the exit status stays 0."""
     try:
-        session = json.load(sys.stdin).get('session_id', '')
+        data = json.load(sys.stdin)
+        session = data.get('session_id', '')
         if not re.fullmatch(r'[\w-]+', session):
             return
         folders = [store / name / 'review' for name in [session] + owned(session)]
@@ -1815,7 +1816,9 @@ def prompt_hook():
                 told = [comment for ask in asks for comment in ask.get('comments') or []] + comments
                 if told:
                     found.append((review, comments, asks, described(told, review.git, review.session)))
-        unwaited = unwaited_reviews(session)
+        # A command left waiting does not wake Codex (its hook input alone has a turn_id): its comments
+        # come with the prompt, so it is not told to start one.
+        unwaited = [] if 'turn_id' in data else unwaited_reviews(session)
         if not found and not unwaited:
             return
         context = '\n\n'.join([text for *_, text in found] + unwaited)
@@ -2658,7 +2661,7 @@ def post(h, path, body):
 
 def main():
     parser = argparse.ArgumentParser(description='Review a Claude Code session\'s edits on a page.')
-    parser.add_argument('--session', default=os.environ.get('CLAUDE_CODE_SESSION_ID', ''))
+    parser.add_argument('--session', default=os.environ.get('CLAUDE_CODE_SESSION_ID') or os.environ.get('CODEX_THREAD_ID', ''))
     parser.add_argument('--port', type=int)
     parser.add_argument('--prompt-hook', action='store_true')
     parser.add_argument('--wait', action='store_true')

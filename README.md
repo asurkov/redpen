@@ -2,11 +2,12 @@
 
 Review of what a coding agent changed, change by change: accept, reject, revisit, comment, with the
 comments handed back to the agent. Written for Claude Code and packaged as its skill (`SKILL.md`), kept in
-`~/.claude/skills/redpen`; [what ties it to Claude Code](#what-is-tied-to-claude-code) is below.
+`~/.claude/skills/redpen`; [what ties it to Claude Code](#what-is-tied-to-claude-code) is below. `code/`
+runs in Codex too, with its own skill and hooks in `codex/` ([code/ in Codex](#code-in-codex)).
 
 | Part | What it reviews | Where |
 |---|---|---|
-| `code/` | the file edits of an agent's session | a local page, shown in the Claude desktop app's Browser pane; Cursor |
+| `code/` | the file edits of an agent's session | a local page, shown in the Claude desktop app's Browser pane or Codex's in-app browser; Cursor |
 | `prose/` | the changes to a repo's documents: Markdown, ReSpec specs, a GitHub PR | a local page; its own skill, `/docdiff` |
 
 `base/` is what the two share: so far the server, one for both parts' pages (127.0.0.1:7878), with one
@@ -19,16 +20,16 @@ before the session's first edit), and `prose/` reviews what git has. The ends ar
 
 | | `code/` | `prose/` |
 |---|---|---|
-| What records the changes | `recorder.py`, a Claude Code hook on its edit tools, and on its shell commands for what they change in a git work tree | nothing: git has them |
-| How a comment reaches the agent | `review.py --wait`, a command the skill has Claude keep waiting: a comment is handed over as it is made; else `review.py --prompt-hook`, a Claude Code hook, with the user's next message | `base/channel.py --wait`, a command the skill has Claude keep waiting on the review's `revisit.jsonl` |
-| Where the state is kept | `~/.redpen/code/<session>/`, under Claude Code's session id | `~/.docdiff/<name>/` |
+| What records the changes | `recorder.py`, a Claude Code or Codex hook on its edit tools (Codex's `apply_patch`), and on its shell commands for what they change in a git work tree | nothing: git has them |
+| How a comment reaches the agent | `review.py --wait`, a command the skill has Claude keep waiting: a comment is handed over as it is made; else `review.py --prompt-hook`, a Claude Code or Codex hook, with the user's next message | `base/channel.py --wait`, a command the skill has Claude keep waiting on the review's `revisit.jsonl` |
+| Where the state is kept | `~/.redpen/code/<session>/`, under Claude Code's session id or Codex's thread id | `~/.docdiff/<name>/` |
 
 `review.py --git` needs neither end to show a page: it reviews a git work tree against a commit, whoever
 changed the files (`~/.redpen/code/git-<…>/`).
 
-For another agent those ends have to be written: something that saves a file's text before the agent's
-first edit to it, which does not exist yet, and a way to hand the agent a comment: `base/channel.py
---wait` prints them for any agent that can keep a command running.
+Codex's ends are written: [code/ in Codex](#code-in-codex). For another agent they have to be: a hook
+that saves a file's text before the agent's first edit to it, and a way to hand the agent a comment:
+`base/channel.py --wait` prints them for any agent that can keep a command running.
 
 ## code/
 
@@ -357,6 +358,60 @@ claude plugin install redpen@redpen --scope user
 `claude plugin uninstall redpen@redpen` removes it. Its tests: `claude plugin test
 ~/.claude/skills/redpen/code/mod`.
 
+## code/ in Codex
+
+`codex/` is redpen's skill for Codex (`codex/SKILL.md`) and its hooks (`codex/hooks.json`), for Codex
+0.167 on, in the CLI and the desktop app. Codex hands its hooks Claude Code's hook input, so the same
+`recorder.py` and `review.py --prompt-hook` are its hooks. What differs:
+
+- Codex edits files with one tool, `apply_patch`. The recorder reads the files a patch adds, updates,
+  deletes and moves to from its `*** Add File:`, `*** Update File:`, `*** Delete File:` and
+  `*** Move to:` lines, paths from the call's folder, and records each as an Edit's. Its shell commands
+  come as `Bash`, as Claude Code's do. A call is Codex's by the `turn_id` only its hook input has.
+- The session is the Codex thread. `review.py` and `cursor.py` take its id from `$CODEX_THREAD_ID` when
+  `$CLAUDE_CODE_SESSION_ID` is not set (it is, in a Codex started from a Claude Code session: pass
+  `--session` there). The record's title is the thread's name in `~/.codex/session_index.jsonl`, else
+  "Codex session".
+- A comment reaches Codex with the user's next message, by the prompt hook, or while a turn waits on
+  `review.py --wait`. A command left running does not wake Codex when it ends, so the hook does not tell
+  Codex to start one. `codex queue --thread <id> --message …` keeps a message for a thread but sends it
+  only once the thread is resumed (`--resume` needs a local daemon), so redpen does not push comments
+  with it.
+- Codex's workspace-write sandbox stops `review.py`: it writes `~/.redpen` and reaches 127.0.0.1:7878.
+  The skill has Codex run it outside the sandbox, which Codex asks you to approve each time, unless a rule
+  allows it (below).
+- Nothing stands for the mod: no row above the prompt, no review opened as a turn ends, no overview
+  written unasked (Describe asks Codex through the comments).
+
+Setup, from a terminal (it changes Codex's config, so it is yours to run). The hooks, or, with hooks of
+your own in that file, their three entries merged into it:
+
+```bash
+cp ~/.claude/skills/redpen/codex/hooks.json ~/.codex/hooks.json
+```
+
+The skill, where Codex finds a user's skills:
+
+```bash
+mkdir -p ~/.agents/skills && ln -s ~/.claude/skills/redpen/codex ~/.agents/skills/redpen
+```
+
+The rules that let `review.py` and `cursor.py` run outside the sandbox without asking, as the skill
+writes them and as Codex may spell them:
+
+```bash
+cat >> ~/.codex/rules/default.rules <<EOF
+prefix_rule(pattern=["python3", "~/.claude/skills/redpen/code/review.py"], decision="allow")
+prefix_rule(pattern=["python3", "$HOME/.claude/skills/redpen/code/review.py"], decision="allow")
+prefix_rule(pattern=["python3", "~/.claude/skills/redpen/code/cursor.py"], decision="allow")
+prefix_rule(pattern=["python3", "$HOME/.claude/skills/redpen/code/cursor.py"], decision="allow")
+EOF
+```
+
+Then trust the hooks once: Settings → Hooks in the desktop app, `/hooks` in the CLI; a change to the file
+asks again. `codex execpolicy check --rules ~/.codex/rules/default.rules -- python3
+~/.claude/skills/redpen/code/review.py` says whether a command matches the rules.
+
 ## The server
 
 `base/server.py` is one server for both parts, on `127.0.0.1:7878`: the review pages under `/code/`,
@@ -375,7 +430,7 @@ server".
 ## The record
 
 `code/recorder.py` runs as a PreToolUse and PostToolUse hook on Edit|Write|MultiEdit|NotebookEdit|Bash (set in
-`~/.claude/settings.json`) and records every session's edits as they happen in
+`~/.claude/settings.json`), and in Codex on apply_patch|Bash (`~/.codex/hooks.json`), and records every session's edits as they happen in
 `~/.redpen/code/<session>/`: `session.json` (title, time of the last edit), `files/<key>.json` (the
 path, whether the session created the file, whether it is a link, and whether it was executable
 before the session and as accepted) and `base/<key>` (the file's baseline: its text before

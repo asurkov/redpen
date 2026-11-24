@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Show a Claude Code session's edits in Cursor as Cursor's own inline diffs: red and green lines with
+"""Show a Claude Code or Codex session's edits in Cursor as Cursor's own inline diffs: red and green lines with
 Accept and Reject, as if Cursor's agent had made them.
 
 Usage: cursor.py [--session ID] [--workspace ID] [--clear]
@@ -14,10 +14,10 @@ last when several do; --workspace ID picks one instead. Skipped: files whose old
 files no longer on disk or outside every workspace, and files Cursor holds a pending diff of its own for.
 A diff this script wrote earlier for the same file is replaced.
 
-Files the session edited before the hooks were installed are added to the record first, with their text
-from Claude Code's file history.
+Files a Claude Code session edited before the hooks were installed are added to the record first, with
+their text from Claude Code's file history.
 
---session defaults to $CLAUDE_CODE_SESSION_ID. --clear removes the diffs this script wrote in those
+--session defaults to $CLAUDE_CODE_SESSION_ID, else $CODEX_THREAD_ID. --clear removes the diffs this script wrote in those
 workspaces, for every session, and writes nothing. REDPEN_CURSOR_USER_DIR names another Cursor user data
 directory (default ~/Library/Application Support/Cursor/User), such as a test profile's.
 """
@@ -31,15 +31,13 @@ PREFIX = 'claude-'
 
 
 def transcript_of(session):
-    transcript = next(HOME.glob(f'.claude/projects/*/{session}.jsonl'), None)
-    if transcript is None:
-        sys.exit(f'no transcript for session {session}')
-    return transcript
+    """The Claude Code session's transcript; None for a Codex session's id."""
+    return next(HOME.glob(f'.claude/projects/*/{session}.jsonl'), None)
 
 
-def tracked_files(session):
-    """Each file the session edited, with its old text: None for a file the session created."""
-    transcript = transcript_of(session)
+def tracked_files(session, transcript):
+    """Each file the Claude Code session edited, by its file history, with its old text: None for a file
+    the session created."""
     first = {}
     with open(transcript) as f:
         for line in f:
@@ -102,7 +100,7 @@ def lines(data):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    ap.add_argument('--session', default=os.environ.get('CLAUDE_CODE_SESSION_ID'))
+    ap.add_argument('--session', default=os.environ.get('CLAUDE_CODE_SESSION_ID') or os.environ.get('CODEX_THREAD_ID'))
     ap.add_argument('--workspace')
     ap.add_argument('--clear', action='store_true')
     args = ap.parse_args()
@@ -120,10 +118,12 @@ def main():
         return
 
     if not args.session:
-        sys.exit('no --session and no $CLAUDE_CODE_SESSION_ID')
-    for path, old in tracked_files(args.session):
-        recorder.record(args.session, path, old)
-    recorder.touch(args.session, transcript_of(args.session))
+        sys.exit('no --session, $CLAUDE_CODE_SESSION_ID or $CODEX_THREAD_ID')
+    transcript = transcript_of(args.session)
+    if transcript:
+        for path, old in tracked_files(args.session, transcript):
+            recorder.record(args.session, path, old)
+        recorder.touch(args.session, transcript)
     files = list(recorder.recorded(args.session))
     written = {}
     for path, old in files:

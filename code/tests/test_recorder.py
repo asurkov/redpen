@@ -25,6 +25,25 @@ class EditCalls(unittest.TestCase):
         hook('post', who, top, 'Write', {'file_path': str(top / 'new.py')})
         self.assertEqual(recorded(who), {'new.py': (True, None, False)})
 
+    def test_a_codex_patch_records_each_file_it_adds_updates_moves_and_deletes(self):
+        top, who = repo({'a.py': 'one\n', 'old.py': 'o\n', 'gone.py': 'g\n'}), session()
+        index = scratch.home / '.codex/session_index.jsonl'
+        index.parent.mkdir(exist_ok=True)
+        with open(index, 'a') as f:
+            for name in ('First name', 'Renamed'):
+                f.write(json.dumps({'id': who, 'thread_name': name}) + '\n')
+        patch = ('*** Begin Patch\n*** Add File: new.py\n+n\n*** Update File: a.py\n@@\n-one\n+two\n'
+                 '*** Update File: old.py\n*** Move to: moved.py\n@@\n o\n*** Delete File: gone.py\n*** End Patch')
+        # As Codex sends it: the patch as the call's command, with a turn_id and no transcript.
+        codex = {'turn_id': 'turn', 'transcript_path': None}
+        hook('pre', who, top, 'apply_patch', {'command': patch}, **codex)
+        write(top, {'new.py': 'n\n', 'a.py': 'two\n', 'old.py': None, 'moved.py': 'o\n', 'gone.py': None})
+        hook('post', who, top, 'apply_patch', {'command': patch}, **codex)
+        self.assertEqual(recorded(who), {'new.py': (True, None, False), 'a.py': (False, 'one\n', False),
+                                         'old.py': (False, 'o\n', False), 'moved.py': (True, None, False),
+                                         'gone.py': (False, 'g\n', False)})
+        self.assertEqual(json.loads((store / who / 'session.json').read_text())['title'], 'Renamed')
+
 
 class ShellCommands(unittest.TestCase):
     def test_a_command_that_only_reads_is_not_watched(self):

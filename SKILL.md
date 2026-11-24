@@ -129,3 +129,6 @@ many files, and any skips. `--workspace <id>` picks the workspace, `--session <i
   `python3 -I ~/.claude/skills/redpen/base/server.py --restart`. Its log is `~/.redpen/server.log`.
 - The mod reaches an open session with `/reload-plugins`, the Cursor extension with `install.py` and a
   window reload; installing either is the user's to do (README, "Setup").
+- `codex/SKILL.md` is this skill for Codex: a change to how the page or its commands are used goes into
+  both. A change to `codex/hooks.json` reaches Codex once the user copies it and trusts it again (README,
+  "code/ in Codex").

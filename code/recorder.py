@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Record the files a Claude Code session edits, for review on redpen's page and in Cursor.
+"""Record the files a Claude Code or Codex session edits, for review on redpen's page and in Cursor.
 
 Usage: recorder.py pre|post
        recorder.py prune [DAYS] [--dry-run]   delete the records nothing was done in for DAYS (30)
 
-pre and post run as PreToolUse and PostToolUse hooks on Edit|Write|MultiEdit|NotebookEdit|Bash and read
-the hook's JSON on stdin. Each session's record is in ~/.redpen/code/<session>/:
+pre and post run as PreToolUse and PostToolUse hooks on Edit|Write|MultiEdit|NotebookEdit|Bash (Claude
+Code) or apply_patch|Bash (Codex) and read the hook's JSON on stdin. Each session's record is in
+~/.redpen/code/<session>/:
 
-  session.json      {session, title, updated}, rewritten after every edit
+  session.json      {session, title, updated, agent}, rewritten after every edit; agent: Claude or
+                    Codex, whom the review's pages name
   files/<key>.json  {path, new, link?, executable?}: a file the session edited; new when the session
                     created it; link for a change to a link itself; executable: {orig, base},
                     whether it was executable before the session and as accepted
@@ -692,15 +694,21 @@ def prune_daily(session):
     prune(kept={session})
 
 
-def touch(session, transcript):
-    """Rewrites session.json with the session's current title and the time now."""
+def touch(session, transcript, is_codex=False):
+    """Rewrites session.json with the session's current title and the time now; is_codex for a Codex
+    session, whose hook input alone has a turn_id."""
     info = store / session / 'session.json'
     previous = read_json(info, {})
-    title = desktop_title(transcript) or previous.get('title') or first_prompt(transcript) or 'Claude session'
+    if is_codex:
+        title = codex_title(session) or previous.get('title') or 'Codex session'
+    else:
+        title = desktop_title(transcript) or previous.get('title') or first_prompt(transcript) or 'Claude session'
     write_atomic(info, json.dumps({
         'session': session,
         'title': title,
         'updated': now(),
+        # Who the review's pages name as the one comments go to and answers come from.
+        'agent': 'Codex' if is_codex else 'Claude',
     }, indent=1).encode())
 
 
@@ -719,6 +727,25 @@ def desktop_title(transcript):
                 return json.loads(line).get('customTitle')
             except ValueError:
                 continue
+    return None
+
+
+def codex_title(session):
+    """The name Codex shows for the thread: its last entry in Codex's session index, which a rename
+    appends to."""
+    index = pathlib.Path(os.environ.get('CODEX_HOME') or home / '.codex') / 'session_index.jsonl'
+    try:
+        lines = index.read_bytes().split(b'\n')
+    except OSError:
+        return None
+    for line in reversed(lines):
+        if session.encode() in line:
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if entry.get('id') == session and entry.get('thread_name'):
+                return entry['thread_name']
     return None
 
 
@@ -770,24 +797,36 @@ def main():
         if sys.argv[1] == 'pre':
             stage_shell(session, data, name)
         elif commit_shell(session, name, agent):
-            touch(session, data.get('transcript_path', ''))
+            touch(session, data.get('transcript_path') or '', 'turn_id' in data)
         if sys.argv[1] == 'post' and committing.search(tool_input.get('command') or ''):
             checkpoint_soon(session)
         return
-    path = tool_input.get('file_path') or tool_input.get('notebook_path')
-    if not path:
-        return
-    path = os.path.normpath(os.path.join(data.get('cwd', '/'), path))
+    paths = edited_paths(data.get('tool_name'), tool_input, data.get('cwd') or '/')
     if sys.argv[1] == 'pre':
-        note_outside(session, path)
-        stage(session, path)
+        for path in paths:
+            note_outside(session, path)
+            stage(session, path)
         return
-    commit(session, path)
-    if (store / session / 'files' / f'{key(path)}.json').exists():
-        keep_after(session, path)
-        if agent:
-            note_agent(session, path, agent)
-        touch(session, data.get('transcript_path', ''))
+    is_recorded = False
+    for path in paths:
+        commit(session, path)
+        if (store / session / 'files' / f'{key(path)}.json').exists():
+            keep_after(session, path)
+            if agent:
+                note_agent(session, path, agent)
+            is_recorded = True
+    if is_recorded:
+        touch(session, data.get('transcript_path') or '', 'turn_id' in data)
+
+
+def edited_paths(tool, tool_input, cwd):
+    """The files an edit call writes, absolute: an Edit's or a Write's one, or each one a Codex patch
+    (apply_patch) adds, updates, deletes or moves to, a moved file's old path among them."""
+    if tool == 'apply_patch':
+        names = re.findall(r'^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$', tool_input.get('command') or '', re.M)
+    else:
+        names = [tool_input.get('file_path') or tool_input.get('notebook_path')]
+    return list(dict.fromkeys(os.path.normpath(os.path.join(cwd, name.strip())) for name in names if name))
 
 
 if __name__ == '__main__':
