@@ -77,6 +77,17 @@ class ShellCommands(unittest.TestCase):
         # Theirs, and marked: their command does not name it either.
         self.assertEqual(recorded(theirs), {'b.py': (False, 'b\n', True)})
 
+    def test_a_change_my_command_names_is_mine_while_another_sessions_command_runs(self):
+        top, mine, theirs = repo({'a.py': 'a\n', 'b.py': 'b\n'}), session(), session()
+        # Their long command runs (a test suite, say); mine, a script on its input, writes b.py meanwhile.
+        hook('pre', theirs, top, 'Bash', {'command': 'python3 -c pass'}, 't1')
+        time.sleep(0.02)
+        shell(mine, top, "python3 - <<'EOF'\nopen('b.py', 'w').write('B\\n')\nEOF\n", 'm1')
+        self.assertEqual(recorded(mine), {'b.py': (False, 'b\n', False)})
+        # Theirs ends after: b.py is mine, as my record left it.
+        hook('post', theirs, top, 'Bash', {'command': 'python3 -c pass'}, 't1')
+        self.assertEqual(recorded(theirs), {})
+
     def test_a_command_cut_short_in_another_session_runs_no_more(self):
         top, mine, theirs = repo({'a.py': 'a\n'}), session(), session()
         # Their command was cut short an hour and more ago: its post hook never came.

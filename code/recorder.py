@@ -335,8 +335,9 @@ def commit_shell(session, name, agent=None):
             if kind != 'gone' and is_others_edit(session, path, began):
                 continue
             # Changed while another session's command ran in the tree, by a command of this one that names no
-            # path there: that command's, whose own record takes it once it ends.
-            if not kept['paths'] and is_others_running(running, top, path):
+            # path there: that command's, whose own record takes it once it ends; unless this one names the
+            # file all the same (a script given on its input, say), and it is this one's.
+            if not kept['paths'] and os.path.basename(path) not in command and is_others_running(running, top, path):
                 continue
             touched.add(path)
             if (store / session / 'files' / f'{key(path)}.json').exists():
