@@ -845,6 +845,10 @@ body.listHidden #splitter {
   border-left: 1px solid var(--line);
 }
 
+.offerRow button.goOn {
+  padding: 1px 6px;
+}
+
 .commentBox {
   display: flex;
   flex-direction: column;

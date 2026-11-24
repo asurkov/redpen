@@ -598,18 +598,26 @@ export class DiffView {
     for (const name of ['mousedown', 'pointerdown']) {
       bar.addEventListener(name, event => event.stopPropagation());
     }
-    for (const [action, label, key] of this.changeActions) {
-      const made = button(bar, label, () => this.handlers.act(action, spans(change)));
-      if (key) {
-        made.dataset.key = key;
-        // Beside the action its key carries out: the same, then on to the next change, as Space does.
-        const goingOn = button(bar, '↓', () => this.handlers.act(action, spans(change), true), 'goOn');
-        goingOn.title = `${label}, then on to the next change (Space)`;
-        goingOn.dataset.key = '␣';
-      }
-    }
+    this.actionButtons(bar, spans(change), true);
     button(bar, 'Comment', () => this.openBox(this.changeTarget(change)), 'quiet').dataset.key = 'r';
     return zone;
+  }
+
+  // A button for each action on the spans; beside the one a key carries out, ↓: the same, then on
+  // to the next change, as Space does. isKeyShown: the current bar shows the keys after the words.
+  actionButtons(parent, spansActed, isKeyShown) {
+    for (const [action, label, key] of this.changeActions) {
+      const made = button(parent, label, () => this.handlers.act(action, spansActed));
+      if (key) {
+        made.title = `${label} (${key})`;
+        const goingOn = button(parent, '↓', () => this.handlers.act(action, spansActed, true), 'goOn');
+        goingOn.title = `${label}, then on to the next change (Space)`;
+        if (isKeyShown) {
+          made.dataset.key = key;
+          goingOn.dataset.key = '␣';
+        }
+      }
+    }
   }
 
   // What a comment on the whole change is on: its lines in the text shown, or, for removed lines
@@ -658,8 +666,8 @@ export class DiffView {
     const row = node.appendChild(document.createElement('div'));
     row.className = 'offerRow';
     const selected = this.selectedSpans();
-    for (const [action, label] of selected.length ? this.changeActions : []) {
-      button(row, label, () => this.handlers.act(action, selected));
+    if (selected.length) {
+      this.actionButtons(row, selected, false);
     }
     button(row, 'Comment', () => this.openBox(target));
     const { lineNumber, column } = this.shown.getSelection().getPosition();

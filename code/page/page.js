@@ -945,8 +945,14 @@ function stepThread(direction) {
 // the current change's own action and stays, Space that and on to the next change; r opens a comment on the selected text, or else on that change; t and Shift+t step through the
 // threads; d shows or hides All's diff; Cmd+Z (Ctrl+Z) undoes the last Accept or Reject, Cmd+Shift+Z
 // redoes it.
+// Whether the focus came by Tab, not by a pointer: the keys show where it is.
+let isFocusTabbed = false;
+
 function takeKey(event) {
   const key = (event.altKey ? 'Alt+' : '') + event.key;
+  if (event.key === 'Tab') {
+    isFocusTabbed = true;
+  }
   // A letter typed into a field is the field's; the editor's own text is no such field.
   const isTyped = !event.altKey && event.target.closest?.('input, textarea') && !diffView.hasTextFocus();
   const isOpen = state.key || state.plain;
@@ -967,6 +973,10 @@ function takeKey(event) {
     return;
   } else if (steps[key]) {
     step(steps[key]);
+  } else if (key === ' ' && isFocusTabbed && event.target.matches?.('button, summary, a[href], [role=button]')) {
+    // A button or a folder reached by Tab takes Space as its own press; one clicked keeps the focus,
+    // and Space still accepts.
+    return;
   } else if (key === 'a' || key === ' ') {
     // One press, one change: a key held down does not go on accepting. Space then goes on to the next.
     if (state.isText && !event.repeat) {
@@ -1914,6 +1924,7 @@ async function main() {
   byId('nextBlock').addEventListener('click', () => stepBlock('next'));
   byId('waitingButton').addEventListener('click', () => (byId('waitingList').hidden = !byId('waitingList').hidden));
   document.addEventListener('keydown', takeKey, true);
+  document.addEventListener('pointerdown', () => (isFocusTabbed = false), true);
   await queued(refresh);
   // A page loaded again goes back where it was, its link taken already; else a link into it opens
   // what it names.
