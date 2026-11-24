@@ -139,6 +139,14 @@ export class DiffView {
       this.dropWidget('offer');
       this.offerTimer = setTimeout(() => this.offerComment(), 250);
     });
+    // The browser scrolls the editor's own layers to show what a widget focuses (a thread drawn in
+    // place of a comment box, say); the editor puts the vertical scroll back alone, and the text would
+    // stay shifted sideways. Nothing of the editor's scrolls natively: it goes back.
+    element.addEventListener('scroll', event => {
+      if (event.target.scrollLeft && event.target.matches?.('.editor-scrollable, .overflow-guard, .lines-content')) {
+        event.target.scrollLeft = 0;
+      }
+    }, true);
   }
 
   // Shows the two texts of the file at path. changeActions: [action, label, key] for each change's
