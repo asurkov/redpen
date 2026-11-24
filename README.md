@@ -213,7 +213,8 @@ than guessed; a [git review](#a-git-review) shows a work tree's every change.
   recorder does not follow) shows as the session's. Such a file says **edited elsewhere**, in the
   list and the file bar, from the moment it differs from how the session's last edit (or the page's
   Reject) left it, for good once the session edits it again; Reject's tooltip warns that it undoes
-  those changes too. But once all of the session's changes to a file are accepted (or committed: the
+  those changes too. In Pending, a file with nothing pending does not say it (a formatter or a commit
+  hook touched it since its review was done); Accepted and All, whose diffs show those changes, do. But once all of the session's changes to a file are accepted (or committed: the
   text its last edit left is HEAD's), a change since holds none of the session's, each time until the
   session edits it again: the page takes the file's text as its baseline (it shows under Unchanged,
   edited elsewhere, the text it took at marked in the record's `review/taken/`), the row above the

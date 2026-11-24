@@ -616,7 +616,7 @@ async function show(key, place) {
   const endingsChange = endings.every(Boolean) && endings[0] !== endings[1] && !isEndingsOnly
     ? [Object.assign(span('state mode', `${endings[0]} → ${endings[1]}`), { title: 'The line endings changed too: the diff compares lines, not how they end' })]
     : [];
-  byId('fileCounts').replaceChildren(...endingsChange, ...modeChange(file, state.view), ...editedElsewhere(file), ...counts(file[state.view]));
+  byId('fileCounts').replaceChildren(...endingsChange, ...modeChange(file, state.view), ...editedElsewhere(file, state.view), ...counts(file[state.view]));
   byId('fileActions').replaceChildren();
   if (isShown && state.view === 'all') {
     const diff = button(byId('fileActions'), 'Diff', toggleAllDiff, `quiet${state.isAllDiffShown ? ' chosen' : ''}`);
@@ -1023,9 +1023,10 @@ function endingsOf(text) {
 }
 
 // A session's file changed since its last edit by someone or something else: its diff shows those
-// changes as the session's.
-function editedElsewhere(file) {
-  if (!file.isEditedElsewhere) {
+// changes as the session's. Not in Pending where nothing of the file is pending: its review is done, and
+// the tag would only stand on files a formatter or a commit hook touched since.
+function editedElsewhere(file, view) {
+  if (!file.isEditedElsewhere || view === 'pending' && !file.pending) {
     return [];
   }
   const made = span('state again', 'edited elsewhere');
@@ -1217,7 +1218,7 @@ function drawList() {
     if (file.isLink) {
       made.appendChild(span('state', 'link')).title = 'A symbolic link: its change is where it points, accepted or rejected whole';
     }
-    made.append(...modeChange(file, isFaded ? 'all' : state.view), ...editedElsewhere(file));
+    made.append(...modeChange(file, isFaded ? 'all' : state.view), ...editedElsewhere(file, state.view));
     if (file.isGone || file.isNew) {
       made.append(span('state', file.isGone ? 'gone' : 'new'));
     }
