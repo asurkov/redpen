@@ -67,8 +67,9 @@ than guessed; a [git review](#a-git-review) shows a work tree's every change.
 - **A patch.** `review.py --scope <paths>` scopes a session's review to a patch of its work, the files
   Claude names for it (relative paths from the folder it runs in), its overview and Commit too; the header
   then says "Patch · N files · show all", a click on it the whole again (`--scope` with none does as much).
-  A named file the record lacks, a change the recorder did not see, is taken in, its last committed text its
-  baseline. A file with hunks of two patches shows whole.
+  A named file the record lacks, a change the recorder did not see, is taken in: its text when the session
+  began (at the commit HEAD was at then) is its old text, and what a commit since took of it is accepted, as
+  for the recorded files. A file with hunks of two patches shows whole.
 - **Commit**, in the header of a session's review, opens a drawer: by git work tree, the session's files
   to commit, ticked (nothing of them pending, their text not HEAD's; a moved file with its old place),
   those left out and why (still to review, edited elsewhere), and the message. The Claude Code mod drafts

@@ -727,8 +727,11 @@ class Commit(unittest.TestCase):
         self.assertEqual(done['commit'], git(self.top, 'rev-parse', '--short=10', 'HEAD').strip())
         self.assertEqual(git(self.top, 'show', '--name-only', '--format=', 'HEAD').split(), ['a.py'])
         self.assertEqual(git(self.top, 'diff', '--cached', '--name-only').split(), ['other.py'])
-        # Committed, a.py is no more to commit.
+        # Committed, a.py is no more to commit; nor, committed as it reads, once someone changed it since.
         self.assertEqual(self.tree()['files'], [])
+        write(self.top, {'a.py': 'A1 theirs\n'})
+        git(self.top, 'commit', '-qm', 'theirs', 'a.py')
+        self.assertEqual([os.path.basename(f['path']) for f in self.tree()['left']], ['b.py'])
 
     def test_files_the_page_did_not_show_or_no_message_are_refused(self):
         top = self.tree()['top']
@@ -777,7 +780,7 @@ class Scope(unittest.TestCase):
         kept, missed = self.rv.set_scope([f'{self.top}/a.py', f'{self.top}/c.py', f'{self.top}/d.py', f'{self.top}/nope.py'])
         self.assertEqual([os.path.basename(path) for path in kept], ['a.py', 'c.py'])
         self.assertEqual([(os.path.basename(path), why) for path, why in missed],
-                         [('d.py', 'the same as at HEAD'), ('nope.py', 'no file the session could have changed there')])
+                         [('d.py', 'no change since the session began'), ('nope.py', 'no file the session could have changed there')])
         files = listed(self.rv)
         self.assertEqual((set(files), counts(files['c.py']), self.rv.listing()['scope']), ({'a.py', 'c.py'}, (1, 1), 2))
         # Commit offers the patch alone, once accepted.
@@ -785,10 +788,20 @@ class Scope(unittest.TestCase):
             key = files[name]['key']
             self.rv.apply(key, 'accept', None, scratch.expected(self.rv, key, 'accept'))
         tree = self.rv.commit_plan()['trees'][0]
-        self.assertEqual(([os.path.basename(f['path']) for f in tree['files']], tree['left']), (['a.py', 'c.py'], []))
+        self.assertEqual(({os.path.basename(f['path']) for f in tree['files']}, tree['left']), ({'a.py', 'c.py'}, []))
         # No paths: the whole review again.
         self.rv.set_scope([])
         self.assertEqual(set(listed(self.rv)), {'a.py', 'b.py', 'c.py'})
+
+    def test_a_missed_change_committed_since_the_session_began_shows_as_accepted(self):
+        # The patch went out in a commit, after the session's first edit, before it was scoped.
+        time.sleep(1.1)
+        write(self.top, {'c.py': 'C1\n'})
+        git(self.top, 'commit', '-qm', 'c', 'c.py')
+        kept, missed = self.rv.set_scope([f'{self.top}/a.py', f'{self.top}/c.py'])
+        self.assertEqual((len(kept), missed), (2, []))
+        file = listed(self.rv)['c.py']
+        self.assertEqual((file['pending'], counts(file, 'accepted')), (None, (1, 1)))
 
 
 class AgentFiles(unittest.TestCase):

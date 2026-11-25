@@ -1512,29 +1512,43 @@ class Review:
     def set_scope(self, paths):
         """Scopes the session's review, its overview and its Commit, to the paths given, absolute: a patch of
         its work. One the record has not, a change of the session's the recorder did not see (a script's in a
-        large tree, say), is taken in as the recorder takes a shell command's, its last committed text its
-        baseline: naming it says it is the patch's, and its whole diff shows. No paths: the whole review again.
+        large tree, say), is taken in as the recorder takes a shell command's: its text when the session began
+        (at the commit HEAD was at then) the one before the session, what a commit since took of it accepted, as
+        the recorded files' is; naming it says it is the patch's, and its whole diff shows. No paths: the whole
+        review again.
         Returns the paths kept and those not, each with why."""
         if self.git:
             raise Refusal(400, "A git review is of a work tree's every change: scope a session's.")
-        kept, missed = [], []
+        kept, missed, starts = [], [], {}
+        # When the session began, as near as its record says: its first recorded edit's time.
+        began = int(min((entry.stat().st_mtime for entry in (self.record / 'files').glob('*.json')), default=time.time()))
         for path in dict.fromkeys(os.path.realpath(path) for path in paths):
             if (self.record / 'files' / f'{key(path)}.json').exists():
                 kept.append(path)
                 continue
             top = repository_top(existing_folder(path))
-            old = recorder().committed(top, path) if top else None
-            is_there = os.path.lexists(path)
-            if not top or old is None and not is_there:
+            if not top:
+                missed.append((path, 'in no git work tree'))
+                continue
+            # Its text when the session began, and at HEAD: what a commit since took of it is accepted, as the
+            # recorded files' is.
+            if top not in starts:
+                starts[top] = (git(top, 'rev-list', '-1', f'--before={began}', 'HEAD') or b'').decode().strip() or 'HEAD'
+            name = os.path.relpath(path, top)
+            then, at_head = committed_text(top, starts[top], name), committed_text(top, 'HEAD', name)
+            disk = (link_mark + os.readlink(path).encode() if os.path.islink(path) else
+                    read_bytes(pathlib.Path(path)) if os.path.exists(path) else None)
+            if then is None and disk is None:
                 missed.append((path, 'no file the session could have changed there'))
                 continue
-            if old is not None and is_there and not os.path.islink(path) and read_bytes(pathlib.Path(path)) == old[0]:
-                missed.append((path, 'the same as at HEAD'))
+            if then == disk:
+                missed.append((path, 'no change since the session began'))
                 continue
-            if old is None:
-                recorder().record(self.session, path, None, os.path.islink(path))
-            else:
-                recorder().record(self.session, path, old[0], old[1], old[2])
+            recorder().record(self.session, path, then, os.path.islink(path) or (then or b'').startswith(link_mark))
+            k = key(path)
+            write_atomic(self.folder / 'orig' / (f'{k}.none' if then is None else k), then or b'')
+            if at_head != then:
+                self.write(k, self.file(k), 'base', at_head)
             recorder().keep_after(self.session, path)
             kept.append(path)
         if kept:
@@ -1558,14 +1572,15 @@ class Review:
             if not top:
                 continue
             tree = trees.setdefault(top, {'top': top, 'files': [], 'left': []})
+            # Committed as it reads: nothing to commit, nor to say of it.
+            file = self.file(listed['key'])
+            place = self.places(listed['key'], file)['disk']
+            if not listed['movedFrom'] and self.head_hash(file, heads) == self.disk_hash(file, place, signature(place)):
+                continue
             why = ('still to review' if listed['pending'] else
                    "edited elsewhere: it may hold changes not the session's" if listed.get('isEditedElsewhere') else None)
             if why:
                 tree['left'].append({'path': listed['path'], 'why': why})
-                continue
-            file = self.file(listed['key'])
-            place = self.places(listed['key'], file)['disk']
-            if not listed['movedFrom'] and self.head_hash(file, heads) == self.disk_hash(file, place, signature(place)):
                 continue
             tree['files'].append({'path': listed['path'], 'movedFrom': listed['movedFrom'], 'isNew': listed['isNew'],
                                   'isGone': listed['isGone'], 'all': listed['all']})

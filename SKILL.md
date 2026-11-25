@@ -109,8 +109,9 @@ files and open the page it prints:
 python3 ~/.claude/skills/redpen/code/review.py --scope <path> ...
 ```
 
-Relative paths read from the folder it runs in. A file of the patch the recorder did not see is taken in, its
-last committed text its baseline; a file it cannot take, it names. The review, its overview and Commit then
+Relative paths read from the folder it runs in. A file of the patch the recorder did not see is taken in, from
+its text when the session began, what a commit since took of it shown accepted; a file it cannot take, it
+names. The review, its overview and Commit then
 cover the patch alone; `--scope` with no paths shows the whole work again. A file holding hunks of two
 patches shows whole: tell the user which of its hunks are this patch's.
 
