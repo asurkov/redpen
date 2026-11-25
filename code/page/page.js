@@ -348,6 +348,8 @@ async function refresh() {
   state.delivery = listing.delivery;
   diffView.delivery = listing.delivery;
   state.agent = listing.agent || 'Claude';
+  // Commit, for a session's review with changes of its work: a git review's are anyone's.
+  byId('commitButton').hidden = Boolean(listing.isGit) || !listing.files.some(file => !file.isOther && file.all);
   diffView.agent = state.agent;
   byId('describeButton').title = `Ask ${state.agent} to describe the changes`;
   byId('overviewButton').title = `Overview: the changes by purpose, as ${state.agent} describes them, each part a way to its code`;
@@ -1442,6 +1444,127 @@ async function drawJournal() {
   byId('journal').replaceChildren(...rows);
 }
 
+// Commit: what of the session's changes is accepted, by git work tree, the files ticked, those left out and
+// why, and the message, which the Claude Code mod drafts by a fork of the session once the drawer asks
+// (review.py --ask-commit). Commit commits the ticked files alone, with the message as it reads; Commit
+// and push pushes the branch too. The user's click is the commit's go-ahead: nothing commits without it.
+const commitState = { plan: null, messages: {}, unticked: new Set(), results: {}, askedAt: 0 };
+// How long the drawer waits for the drafted messages before it says to write them.
+const commitDraftMs = 180_000;
+
+async function openCommit() {
+  byId('commit').hidden = false;
+  byId('commitButton').classList.add('chosen');
+  commitState.results = {};
+  commitState.askedAt = Date.now();
+  try {
+    commitState.plan = await asked('/commit-ask', {});
+  } catch (error) {
+    byId('commitBody').replaceChildren(Object.assign(document.createElement('p'), { className: 'none', textContent: error.message }));
+    return;
+  }
+  renderCommit();
+  // The drafts come a while later, by the fork: each goes into its box where nothing was typed yet.
+  while (!byId('commit').hidden && Date.now() - commitState.askedAt < commitDraftMs &&
+         commitState.plan.trees.some(tree => tree.files.length && !tree.draft)) {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    if (byId('commit').hidden) {
+      return;
+    }
+    try {
+      commitState.plan = await asked('/commit');
+    } catch {
+      return;
+    }
+    for (const tree of commitState.plan.trees) {
+      const input = [...byId('commitBody').querySelectorAll('textarea')].find(box => box.dataset.top === tree.top);
+      if (input && tree.draft && commitState.messages[tree.top] === undefined && !input.value) {
+        input.value = tree.draft;
+      }
+    }
+  }
+  for (const input of byId('commitBody').querySelectorAll('textarea')) {
+    input.placeholder = 'The commit message';
+  }
+}
+
+function closeCommit() {
+  byId('commit').hidden = true;
+  byId('commitButton').classList.remove('chosen');
+}
+
+function renderCommit() {
+  const { plan } = commitState;
+  const parts = [];
+  if (!plan.trees.length) {
+    parts.push(Object.assign(document.createElement('p'), { className: 'none', textContent: "None of the session's changes is in a git work tree." }));
+  }
+  for (const tree of plan.trees) {
+    const section = document.createElement('section');
+    section.className = 'commitTree';
+    const head = section.appendChild(document.createElement('div'));
+    head.className = 'head';
+    head.title = tree.top;
+    head.append(nameOf(tree.top), span('dim', ` · ${tree.branch}`));
+    const shown = path => path.startsWith(`${tree.top}/`) ? path.slice(tree.top.length + 1) : path;
+    for (const file of tree.files) {
+      const label = section.appendChild(document.createElement('label'));
+      label.className = 'commitFile';
+      const box = label.appendChild(Object.assign(document.createElement('input'), { type: 'checkbox', checked: !commitState.unticked.has(file.path) }));
+      box.addEventListener('change', () => (box.checked ? commitState.unticked.delete(file.path) : commitState.unticked.add(file.path)));
+      const note = file.movedFrom ? ` (from ${shown(file.movedFrom)})` : file.isNew ? ' (new)' : file.isGone ? ' (deleted)' : '';
+      label.append(`${shown(file.path)}${note}`, span('dim', ` +${file.all.added} −${file.all.removed}`));
+    }
+    if (!tree.files.length) {
+      section.append(Object.assign(document.createElement('p'), { className: 'none', textContent: 'Nothing accepted here differs from the last commit.' }));
+    }
+    for (const left of tree.left) {
+      section.append(Object.assign(document.createElement('div'), { className: 'commitLeft', textContent: `Not ${shown(left.path)}: ${left.why}` }));
+    }
+    if (tree.files.length) {
+      const input = section.appendChild(document.createElement('textarea'));
+      input.dataset.top = tree.top;
+      input.value = commitState.messages[tree.top] ?? tree.draft ?? '';
+      input.placeholder = Date.now() - commitState.askedAt < commitDraftMs ? `${state.agent} drafts the message…` : 'The commit message';
+      input.addEventListener('input', () => (commitState.messages[tree.top] = input.value));
+      const foot = section.appendChild(document.createElement('div'));
+      foot.className = 'commitFoot';
+      const busy = commitState.results[tree.top]?.isBusy;
+      button(foot, 'Commit and push', () => commitTree(tree, input, true), 'quiet').disabled = busy;
+      button(foot, 'Commit', () => commitTree(tree, input, false), 'main').disabled = busy;
+    }
+    const result = commitState.results[tree.top];
+    if (result) {
+      section.append(Object.assign(document.createElement('div'), { className: `commitResult${result.isDone ? ' ok' : ''}`, textContent: result.text }));
+    }
+    parts.push(section);
+  }
+  byId('commitBody').replaceChildren(...parts);
+}
+
+async function commitTree(tree, input, isPushed) {
+  const paths = tree.files.filter(file => !commitState.unticked.has(file.path)).map(file => file.path);
+  const message = input.value.trim();
+  if (!paths.length || !message) {
+    toast(paths.length ? 'Write the commit message first.' : 'Tick a file to commit.');
+    return;
+  }
+  commitState.messages[tree.top] = input.value;
+  commitState.results[tree.top] = { text: isPushed ? 'Committing and pushing…' : 'Committing…', isBusy: true };
+  renderCommit();
+  try {
+    const done = await asked('/commit', { top: tree.top, paths, message, push: isPushed });
+    const pushed = !isPushed ? '' : done.pushed ? '; pushed' : `; not pushed: ${done.push}`;
+    commitState.results[tree.top] = { text: `Committed ${done.commit}: ${done.subject}${pushed}`, isDone: true };
+    delete commitState.messages[tree.top];
+    commitState.plan = await asked('/commit');
+    await refreshAll();
+  } catch (error) {
+    commitState.results[tree.top] = { text: error.message };
+  }
+  renderCommit();
+}
+
 // What an ask for the overview waits on, as the drawer says it.
 const askedWords = agent => ({
   draft: `Asked: ${agent} writes it with your next message in the chat.`,
@@ -1925,6 +2048,8 @@ async function main() {
     }
   }));
   byId('historyClose').addEventListener('click', () => (byId('history').hidden = true));
+  byId('commitButton').addEventListener('click', () => (byId('commit').hidden ? openCommit() : closeCommit()));
+  byId('commitClose').addEventListener('click', closeCommit);
   byId('overviewButton').addEventListener('click', () => queued(async () => {
     byId('overview').hidden = !byId('overview').hidden;
     byId('overviewButton').classList.toggle('chosen', !byId('overview').hidden);

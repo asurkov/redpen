@@ -694,6 +694,71 @@ class CommentDelivery(unittest.TestCase):
         self.assertEqual(self.counted(), 0)
 
 
+
+class Commit(unittest.TestCase):
+    """Commit on the page: the session's accepted files alone, with the user's message, whatever else is
+    staged; the message drafted for the page's ask."""
+
+    def setUp(self):
+        self.top, self.who = repo({'a.py': 'a1\n', 'b.py': 'b1\n', 'other.py': 'o1\n'}), scratch.session()
+        self.edit('a.py', 'A1\n')
+        self.edit('b.py', 'B1\n')
+        self.rv = review.Review(self.who)
+        key = listed(self.rv)['a.py']['key']
+        self.rv.apply(key, 'accept', None, scratch.expected(self.rv, key, 'accept'))
+
+    def edit(self, name, text):
+        scratch.hook('pre', self.who, self.top, 'Edit', {'file_path': str(self.top / name)})
+        write(self.top, {name: text})
+        scratch.hook('post', self.who, self.top, 'Edit', {'file_path': str(self.top / name)})
+
+    def tree(self):
+        return self.rv.commit_plan()['trees'][0]
+
+    def test_the_accepted_files_alone_are_committed_with_the_message(self):
+        # Someone else's change, staged: it stays out of the commit, and staged.
+        write(self.top, {'other.py': 'O1\n'})
+        git(self.top, 'add', 'other.py')
+        tree = self.tree()
+        self.assertEqual([os.path.basename(f['path']) for f in tree['files']], ['a.py'])
+        self.assertEqual([(os.path.basename(f['path']), f['why']) for f in tree['left']], [('b.py', 'still to review')])
+        done = self.rv.commit(tree['top'], [f['path'] for f in tree['files']], 'Change a\n')
+        self.assertEqual(git(self.top, 'log', '-1', '--format=%s').strip(), 'Change a')
+        self.assertEqual(done['commit'], git(self.top, 'rev-parse', '--short=10', 'HEAD').strip())
+        self.assertEqual(git(self.top, 'show', '--name-only', '--format=', 'HEAD').split(), ['a.py'])
+        self.assertEqual(git(self.top, 'diff', '--cached', '--name-only').split(), ['other.py'])
+        # Committed, a.py is no more to commit.
+        self.assertEqual(self.tree()['files'], [])
+
+    def test_files_the_page_did_not_show_or_no_message_are_refused(self):
+        top = self.tree()['top']
+        for paths, message in (([f'{self.top}/b.py'], 'x'), ([f'{self.top}/a.py'], '  ')):
+            with self.assertRaises(review.Refusal):
+                self.rv.commit(top, paths, message)
+
+    def test_a_commit_git_refuses_leaves_staged_only_what_was(self):
+        hook = self.top / '.git' / 'hooks' / 'pre-commit'
+        hook.write_text('#!/bin/sh\necho no >&2\nexit 1\n')
+        hook.chmod(0o755)
+        with self.assertRaises(review.Refusal) as refused:
+            self.rv.commit(self.tree()['top'], [f'{self.top}/a.py'], 'Change a')
+        self.assertIn('git commit failed: no', str(refused.exception))
+        self.assertEqual(git(self.top, 'diff', '--cached', '--name-only').split(), [])
+
+    def test_the_message_is_drafted_for_the_ask_and_shown_with_the_plan(self):
+        self.assertIsNone(self.rv.commit_question())
+        self.rv.ask_commit()
+        top = self.tree()['top']
+        asked = self.rv.commit_question()
+        self.assertIn(f'=== {top} (branch ', asked)
+        self.assertIn('Recent subjects:\n  base\nFiles:\n  ' + f'{self.top}/a.py +1 -1', asked)
+        self.rv.set_commit_draft({top: 'Change a\n'})
+        self.assertEqual(self.tree()['draft'], 'Change a')
+        self.assertIsNone(self.rv.commit_question())
+        with self.assertRaises(review.Refusal):
+            self.rv.set_commit_draft({'/nowhere': 'x'})
+
+
 class AgentFiles(unittest.TestCase):
     def test_codexs_own_files_stand_apart_unless_kept_in_a_repository(self):
         codex = scratch.home / '.codex'

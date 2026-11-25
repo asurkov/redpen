@@ -124,6 +124,43 @@ async function scanOnce($: EngineInterface, force: boolean) {
   const written = await readOverview($, record)
   if (written !== undefined && JSON.stringify(written) !== JSON.stringify(await read($, overview))) await update($, overview, () => written)
   if (await isDescribeWaiting($, record)) void askOverview($)
+  if (await isCommitAsked($, record)) void draftCommit($)
+}
+
+// The page's ask for commit messages (review/commit-ask.json), by its signature as last seen.
+let commitAskSignature = ''
+
+// Whether the page's Commit asked for commit messages since the last look.
+async function isCommitAsked($: EngineInterface, record: string) {
+  const place = `${record}/review/commit-ask.json`
+  if (!await $.fs.exists(place)) return false
+  const signature = await signatureOf($, place)
+  if (signature === commitAskSignature) return false
+  commitAskSignature = signature
+  return true
+}
+
+// The page's Commit asked for commit messages: a fork of the session drafts them, by the question review.py
+// prints while the ask waits (--ask-commit), and review.py keeps them for the page (--commit-message);
+// nothing in the chat. With none, the user writes the message on the page.
+async function draftCommit($: EngineInterface) {
+  const { home } = await places($)
+  const script = `${home}/.claude/skills/redpen/code/review.py`
+  const session = await $.session.id()
+  const ran = await $.process.run(['python3', script, '--ask-commit', '--session', session]).catch(() => undefined)
+  const question = ran?.exitCode === 0 ? ran.stdout.trim() : ''
+  if (!question) return
+  await trace($, 'drafting the commit message')
+  const reply = await $.model.fork({ prompt: question }).catch(error => String(error))
+  if (typeof reply === 'string' || !reply.isAnswered) {
+    await trace($, `no commit message: ${typeof reply === 'string' ? reply : reply.reason}`)
+    $.ui.toast('redpen could not draft the commit message: write it on the page.')
+    return
+  }
+  const answer = reply.text.slice(reply.text.indexOf('{'), reply.text.lastIndexOf('}') + 1)
+  const kept = await $.process.run(['python3', script, '--commit-message', '--session', session], { stdin: answer })
+    .catch(error => ({ exitCode: -1, stdout: '', stderr: String(error) }))
+  await trace($, kept.exitCode === 0 ? 'commit message drafted' : `commit message refused: ${kept.stderr.trim()}`)
 }
 
 // Whether the page's Describe waits among its comments, read again when their file changed: it would go to

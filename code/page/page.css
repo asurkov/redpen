@@ -476,6 +476,7 @@ body.listHidden #splitter {
 }
 
 #fileBar[hidden],
+#commit[hidden],
 #history[hidden],
 #overview[hidden],
 #waiting[hidden],
@@ -899,6 +900,7 @@ body.unfocused .changeBar.current::after {
   resize: vertical;
 }
 
+#commit,
 #history,
 #overview {
   width: 300px;
@@ -906,6 +908,61 @@ body.unfocused .changeBar.current::after {
   overflow: auto;
   border-left: 1px solid var(--line);
   background: var(--panel);
+}
+
+/* Commit: by work tree, the files ticked to commit, those left out and why, the message, the buttons. */
+#commit {
+  width: 340px;
+}
+
+.commitTree {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.commitTree .head {
+  font-weight: 600;
+}
+
+.commitTree .head .dim,
+.commitLeft,
+.commitTree .none,
+.commitResult {
+  color: var(--dim);
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.commitFile {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.commitTree textarea {
+  font: 12px/1.4 ui-monospace, Menlo, monospace;
+  color: var(--ink);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px 6px;
+  min-height: 64px;
+  resize: vertical;
+}
+
+.commitFoot {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.commitResult.ok {
+  color: var(--ink);
 }
 
 /* The overview: items by purpose, each with its blocks, a way to their lines. */
@@ -1166,6 +1223,7 @@ body.unfocused .changeBar.current::after {
     cursor: row-resize;
   }
 
+  #commit,
   #history,
   #overview {
     position: absolute;

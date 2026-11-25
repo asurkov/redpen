@@ -96,6 +96,10 @@ work, with no overview or one older than those edits, of a fork of the session w
 (`$.model.fork`): nothing shows in the chat, and the fork's
 answer, the JSON alone, goes to `--outline` by the plugin, not by you.
 
+The page's **Commit** asks for a commit message; the redpen plugin drafts it by a fork of the session
+(`review.py --ask-commit` prints the question, `--commit-message` keeps the answer, JSON
+`{"<work tree>": "<message>"}` on stdin). The user commits from the page: never commit for them there.
+
 ### A git review
 
 ```bash

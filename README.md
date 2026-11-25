@@ -64,6 +64,15 @@ than guessed; a [git review](#a-git-review) shows a work tree's every change.
   accepted at once as one History line ("Accepted all · N files"), which one Undo or Cmd+Z takes back. The
   row above the prompt has it too (`review.py --accept-all`, through the server, under its lock); the
   files are never touched.
+- **Commit**, in the header of a session's review, opens a drawer: by git work tree, the session's files
+  to commit, ticked (nothing of them pending, their text not HEAD's; a moved file with its old place),
+  those left out and why (still to review, edited elsewhere), and the message. The Claude Code mod drafts
+  it by a fork of the session, in the style of the tree's last 10 subjects, a subject line alone, no
+  attribution (`review.py --ask-commit`, `--commit-message`), and it lands in the box unless you typed
+  there. **Commit** commits the ticked files alone, as they read (`git add -A -- <paths>`, `git commit -m …
+  -- <paths>`), whatever else is staged; **Commit and push** pushes the branch too (60 seconds at most). A
+  commit git refuses (a hook, say) leaves staged only what was, and says why; your click is the go-ahead,
+  nothing commits without it. A git review has none: its changes are anyone's.
 - A commit is a checkpoint: what it took of the session's changes counts as accepted, as one History
   line, "Committed in <sha> · N files", with Undo, and a toast says so on the open page. So after a
   commit Pending holds only what came after it, and All still everything since the session began.

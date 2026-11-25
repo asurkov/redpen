@@ -61,6 +61,9 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
   // refusals, in turn; how many comments review.py --count-comments says wait; and the files' times, by
   // path, for those a test rewrites.
   const asking = { text: '' }
+  // The question review.py --ask-commit prints, and what review.py --commit-message was given, in turn.
+  const committing = { text: '' }
+  const commitDrafts: string[] = []
   const waiting = { count: 0 }
   const forked: string[] = []
   const replies: string[] = []
@@ -113,6 +116,11 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
       return done(0, edited.filter(file => file.isGenerated && asked.includes(file.path)).map(file => `${file.path}\n`).join(''))
     }
     if (e.argv[2] === '--ask-overview') return done(0, asking.text)
+    if (e.argv[2] === '--ask-commit') return done(0, committing.text)
+    if (e.argv[2] === '--commit-message') {
+      commitDrafts.push(e.init?.stdin ?? '')
+      return done(0)
+    }
     if (e.argv[2] === '--count-comments') return done(0, `${waiting.count}\n`)
     if (e.argv[2] === '--outline') {
       outlines.push(e.init?.stdin ?? '')
@@ -136,8 +144,13 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
     written(`${record}/review/unwatched-comment`, 'time')
   }
   const watcher = () => entries.get(`${record}/review/mod-watcher`)
+  // The page's Commit opened: its ask for commit messages.
+  const askCommit = () => {
+    disk.add(`${record}/review/commit-ask.json`)
+    written(`${record}/review/commit-ask.json`, { time: 'now' })
+  }
   return { ran, opened, marks, surfaces, clock, asking, forked, replies, outlines, refusals, writeOverview, writeComments,
-    markComments, watcher, repos }
+    markComments, watcher, repos, committing, commitDrafts, askCommit }
 }
 
 test('the pane lists the edited files with their counts', async ($, on) => {
@@ -164,6 +177,25 @@ test('the pane lists the edited files with their counts', async ($, on) => {
     expect((await ui.find({ key: 'redpen' }))?.props.label).toBe('Open review')
     await ui.unmount()
   }
+})
+
+test("the page's Commit asks, and a fork drafts the commit messages for it, nothing in the chat", async ($, on) => {
+  const { clock, forked, replies, committing, commitDrafts, askCommit } = session(on, [{ path: file, numstat: '2\t1' }])
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true })
+  committing.text = 'Draft the commit message of each work tree.\n'
+  replies.push('Here: {"/w": "Change a"}')
+  await clock.advance(1500)
+  await clock.settle()
+  expect(forked).toEqual([])
+  askCommit()
+  await clock.advance(1500)
+  await clock.settle()
+  expect(forked).toEqual(['Draft the commit message of each work tree.'])
+  expect(commitDrafts).toEqual(['{"/w": "Change a"}'])
+  // Asked once: no second draft till the page asks again.
+  await clock.advance(1500)
+  await clock.settle()
+  expect(forked.length).toBe(1)
 })
 
 test("the page's Describe, waiting for the next message, is answered by a fork at once", async ($, on) => {

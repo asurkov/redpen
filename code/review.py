@@ -321,6 +321,10 @@ uncovered_shown = 300
 # An ask for an overview Claude took this long ago with none written was dropped (its turn cut short by
 # Esc or an error): it waits no more, so it can be asked again.
 taken_minutes = 20
+# The subjects of a repository's last commits a commit message is drafted after, for their style.
+style_subjects = 10
+# How long a push from the page may take.
+push_seconds = 60
 # The most of the changes, in characters, the question for an overview shows a model with no tools, and
 # of each line of them.
 shown_change_chars = 200_000
@@ -817,6 +821,8 @@ class Review:
                 'delivery': self.delivery(),
                 # Whether a git review's files are still being found.
                 'isScanning': self.session in scans,
+                # A git review, whose changes are anyone's: the page commits none of them.
+                'isGit': bool(self.git),
                 # The last move of a git review to another base commit: {from, to, time}.
                 'rebased': (self.git or {}).get('rebased'),
                 # Where the page's full tree starts.
@@ -1489,6 +1495,114 @@ class Review:
             channel.add_line(self.folder / 'handed.jsonl', {'ask': asks[-1].get('id'), 'time': channel.stamp(), 'dropped': True})
         (self.folder / 'asked-edited').unlink(missing_ok=True)
         (self.folder / 'asked-seen').unlink(missing_ok=True)
+
+    def commit_plan(self):
+        """What Commit on the page takes, by the git work tree each file is in: the session's work files with
+        nothing pending and a text other than HEAD's, to commit (a moved file with its old place); the ones
+        left out, each with why; the branch; and the message drafted for it (review/commit-draft.json), once
+        one came after the page asked (review/commit-ask.json)."""
+        if self.git:
+            raise Refusal(400, "A git review's changes are anyone's: commit them in the repository.")
+        trees, heads = {}, {}
+        for listed in self.listing()['files']:
+            if listed['isOther'] or not listed['all']:
+                continue
+            top = repository_top(existing_folder(listed['path']))
+            if not top:
+                continue
+            tree = trees.setdefault(top, {'top': top, 'files': [], 'left': []})
+            why = ('still to review' if listed['pending'] else
+                   "edited elsewhere: it may hold changes not the session's" if listed.get('isEditedElsewhere') else None)
+            if why:
+                tree['left'].append({'path': listed['path'], 'why': why})
+                continue
+            file = self.file(listed['key'])
+            place = self.places(listed['key'], file)['disk']
+            if not listed['movedFrom'] and self.head_hash(file, heads) == self.disk_hash(file, place, signature(place)):
+                continue
+            tree['files'].append({'path': listed['path'], 'movedFrom': listed['movedFrom'], 'isNew': listed['isNew'],
+                                  'isGone': listed['isGone'], 'all': listed['all']})
+        asked = read_json(self.folder / 'commit-ask.json', {}) or {}
+        draft = read_json(self.folder / 'commit-draft.json', {}) or {}
+        is_drafted = bool(asked.get('time')) and str(draft.get('time') or '') >= asked['time']
+        return {'asked': asked.get('time'), 'trees': [
+            {**tree, 'branch': (git(top, 'rev-parse', '--abbrev-ref', 'HEAD') or b'').decode().strip(),
+             'draft': (draft.get('messages') or {}).get(top) if is_drafted else None}
+            for top, tree in trees.items() if tree['files'] or tree['left']]}
+
+    def ask_commit(self):
+        """The page's Commit opened: a message is asked for, which the Claude Code mod drafts by a fork of the
+        session (--ask-commit, --commit-message). Returns the plan."""
+        write_atomic(self.folder / 'commit-ask.json', json.dumps({'time': now()}).encode())
+        return self.commit_plan()
+
+    def commit_question(self):
+        """The question that drafts the commit messages while the page's ask waits, of each work tree with
+        files to commit: its recent subjects, for their style, its files, and the overview; None with none."""
+        asked = read_json(self.folder / 'commit-ask.json', {}) or {}
+        draft = read_json(self.folder / 'commit-draft.json', {}) or {}
+        if not asked.get('time') or str(draft.get('time') or '') >= asked['time']:
+            return None
+        trees = [tree for tree in self.commit_plan()['trees'] if tree['files']]
+        if not trees:
+            return None
+        out = ['The user is about to commit, from the redpen review page, the changes of yours they accepted, in each '
+               'git work tree below. Draft the commit message of each in the style of its recent subjects: a subject '
+               'line alone, unless a later reader needs more than it can say, then a blank line and a short body; no '
+               'attribution line (no Co-Authored-By). Say what the change does. Answer with JSON alone, no words and '
+               'no fence around it: {"<work tree>": "<message>"}.']
+        for tree in trees:
+            subjects = (git(tree['top'], 'log', f'-{style_subjects}', '--format=%s') or b'').decode().splitlines()
+            out += ['', f"=== {tree['top']} (branch {tree['branch']})", 'Recent subjects:', *(f'  {s}' for s in subjects),
+                    'Files:', *(f"  {f['path']}" + (f" (moved from {f['movedFrom']})" if f['movedFrom'] else
+                                                    ' (new)' if f['isNew'] else ' (deleted)' if f['isGone'] else '') +
+                                f" +{f['all']['added']} -{f['all']['removed']}" for f in tree['files'])]
+        items = self.outline_shown(is_whole=True)['items']
+        if items:
+            out += ['', 'The overview of the changes:', *(f"- {item['title']}: {item['text']}" for item in items)]
+        return '\n'.join(out)
+
+    def set_commit_draft(self, data):
+        """Keeps the drafted commit messages, {work tree: message}, for the page's Commit."""
+        if not isinstance(data, dict) or not data or not all(isinstance(v, str) and v.strip() for v in data.values()):
+            raise Refusal(400, 'The draft is JSON: {"<work tree>": "<message>"}.')
+        unknown = set(data) - {tree['top'] for tree in self.commit_plan()['trees']}
+        if unknown:
+            raise Refusal(400, "No work tree of the session's to commit there: " + ', '.join(sorted(unknown)))
+        write_atomic(self.folder / 'commit-draft.json', json.dumps(
+            {'time': now(), 'messages': {top: message.strip() for top, message in data.items()}}, indent=1).encode())
+
+    def commit(self, top, paths, message, is_pushed=False):
+        """The user's Commit on the page: commits in the work tree top the files named, as they read, with the
+        message; only files the plan has to commit there (a moved file's old place with it), and only them,
+        whatever else is staged (git commit -- <paths>); then, is_pushed, pushes the branch. A commit git
+        refuses (a hook, say) leaves staged no more than was. Returns the commit and what the push said."""
+        tree = next((tree for tree in self.commit_plan()['trees'] if tree['top'] == top), None)
+        if not tree or not tree['files']:
+            raise Refusal(409, "Nothing of the session's is to commit there now.")
+        if not isinstance(paths, list) or not paths or not set(paths) <= {file['path'] for file in tree['files']}:
+            raise Refusal(409, 'Those are not the files the page showed to commit: open Commit again.')
+        if not isinstance(message, str) or not message.strip():
+            raise Refusal(400, 'The commit has no message.')
+        moved = {file['path']: file['movedFrom'] for file in tree['files'] if file['movedFrom']}
+        names = [os.path.relpath(place, top) for path in paths for place in [path, *([moved[path]] if path in moved else [])]]
+        staged = set((git(top, 'diff', '--cached', '--name-only', '-z', '--', *names) or b'').decode().split('\0'))
+        for args in (['add', '-A', '--', *names], ['commit', '-q', '-m', message.strip(), '--', *names]):
+            ran = subprocess.run(['git', '-C', top, *args], capture_output=True, text=True)
+            if ran.returncode:
+                unstaged = [name for name in names if name not in staged]
+                if unstaged:
+                    subprocess.run(['git', '-C', top, 'reset', '-q', '--', *unstaged], capture_output=True)
+                raise Refusal(409, f"git {args[0]} failed: {(ran.stderr or ran.stdout).strip()[-2000:]}")
+        result = {'commit': (git(top, 'rev-parse', '--short=10', 'HEAD') or b'').decode().strip(),
+                  'subject': message.strip().split('\n')[0]}
+        if is_pushed:
+            try:
+                ran = subprocess.run(['git', '-C', top, 'push'], capture_output=True, text=True, timeout=push_seconds)
+                result.update(pushed=ran.returncode == 0, push=(ran.stderr or ran.stdout).strip()[-2000:])
+            except subprocess.TimeoutExpired:
+                result.update(pushed=False, push=f'git push took more than {push_seconds} s, and was stopped.')
+        return result
 
     def texts_seen(self, is_kept=True):
         """What an overview is written of: each work file's text as it reads now, by its hash and key; is_kept,
@@ -2163,6 +2277,23 @@ def describe_if_needed(session):
         sys.exit(str(e))
 
 
+def commit_draft(session, is_kept):
+    """Prints the question that drafts the commit messages while the page asks for them, else nothing; or,
+    is_kept, keeps the drafted messages, JSON on stdin, for the page."""
+    try:
+        review = Review(session)
+        if not is_kept:
+            return print(review.commit_question() or '', end='')
+        try:
+            data = json.load(sys.stdin)
+        except ValueError as e:
+            sys.exit(f'The draft on stdin is not JSON: {e}')
+        review.set_commit_draft(data)
+        print('The commit messages are on the page.')
+    except Refusal as e:
+        sys.exit(str(e))
+
+
 def outline(name):
     """Keeps the overview on stdin for the review's page, and says what it leaves out."""
     try:
@@ -2195,6 +2326,14 @@ def git(repo, *args):
     except OSError:
         return None
     return None if ran.returncode else ran.stdout
+
+
+def existing_folder(path):
+    """The folder a path is in, or the nearest one up from it that is there: a deleted file's may be gone."""
+    folder = os.path.dirname(path) or '/'
+    while folder != '/' and not os.path.isdir(folder):
+        folder = os.path.dirname(folder)
+    return folder
 
 
 @functools.lru_cache(maxsize=512)
@@ -2825,7 +2964,7 @@ def get(h, path):
     if found:
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(h.path).query)
         return send_json(h, unchanged_text(top_of(h, found.group(1)), (query.get('path') or [None])[0]))
-    found = re.fullmatch(r'/api/([\w-]+)/(files|journal|outline|file/([0-9a-f]{16}))', path)
+    found = re.fullmatch(r'/api/([\w-]+)/(files|journal|outline|commit|file/([0-9a-f]{16}))', path)
     if not found:
         raise Refusal(404, 'Not found.')
     with kept_lock(h):
@@ -2840,6 +2979,8 @@ def get(h, path):
             return send_json(h, review.journal_shown())
         if found.group(2) == 'outline':
             return send_json(h, review.outline_shown())
+        if found.group(2) == 'commit':
+            return send_json(h, review.commit_plan())
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(h.path).query)
         return send_json(h, review.opened(found.group(3), query.get('texts') == ['none']))
 
@@ -2852,7 +2993,8 @@ def top_of(h, session):
 
 
 def post(h, path, body):
-    found = re.fullmatch(r'/api/([\w-]+)/(apply-files|apply-item|accept-all|apply|flip|comment|uncomment|send|resolve|describe)', path)
+    found = re.fullmatch(r'/api/([\w-]+)/(apply-files|apply-item|accept-all|apply|flip|comment|uncomment|send|resolve|describe'
+                         r'|commit-ask|commit)', path)
     if not found:
         raise Refusal(404, 'Not found.')
     review = Review(found.group(1))
@@ -2867,6 +3009,10 @@ def post(h, path, body):
         return send_json(h, review.apply_item(body.get('index'), body.get('time'), body.get('signatures')))
     if found.group(2) == 'describe':
         return send_json(h, review.describe())
+    if found.group(2) == 'commit-ask':
+        return send_json(h, review.ask_commit())
+    if found.group(2) == 'commit':
+        return send_json(h, review.commit(body.get('top'), body.get('paths'), body.get('message'), body.get('push') is True))
     if found.group(2) == 'flip':
         return send_json(h, review.flip(body.get('id')))
     if found.group(2) == 'comment':
@@ -2895,6 +3041,10 @@ def main():
     # session reloads its plugins, now fails to ask, as it should, not posting this question there.
     parser.add_argument('--ask-overview', action='store_true',
                         help="print the question for an overview, logged as handed over, if the session's review needs one")
+    parser.add_argument('--ask-commit', action='store_true',
+                        help='print the question that drafts the commit messages, while the page asks for them')
+    parser.add_argument('--commit-message', action='store_true',
+                        help='keep the drafted commit messages, JSON {work tree: message} from stdin, for the page')
     parser.add_argument('--drop-ask', action='store_true',
                         help='the question for an overview brought none: the ask waits no more')
     parser.add_argument('--change', metavar='PATH[:LINE]')
@@ -2921,6 +3071,8 @@ def main():
         return print(f"Accepted {entry['files']} file{'s' if entry['files'] != 1 else ''}.")
     if args.drop_ask:
         return Review(args.session).drop_ask()
+    if args.ask_commit or args.commit_message:
+        return commit_draft(args.session, args.commit_message)
     server = shared('server')
     port = args.port or server.default_port
     if not server.running(port):
