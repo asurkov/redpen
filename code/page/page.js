@@ -11,8 +11,10 @@ const views = {
   pending: {
     left: 'base',
     right: 'disk',
-    changeActions: [['accept', 'Accept', 'a'], ['reject', 'Reject']],
-    fileActions: [['reject', 'Reject file'], ['accept', 'Accept file', 'main']],
+    // A change is accepted, or revised (Revise, in its bar); Reject, never used per change, is the file's
+    // alone, and quiet.
+    changeActions: [['accept', 'Accept', 'a']],
+    fileActions: [['reject', 'Reject file', 'quiet'], ['accept', 'Accept file', 'main']],
     none: 'Nothing is pending: every change is accepted or rejected.',
   },
   accepted: {
@@ -628,7 +630,7 @@ async function show(key, place) {
     diff.title = 'Show the removed lines and the changes in colour; off, the file as it is, its changes marked in the margin (d)';
   }
   if (isShown) {
-    button(byId('fileActions'), 'Comment', () => diffView.openBox(diffView.fileTarget()), 'quiet').title = `Comment for ${state.agent} on the whole file`;
+    button(byId('fileActions'), 'Revise', () => diffView.openBox(diffView.fileTarget())).title = `Revise the whole file with ${state.agent}: what to change, or what to ask before you accept`;
   }
   for (const [action, label, kind] of view.fileActions) {
     const made = button(byId('fileActions'), label, () => act(action, null), kind);
@@ -1311,11 +1313,11 @@ function drawList() {
       const labels = { accept: 'Accept', reject: 'Reject', unaccept: 'Unaccept' };
       const tools = head.appendChild(span('folderActions', ''));
       if (!thread && !writing) {
-        iconed(button(tools, 'Comment', event => {
+        iconed(button(tools, 'Revise', event => {
           event.preventDefault();
           event.stopPropagation();
           openFolderBox(folder.path);
-        }, 'quiet'), 'comment').title = `Comment for ${state.agent} on this folder`;
+        }, 'quiet'), 'comment').title = `Revise this folder with ${state.agent}`;
       }
       if (acted.length && views[state.view].fileActions.length) {
         for (const [action] of views[state.view].fileActions) {
@@ -1338,7 +1340,7 @@ function drawList() {
     }
     if (isChanged && (thread || writing)) {
       const box = fold.appendChild(threadBox(thread, writing, {
-        placeholder: `Comment for ${state.agent} on this folder`,
+        placeholder: `What to change in this folder, or what to ask ${state.agent}`,
         send: text => commentFolder(folder.path, text, thread?.id),
         cancel: () => {
           state.folderReply = null;
@@ -1634,7 +1636,7 @@ function renderOverview() {
       button(head, 'Accept', () => acceptItem(index, item), 'quiet').title = 'Accept what is pending in these blocks, as one History line';
     }
     if (!state.threads.some(thread => thread.item === item.title) && state.itemReply?.title !== item.title) {
-      button(head, 'Comment', () => openItemBox(item), 'quiet').title = `Comment for ${state.agent} on this item`;
+      button(head, 'Revise', () => openItemBox(item), 'quiet').title = `Revise this item with ${state.agent}`;
     }
     if (item.text) {
       section.append(Object.assign(document.createElement('p'), { textContent: item.text }));
@@ -1677,7 +1679,7 @@ function itemThread(item, index) {
     return [];
   }
   return [threadBox(thread, writing, {
-    placeholder: `Comment for ${state.agent} on this item`,
+    placeholder: `What to change in this item, or what to ask ${state.agent}`,
     send: text => commentItem(index, item, text, thread?.id),
     cancel: () => {
       state.itemReply = null;
@@ -1733,7 +1735,7 @@ function threadBox(thread, writing, on) {
     });
     foot.append(goesWords(state.agent, state.delivery), span('spring', ''));
     button(foot, 'Cancel', cancel, 'quiet');
-    button(foot, thread ? 'Add reply' : 'Add comment', send, 'main');
+    button(foot, thread ? 'Add reply' : 'Revise', send, 'main');
     // Focused as it opens, and again when drawn anew while it has the keys.
     if (writing.isOpening || document.activeElement === writing.input) {
       writing.isOpening = false;

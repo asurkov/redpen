@@ -618,7 +618,11 @@ export class DiffView {
       bar.addEventListener(name, event => event.stopPropagation());
     }
     this.actionButtons(bar, spans(change), true);
-    button(bar, 'Comment', () => this.openBox(this.changeTarget(change)), 'quiet').dataset.key = 'r';
+    // Revise: what to change, or what to ask before accepting, for the agent; with Accept, what a change's
+    // review comes to.
+    const revise = button(bar, 'Revise', () => this.openBox(this.changeTarget(change)));
+    revise.dataset.key = 'r';
+    revise.title = `Revise this change with ${this.agent}: what to change, or what to ask before you accept (r)`;
     return zone;
   }
 
@@ -688,7 +692,7 @@ export class DiffView {
     if (selected.length) {
       this.actionButtons(row, selected, false);
     }
-    button(row, 'Comment', () => this.openBox(target));
+    button(row, 'Revise', () => this.openBox(target));
     const { lineNumber, column } = this.shown.getSelection().getPosition();
     this.addWidget('offer', node, { lineNumber, column }, true, this.barsUnder(lineNumber, target));
   }
@@ -703,10 +707,10 @@ export class DiffView {
     const head = box.appendChild(document.createElement('div'));
     head.className = 'head';
     const lines = target.start === target.end ? `line ${target.start}` : `lines ${target.start}–${target.end}`;
-    head.append(`Comment for ${this.agent} on ${target.isFile ? 'the whole file' : `${target.isRemoved ? 'the removed ' : ''}${lines}`}`, spring());
+    head.append(`Revise ${target.isFile ? 'the whole file' : `${target.isRemoved ? 'the removed ' : ''}${lines}`} with ${this.agent}`, spring());
     button(head, '✕', () => this.dropWidget('box'), 'quiet').title = 'Close';
     const input = box.appendChild(document.createElement('textarea'));
-    input.placeholder = 'What should change here?';
+    input.placeholder = 'What to change, or what to ask before you accept';
     const foot = box.appendChild(document.createElement('div'));
     foot.className = 'foot';
     foot.append(goesWords(this.agent, this.delivery), spring());
@@ -725,7 +729,7 @@ export class DiffView {
         this.dropWidget('box');
       }
     };
-    button(foot, 'Add comment', send, 'main');
+    button(foot, 'Revise', send, 'main');
     // The editor must not take the box's keys and clicks for its own.
     for (const name of ['keydown', 'keyup', 'keypress', 'mousedown', 'pointerdown', 'wheel']) {
       box.addEventListener(name, event => event.stopPropagation());

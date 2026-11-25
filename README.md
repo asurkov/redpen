@@ -54,8 +54,10 @@ not name (a formatter's on `.`, a background job's, another session's, an editor
 than guessed; a [git review](#a-git-review) shows a work tree's every change.
 
 - **Pending** is what is not accepted yet (accepted text → the file). **Accept** records a change as
-  accepted and leaves the file alone. **Reject** writes the old lines back into the file on disk, right
-  away; rejecting a file the session created moves it to the Trash, and takes away the folders that
+  accepted and leaves the file alone. A change's bar has **Accept**, its **↓**, and **Revise**: what the
+  review of a change comes to is accepting it, or telling Claude what to change or what to ask first (History
+  never once held a change rejected, so its bar has no Reject). **Reject file**, quiet in the file bar,
+  writes the file's old lines back on disk, right away; rejecting a file the session created moves it to the Trash, and takes away the folders that
   leaves empty (a moved folder's), never the review's top nor above it, nor a folder with anything
   in it.
 - **Accepted** is what was accepted (the text before the session → accepted text). **Unaccept** makes
@@ -134,7 +136,7 @@ than guessed; a [git review](#a-git-review) shows a work tree's every change.
   since is greyed out. `Cmd+Z` (`Ctrl+Z`) undoes the newest entry not undone, again and again down
   the list; `Cmd+Shift+Z` redoes, in turn, what it undid, until the next accept or reject. In a
   comment box both are the box's own.
-- A comment (select text → Comment, Comment under a change, or Comment in the file bar for the
+- A comment (select text → Revise, Revise under a change, or Revise in the file bar for the
   whole file, whose thread stands above its first line) stays under its lines as a thread,
   which says whether it is sent and whether Claude has it, and shows Claude's answer under it. The
   page names the session's agent, Claude or Codex (session.json's `agent`; a git review, that of the
@@ -177,27 +179,27 @@ than guessed; a [git review](#a-git-review) shows a work tree's every change.
   the page's own Reject and Undo follow it), and Describe asks for one anew. **Describe** asks Claude for the overview, or for a new one, the way a
   comment goes: at once while the waiting command runs, else with the next message; but in a session
   with the Claude Code mod, the mod sees it waiting within two seconds and asks it of a fork of the
-  session at once, as Review's own ask, nothing in the chat. **Comment** on an
+  session at once, as Review's own ask, nothing in the chat. **Revise** on an
   item ("why this approach?") goes to Claude the same way, quoting the item; its thread stands under
   the item, with Claude's answer, **Reply** and **Resolve**, and the strip at the bottom lists it as
   "Overview: <title>", a click opening the drawer at it.
 - Keys: `n` and `p` (or `j` and `k`) step to the next and the previous change, past a file's last or
   first one into the neighbouring file. The current change is the one the cursor is in, with the
   tinted bar: `a` accepts it in Pending and unaccepts it in Accepted, `r` opens a comment on the
-  selected text, or else on it. `a` and a change's Accept, Reject and Unaccept leave the view where it
+  selected text, or else on it. `a` and a change's Accept and Unaccept leave the view where it
   is, for a careful review; **Space**, or the **↓** beside Accept (Unaccept in Accepted), does the same
   and then goes on to the next change as `n` does, for a quick one: each press chooses, no mode and no
-  key held. Reject has no key. Shift means nothing here: Shift+click extends a selection, as in any
+  key held. Shift means nothing here: Shift+click extends a selection, as in any
   editor. A button or folder reached by Tab takes Space as its own press; one clicked leaves Space
   to accept. The keys need the page to have the focus, which the app leaves in the chat when it opens
-  the page; till then the current bar says "Click the page to use the keys" in the keys' place. With lines selected, `a`, Space and the Accept, ↓ and
-  Reject buttons at the selection, beside Comment, take only the selected lines of the
+  the page; till then the current bar says "Click the page to use the keys" in the keys' place. With lines selected, `a`, Space and the Accept and ↓
+  buttons at the selection, beside Revise, take only the selected lines of the
   changes, whole lines; removed lines go with the lines on both sides of them. While those buttons,
   or a comment box, are open, the bars of the changes they stand over are hidden, their room kept.
   `t` and `Shift+t` step to the next and the previous thread, through every file's.
 - Where the room is short the buttons show icons for their words, the tooltip saying what each is:
   the header's Files, Unchanged, Reviewed, Overview and History once its row has no room for the
-  words and a title of 180px (then on two rows if it still has not), and a folder's Comment in a list
+  words and a title of 180px (then on two rows if it still has not), and a folder's Revise in a list
   320px wide or less. Accept and Reject keep their words.
 - The header says how many files are reviewed (nothing of them pending) of those the review has; in
   the list such a file has ✓, and one accepted in part ◐. In Pending a reviewed file stays where it
@@ -210,7 +212,7 @@ than guessed; a [git review](#a-git-review) shows a work tree's every change.
   folder's row, under the pointer, has the view's whole-file actions for every file in it with
   something in the view (Accept and Reject in Pending, Unaccept in Accepted): one line in History,
   one Undo. On a folder gone with its files, Accept takes their deletion, Reject puts them back.
-  **Comment** there ("these belong under `lib/`") goes to Claude as a line's does, naming the folder
+  **Revise** there ("these belong under `lib/`") goes to Claude as a line's does, naming the folder
   and listing its changed files as they were; its thread stands under the folder's row, and the strip
   at the bottom lists it as "Folder: <path>", a click unfolding the folder at it.
 - The tree starts at the top of the repository (a git review's work tree; for a session, the
