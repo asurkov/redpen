@@ -83,6 +83,20 @@ class Places(unittest.TestCase):
         self.assertIsNone(review.file_text(run['repo'], run['head'], 'docs/none.md'))
 
 
+class Blocks(unittest.TestCase):
+    """block_diff() on two renders of a page. In this file rather than one of its own, which would import
+    docdiff before the scratch home above is set."""
+
+    def test_a_block_without_words_that_differs_only_in_a_comment_is_no_change(self):
+        # ReSpec writes a random number in a comment of its own all over each render.
+        page = '<p>Alpha beta.</p>\n<svg class="respec-visually-hidden"><!---%s%%--><path d="M0 0"/></svg>\n<p>Gamma.</p>'
+        old, new = page % '0.467906', page % '0.639278'
+        _, n, pieces = docdiff.block_diff(old, new, 'x')
+        self.assertEqual(n, 0)
+        # Each side keeps its own comment: an accepted copy is the base's page.
+        self.assertEqual(docdiff.apply(pieces, 'old', set()), docdiff.apply(docdiff.block_diff(old, old, 'x')[2], 'old', set()))
+
+
 class Pushes(unittest.TestCase):
     def setUp(self):
         self.sent = []

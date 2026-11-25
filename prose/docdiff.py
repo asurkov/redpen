@@ -429,7 +429,9 @@ def block_diff(old, new, gid):
     removed and rewritten ones marked whole, and only a lightly edited one word by word. Also returns
     the pieces apply() takes: per block, its list tag on each side and [(change key or None, old, new)]."""
     a, b = split_blocks(old), split_blocks(new)
-    norm = lambda h: re.sub(r'\s+', ' ', h).strip()
+    # Comments left out: a render of ReSpec's writes a random number in one all over the page, and a block
+    # without words (an svg, say) differing only there would show as removed and added.
+    norm = lambda h: re.sub(r'\s+', ' ', COMMENT.sub('', h)).strip()
     sm = difflib.SequenceMatcher(None, [norm(h) for _, h in a], [norm(h) for _, h in b], autojunk=False)
     # Bare text (see split_blocks()) shows in a paragraph, where the page finds it as a block.
     para = lambda h, body: body if re.match(r'<(?!(?:%s)\b)\w' % '|'.join(INLINE), h) else f'<p>{body}</p>'
