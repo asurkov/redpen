@@ -2056,23 +2056,26 @@ def described(comments, git=None, name=None):
     told = [outline_asked(changes, git, name)] if asks else []
     if not comments:
         return '\n'.join(told)
-    out = [f'The user left these comments on {changes} on the redpen review page; each quotes the '
-           'lines it is on as they saw them.']
+    # The page's Revise: what to change, or what to ask before accepting; a reply goes on in its thread.
+    out = [f'The user, reviewing {changes} on the redpen review page, revises them here: each note quotes '
+           'the lines it is on as they saw them, and says what to change there, or asks what they want to '
+           'know before they accept it. Make the changes asked for; answer what is asked.']
     for comment in comments:
         reply = f", a reply in the thread of comment {comment['thread']}" if comment.get('thread') else ''
+        said = 'Reply' if comment.get('thread') else 'Revise'
         if comment.get('item') is not None:
             # On an item of the overview: it quotes the item, its text and its blocks.
             out += ['', f"The overview's item \"{comment['item']}\" (comment {comment.get('id')}{reply}):"]
             if comment.get('quote'):
                 out.append(fenced(comment['quote']))
-            out.append(f"Comment: {comment['text']}")
+            out.append(f"{said}: {comment['text']}")
             continue
         if comment.get('folder') is not None:
             # On a folder: it quotes the folder's changed files.
             out += ['', f"The folder {comment['folder']}, its changed files (comment {comment.get('id')}{reply}):"]
             if comment.get('quote'):
                 out.append(fenced(comment['quote']))
-            out.append(f"Comment: {comment['text']}")
+            out.append(f"{said}: {comment['text']}")
             continue
         lines = f"line {comment['start']}" if comment['start'] == comment['end'] else f"lines {comment['start']}-{comment['end']}"
         if comment.get('isFile'):
@@ -2083,7 +2086,7 @@ def described(comments, git=None, name=None):
         out += ['', f"{comment['path']}, {lines}{side} (comment {comment.get('id')}{reply}):"]
         if comment.get('quote'):
             out.append(fenced(comment['quote']))
-        out.append(f"Comment: {comment['text']}")
+        out.append(f"{said}: {comment['text']}")
     out += ['', 'Besides what you say or do about each, put a short answer under it on the page '
             '(its Markdown is drawn: fenced code, lists, `code`, **bold**): '
             f"`python3 {here / 'review.py'} --answer <comment id>`, the answer on stdin; after a change made "

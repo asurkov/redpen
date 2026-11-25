@@ -139,12 +139,14 @@ class FolderComments(unittest.TestCase):
         told = review.described(rv.comments(), rv.git, rv.session)
         self.assertIn(f'The folder {top}/src/, its changed files (comment {said["id"]}):', told)
         self.assertIn('gone.py (deleted)', told)
+        self.assertIn('Revise: Put these under lib/.', told)
         rv.post(review.shared('channel'))
         self.assertTrue(rv.answer(said['id'], 'Moved.'))
         time.sleep(0.01)
         rv.comment({'folder': f'{top}/src/', 'text': 'Thanks.', 'thread': said['id']})
         thread = next(thread for thread in rv.threads() if thread['folder'] == f'{top}/src/')
         self.assertEqual([entry['by'] for entry in thread['entries']], ['user', 'claude', 'user'])
+        self.assertIn('Reply: Thanks.', review.described(rv.comments(), rv.git, rv.session))
 
     def test_a_folder_with_no_changes_or_no_folder_is_refused(self):
         top = repo({'src/a.py': 'a\n', 'b.py': 'b\n'})
@@ -683,7 +685,7 @@ class CommentDelivery(unittest.TestCase):
         with mock.patch('sys.stdin', io.StringIO(json.dumps({'session_id': self.who}))), \
                 contextlib.redirect_stdout(io.StringIO()) as told:
             review.prompt_hook()
-        self.assertIn('Comment: And this?', told.getvalue())
+        self.assertIn('Revise: And this?', told.getvalue())
         self.assertEqual(self.counted(), 0)
         self.assertEqual({entry['state'] for thread in self.rv.threads() for entry in thread['entries']}, {'taken'})
 
