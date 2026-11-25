@@ -142,6 +142,20 @@ class ShellCommands(unittest.TestCase):
         hook('post', theirs, top, 'Bash', {'command': 'F=tests/scratch.tmp; cat > $F'}, 't1')
         self.assertEqual(recorded(theirs), {'scratch.tmp': (True, None, False)})
 
+    def test_in_a_slow_tree_a_script_on_its_input_is_asked_of_the_files_it_names(self):
+        top, mine = repo({'sub/x.py': 'x\n', 'y.py': 'y\n'}), session()
+        # Its whole status took long once: for a day a command is asked of the files it names alone.
+        (store / 'slow-trees.json').write_text(json.dumps({str(top): time.time()}))
+        try:
+            shell(mine, top, "python3 - <<'EOF'\np = 'sub/x.py'\nopen(p, 'w').write('X\\n')\nEOF\n",
+                  between=lambda: write(top, {'y.py': 'Y\n'}))
+            self.assertEqual(recorded(mine), {'x.py': (False, 'x\n', False)})
+            # Naming none of its files, it is not asked at all.
+            shell(mine, top, 'python3 -c pass', 'm2', between=lambda: write(top, {'y.py': 'YY\n'}))
+            self.assertEqual(set(recorded(mine)), {'x.py'})
+        finally:
+            (store / 'slow-trees.json').unlink()
+
     def test_a_file_no_command_names_is_nobodys(self):
         top, mine = repo({'a.py': 'a\n'}), session()
         # A background job writes while my command runs (a push, a test run): mine does not name it.

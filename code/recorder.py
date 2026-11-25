@@ -40,8 +40,9 @@ session's (outside/); one another session's own edit left as it is, during the c
 session's and not recorded, and so is one made while another session's command ran in the tree that
 names the file, or else began after this command did, before the change, unless this command names the
 file. In a work tree whose status
-took git long, only a command that can delete or move files (rm, mv, unlink, trash, find -delete) is
-watched, for a day. Of a chmod, a file it names that it made executable, or no longer, is recorded
+took git long, for a day, a command is asked only of the files its text names, anywhere in it (in a
+script on its input too), but one that can delete or move files (rm, mv, unlink, trash, find -delete) of
+the whole as before. Of a chmod, a file it names that it made executable, or no longer, is recorded
 with its text as it is and its executable bit as it was. A failure never blocks an edit: it goes to
 stderr and the exit status stays 0.
 
@@ -58,6 +59,10 @@ link_mark = b'\0symlink\0'
 # A shell command that can delete or move files: an rm, mv, unlink or trash among its words, or find's
 # -delete.
 moving = re.compile(r'(^|[\s;&|(`])(rm|mv|unlink|trash)(?=\s)|\s-delete(?=\s|;|$)')
+# What reads as a path in a command's text: words with a / in them, or names with an extension.
+path_like = re.compile(r'[\w.@+~-]*/[\w.@+/-]*[\w@+-]|[\w@+-][\w.@+-]*\.[A-Za-z0-9]+')
+# The paths of a command's text asked of a slow tree, at most.
+mentioned_cap = 200
 # A word of a shell command that is a glob.
 glob_marks = re.compile(r'[*?[]')
 # One that can make a file executable, or no longer.
@@ -80,8 +85,8 @@ find_writing = {'-delete', '-exec', '-execdir', '-ok', '-okdir', '-fprint', '-fp
 no_file = {'/dev/null', '/dev/stdout', '/dev/stderr'}
 # A command that took this long may have met someone else's edits: what it changed is marked so.
 long_seconds = 30
-# A work tree whose status took git this long is watched only around commands that delete or move
-# files, for slow_hours: {top: when it was found slow}.
+# A work tree whose status took git this long is asked, for slow_hours, only of the files a command's text
+# names, but around commands that delete or move files: {top: when it was found slow}.
 slow_seconds = 1.5
 slow_hours = 24
 # Another session's shell snapshot this old is of a command cut short, whose post hook never came: the
@@ -302,11 +307,15 @@ def stage_shell(session, data, name):
         # refuses a path in a submodule and with it the rest.
         owners = {path: tree_of(path) for path in named}
         for top in sorted(set(work_trees(session, cwd)) | {top for top in owners.values() if top}):
-            if not is_moving and time.time() - slow.get(top, 0) < slow_hours * 3600:
-                continue
             # In a large tree git's status takes seconds: it is asked of the paths the command names
             # in the tree alone, and of a tree it names none in, not at all, unless it names no path.
             paths = [path for path, owner in owners.items() if owner == top]
+            if not is_moving and time.time() - slow.get(top, 0) < slow_hours * 3600:
+                # One whose whole status took long: asked only of the files the command's text names,
+                # in a script on its input too; of none, not at all.
+                paths = [path for path in mentioned_paths(command, cwd) if tree_of(path) == top]
+                if not paths:
+                    continue
             if paths or not named:
                 began = time.time()
                 found = changed(top, paths)
@@ -556,6 +565,24 @@ def work_trees(session, cwd):
         if top:
             tops.add(os.fsdecode(top).rstrip('\n'))
     return sorted(tops)
+
+
+def mentioned_paths(command, cwd):
+    """The paths a shell command's text names anywhere in it, quoted in a script on its input too, read
+    from its folder and from each folder a cd in it goes to: a file there, or a path with a / in it whose
+    folder is there (a file the command may make); as git spells them, at most mentioned_cap."""
+    words = command_words(command)
+    folders = [cwd] + [os.path.join(cwd, os.path.expanduser(word)) for before, word in zip([''] + words, words) if before == 'cd']
+    found = []
+    for token in dict.fromkeys(path_like.findall(command)):
+        for folder in folders:
+            path = os.path.normpath(os.path.join(folder, os.path.expanduser(token)))
+            if os.path.isfile(path) or '/' in token and os.path.isdir(os.path.dirname(path)) and not os.path.isdir(path):
+                found.append(os.path.realpath(path))
+                break
+        if len(found) >= mentioned_cap:
+            break
+    return list(dict.fromkeys(found))
 
 
 def command_words(command):

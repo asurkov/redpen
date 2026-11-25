@@ -495,8 +495,9 @@ of the record and commits it, naming it, leaves it clean, which git's status can
 the committed one, is kept as the session's own edit. A change by something no
 session records (your editor, a terminal) during a command still lands in the session's record, marked
 as edited elsewhere when the command ran long. A tree whose
-status took git over 1.5 seconds is watched, for a day, only around an `rm`, `mv`, `unlink`, `trash` or
-`find -delete` (`~/.redpen/code/slow-trees.json`). The review page keeps its own state beside them, in the record's `review/`
+status took git over 1.5 seconds is asked, for a day, only of the files a command's text names, in a script
+on its input too, and whole only around an `rm`, `mv`, `unlink`, `trash` or `find -delete`
+(`~/.redpen/code/slow-trees.json`). The review page keeps its own state beside them, in the record's `review/`
 folder; of the comments: `comments.json`, those waiting to be sent, `sent.jsonl`, the batches sent,
 `handed.jsonl`, which of the batches Claude was handed and how (`base/channel.py` keeps it),
 `answers.jsonl`, Claude's answers and the threads the user resolved, and `outline.json`, the overview
