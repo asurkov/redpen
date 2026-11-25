@@ -86,7 +86,17 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
     opened.push(e.id)
     return { value: { isPlaced: true } }
   })
-  on('ui.toast', () => ({ value: undefined }))
+  // What the mod said: in toasts, and in the transcript's lines.
+  const toasts: string[] = []
+  const logs: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('ui.log', (_, e) => {
+    logs.push(e.text)
+    return { value: undefined }
+  })
   // The every-1.5-seconds scan waits on a clock that moves only when a test moves it.
   const clock = mock.clock(on)
   on('fs.list', (_, e) => ({
@@ -150,7 +160,7 @@ function session(on: On, edited: { path: string; isNew?: boolean; onDisk?: boole
     written(`${record}/review/commit-ask.json`, { time: 'now' })
   }
   return { ran, opened, marks, surfaces, clock, asking, forked, replies, outlines, refusals, writeOverview, writeComments,
-    markComments, watcher, repos, committing, commitDrafts, askCommit }
+    markComments, watcher, repos, committing, commitDrafts, askCommit, toasts, logs }
 }
 
 test('the pane lists the edited files with their counts', async ($, on) => {
@@ -557,7 +567,7 @@ test('Accept all in the row has review.py accept everything pending', async ($, 
 })
 
 test('opening the review asks Claude for the overview it lacks, and the row names what is new by it', async ($, on) => {
-  const { marks, clock, asking, forked, replies, outlines, refusals, ran, writeOverview } = session(on, [
+  const { marks, clock, asking, forked, replies, outlines, refusals, ran, writeOverview, toasts, logs } = session(on, [
     { path: file, numstat: '2\t1' },
     { path: '/w/src/b.txt', numstat: '1\t0' },
   ])
@@ -593,6 +603,9 @@ test('opening the review asks Claude for the overview it lacks, and the row name
   expect(forked[2]).toContain('Your answer was refused: x.txt is not among the files')
   expect(forked[2]).toContain('{"items": []}')
   expect(ran).toContain('python3 /h/.claude/skills/redpen/code/review.py --drop-ask --session s1')
+  // Why, in the transcript, to copy; a toast says only what went right.
+  expect(logs).toEqual(['redpen could not get the overview: still not'])
+  expect(toasts).toEqual(['redpen: the overview is written.'])
 
   // Edits, then the overview Claude wrote after them: the row names them by its item.
   marks.set(`${record}/after/k1`, 5)

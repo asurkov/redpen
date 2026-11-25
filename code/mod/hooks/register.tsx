@@ -7,6 +7,8 @@ import type { EditedFile, Overview } from '../types'
 // ~/.redpen/code/<session>/ (files/<key>.json and base/<key>), each counted against its baseline: its
 // text before the session's first edit to it, or as last accepted on the review page. The review
 // itself (Accept and Reject, history, comments) is redpen's page, which Open review brings up.
+// What went wrong is a line in the transcript, dim, never the model's, to select and copy: a toast leaves
+// at a click, its text never selectable. A toast says what went right.
 
 const paneId = 'redpen'
 const files = atom({ plugin: 'redpen', key: 'files' } as const, [], { shape: 'files-3' })
@@ -154,7 +156,7 @@ async function draftCommit($: EngineInterface) {
   const reply = await $.model.fork({ prompt: question }).catch(error => String(error))
   if (typeof reply === 'string' || !reply.isAnswered) {
     await trace($, `no commit message: ${typeof reply === 'string' ? reply : reply.reason}`)
-    $.ui.toast('redpen could not draft the commit message: write it on the page.')
+    $.ui.log(`redpen could not draft the commit message (${typeof reply === 'string' ? reply : reply.reason}): write it on the page.`)
     return
   }
   const answer = reply.text.slice(reply.text.indexOf('{'), reply.text.lastIndexOf('}') + 1)
@@ -301,7 +303,7 @@ async function askOverview($: EngineInterface) {
   await trace($, 'asking review.py --ask-overview')
   const ran = await $.process.run(['python3', script, '--ask-overview', '--session', session]).catch(async error => {
     await trace($, `review.py did not run: ${error}`)
-    $.ui.toast(`redpen could not ask for the overview: ${error}`)
+    $.ui.log(`redpen could not ask for the overview: ${error}`)
     return undefined
   })
   if (!ran) return
@@ -333,7 +335,7 @@ async function askOverview($: EngineInterface) {
 async function failedOverview($: EngineInterface, script: string, session: string, why: string) {
   await trace($, `no overview: ${why}`)
   await $.process.run(['python3', script, '--drop-ask', '--session', session]).catch(() => undefined)
-  $.ui.toast(`redpen could not get the overview: ${why}`)
+  $.ui.log(`redpen could not get the overview: ${why}`)
 }
 
 async function showRedpen($: EngineInterface, surface: string, path?: string) {
@@ -342,7 +344,7 @@ async function showRedpen($: EngineInterface, surface: string, path?: string) {
     '--session', await $.session.id()]).catch(() => undefined)
   const url = ran?.stdout.trim().split('\n').pop() ?? ''
   if (!url.startsWith('http://')) {
-    $.ui.toast(`redpen did not start: ${ran?.stderr.trim().split('\n')[0] || 'its script did not run'}`)
+    $.ui.log(`redpen did not start: ${ran?.stderr.trim() || 'its script did not run'}`)
     return
   }
   const linked = path ? `${url}#${path.split('/').map(encodeURIComponent).join('/')}` : url
@@ -431,7 +433,8 @@ async function acceptAll($: EngineInterface) {
   const ran = await $.process.run(['python3', `${home}/.claude/skills/redpen/code/review.py`, '--accept-all',
     '--session', await $.session.id()]).catch(() => undefined)
   const said = (ran?.exitCode === 0 ? ran.stdout : ran?.stderr ?? '').trim().split('\n').pop() || 'review.py did not run'
-  $.ui.toast(ran?.exitCode === 0 ? `redpen: ${said} Undo is in the page's History.` : `redpen: not accepted: ${said}`)
+  if (ran?.exitCode === 0) $.ui.toast(`redpen: ${said} Undo is in the page's History.`)
+  else $.ui.log(`redpen: not accepted: ${said}`)
   await scan($, true)
 }
 

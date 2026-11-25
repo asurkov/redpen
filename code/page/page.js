@@ -1963,7 +1963,18 @@ function toast(text, label, act) {
   }
   node.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (node.hidden = true), 7000);
+  toastTimer = setTimeout(hideToast, 7000);
+}
+
+// The toast goes 7 seconds after it came, but not while the pointer is over it or its text is selected,
+// to be copied: then a second after neither is so.
+function hideToast() {
+  const node = byId('toast');
+  if (node.matches(':hover') || node.contains(getSelection()?.anchorNode ?? null)) {
+    toastTimer = setTimeout(hideToast, 1000);
+    return;
+  }
+  node.hidden = true;
 }
 
 // The splitter sizes the list: its width beside the editor, or its height over the editor in a

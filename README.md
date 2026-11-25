@@ -365,8 +365,8 @@ asks it of a fork of the session (`$.model.fork`): one question over the session
 Claude knows why it made the changes, with no tools, served mostly from the prompt cache, and nothing in
 the chat, no turn. The answer, its JSON, goes to `review.py --outline`; one refused is asked again once,
 with the refusal; no answer drops the ask (`review.py --drop-ask`), so it can be asked again. Each
-step leaves a line in the record's `review/ask.log`, a failure a toast, and the overview written a toast
-too. So the overview and the row's titles keep up without Describe. `/edits` opens a pane that lists the files this session
+step leaves a line in the record's `review/ask.log`, a failure a dim line in the transcript (to select
+and copy, as a toast, gone at a click, is not; the model never sees it), and the overview written a toast. So the overview and the row's titles keep up without Describe. `/edits` opens a pane that lists the files this session
 edited with their lines added and removed, each a way to its review (a link into the page). The mod
 only reads the record: the review itself is the page. Open review opens
 this session's review page in the desktop app's Browser pane through its MCP server (`Claude Browser`),
