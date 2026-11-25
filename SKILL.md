@@ -100,6 +100,20 @@ The page's **Commit** asks for a commit message; the redpen plugin drafts it by 
 (`review.py --ask-commit` prints the question, `--commit-message` keeps the answer, JSON
 `{"<work tree>": "<message>"}` on stdin). The user commits from the page: never commit for them there.
 
+### A patch of the session's work
+
+When the user asks for a review of one patch of several ("redpen for #1"), scope the session's review to its
+files and open the page it prints:
+
+```bash
+python3 ~/.claude/skills/redpen/code/review.py --scope <path> ...
+```
+
+Relative paths read from the folder it runs in. A file of the patch the recorder did not see is taken in, its
+last committed text its baseline; a file it cannot take, it names. The review, its overview and Commit then
+cover the patch alone; `--scope` with no paths shows the whole work again. A file holding hunks of two
+patches shows whole: tell the user which of its hunks are this patch's.
+
 ### A git review
 
 ```bash

@@ -796,6 +796,10 @@ class Review:
             # What was accepted in it was lost to a rebase, and something of it is to look at.
             is_uncarried = file.get('uncarried') or moved_from and moved_from[1].get('uncarried')
             files[-1]['isUncarried'] = bool(is_uncarried) and files[-1]['pending'] is not None
+        # Scoped to a patch (--scope): its files alone, a moved one by either of its places.
+        scoped = self.scope()
+        if scoped:
+            files = [listed for listed in files if listed['path'] in scoped or listed['movedFrom'] in scoped]
         # Generated files, which the page folds away; Claude's own and temporary ones are folded already.
         marked = generated_paths([listed['path'] for listed in files if not listed['isOther']])
         for listed in files:
@@ -823,6 +827,8 @@ class Review:
                 'isScanning': self.session in scans,
                 # A git review, whose changes are anyone's: the page commits none of them.
                 'isGit': bool(self.git),
+                # The patch the review is scoped to, by how many paths name it; None for the whole.
+                'scope': len(scoped) if scoped else None,
                 # The last move of a git review to another base commit: {from, to, time}.
                 'rebased': (self.git or {}).get('rebased'),
                 # Where the page's full tree starts.
@@ -1495,6 +1501,47 @@ class Review:
             channel.add_line(self.folder / 'handed.jsonl', {'ask': asks[-1].get('id'), 'time': channel.stamp(), 'dropped': True})
         (self.folder / 'asked-edited').unlink(missing_ok=True)
         (self.folder / 'asked-seen').unlink(missing_ok=True)
+
+    def scope(self):
+        """The paths a session's review is scoped to, a patch of its work (review/scope.json, --scope); None
+        for the whole."""
+        kept = read_json(self.folder / 'scope.json', None)
+        paths = kept.get('paths') if isinstance(kept, dict) else None
+        return set(paths) if isinstance(paths, list) and paths else None
+
+    def set_scope(self, paths):
+        """Scopes the session's review, its overview and its Commit, to the paths given, absolute: a patch of
+        its work. One the record has not, a change of the session's the recorder did not see (a script's in a
+        large tree, say), is taken in as the recorder takes a shell command's, its last committed text its
+        baseline: naming it says it is the patch's, and its whole diff shows. No paths: the whole review again.
+        Returns the paths kept and those not, each with why."""
+        if self.git:
+            raise Refusal(400, "A git review is of a work tree's every change: scope a session's.")
+        kept, missed = [], []
+        for path in dict.fromkeys(os.path.realpath(path) for path in paths):
+            if (self.record / 'files' / f'{key(path)}.json').exists():
+                kept.append(path)
+                continue
+            top = repository_top(existing_folder(path))
+            old = recorder().committed(top, path) if top else None
+            is_there = os.path.lexists(path)
+            if not top or old is None and not is_there:
+                missed.append((path, 'no file the session could have changed there'))
+                continue
+            if old is not None and is_there and not os.path.islink(path) and read_bytes(pathlib.Path(path)) == old[0]:
+                missed.append((path, 'the same as at HEAD'))
+                continue
+            if old is None:
+                recorder().record(self.session, path, None, os.path.islink(path))
+            else:
+                recorder().record(self.session, path, old[0], old[1], old[2])
+            recorder().keep_after(self.session, path)
+            kept.append(path)
+        if kept:
+            write_atomic(self.folder / 'scope.json', json.dumps({'time': now(), 'paths': kept}, indent=1).encode())
+        else:
+            (self.folder / 'scope.json').unlink(missing_ok=True)
+        return kept, missed
 
     def commit_plan(self):
         """What Commit on the page takes, by the git work tree each file is in: the session's work files with
@@ -2277,6 +2324,22 @@ def describe_if_needed(session):
         sys.exit(str(e))
 
 
+def scoped(session, paths):
+    """Scopes the session's review to the paths, read from the folder the command runs in, saying which it
+    could not take; with none, the whole again."""
+    if not re.fullmatch(r'[\w-]+', session or ''):
+        sys.exit('--scope needs the session: run it from the session, or give --session.')
+    (store / session / 'files').mkdir(parents=True, exist_ok=True)
+    try:
+        kept, missed = Review(session).set_scope([os.path.abspath(path) for path in paths])
+    except Refusal as e:
+        sys.exit(str(e))
+    for path, why in missed:
+        print(f'Not in the review: {path}: {why}', file=sys.stderr)
+    print(f"The review shows {len(kept)} file{'s' if len(kept) != 1 else ''} of the session's." if kept else
+          "The review shows the session's whole work.", file=sys.stderr)
+
+
 def commit_draft(session, is_kept):
     """Prints the question that drafts the commit messages while the page asks for them, else nothing; or,
     is_kept, keeps the drafted messages, JSON on stdin, for the page."""
@@ -2326,6 +2389,16 @@ def git(repo, *args):
     except OSError:
         return None
     return None if ran.returncode else ran.stdout
+
+
+@functools.cache
+def recorder():
+    """recorder.py, beside this script, loaded by its path: a file the review takes in is recorded as its
+    hooks record one."""
+    spec = importlib.util.spec_from_file_location('redpen_recorder', here / 'recorder.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def existing_folder(path):
@@ -2994,7 +3067,7 @@ def top_of(h, session):
 
 def post(h, path, body):
     found = re.fullmatch(r'/api/([\w-]+)/(apply-files|apply-item|accept-all|apply|flip|comment|uncomment|send|resolve|describe'
-                         r'|commit-ask|commit)', path)
+                         r'|commit-ask|commit|unscope)', path)
     if not found:
         raise Refusal(404, 'Not found.')
     review = Review(found.group(1))
@@ -3011,6 +3084,9 @@ def post(h, path, body):
         return send_json(h, review.describe())
     if found.group(2) == 'commit-ask':
         return send_json(h, review.ask_commit())
+    if found.group(2) == 'unscope':
+        review.set_scope([])
+        return send_json(h, {})
     if found.group(2) == 'commit':
         return send_json(h, review.commit(body.get('top'), body.get('paths'), body.get('message'), body.get('push') is True))
     if found.group(2) == 'flip':
@@ -3048,6 +3124,8 @@ def main():
     parser.add_argument('--drop-ask', action='store_true',
                         help='the question for an overview brought none: the ask waits no more')
     parser.add_argument('--change', metavar='PATH[:LINE]')
+    parser.add_argument('--scope', nargs='*', metavar='PATH',
+                        help="scope the session's review to these paths, a patch of its work, and print its page; none: the whole again")
     parser.add_argument('--git', nargs='?', const='.', metavar='REPO')
     parser.add_argument('--base', metavar='REV', help="default: the branch's upstream, else HEAD")
     args = parser.parse_args()
@@ -3073,6 +3151,8 @@ def main():
         return Review(args.session).drop_ask()
     if args.ask_commit or args.commit_message:
         return commit_draft(args.session, args.commit_message)
+    if args.scope is not None:
+        scoped(args.session, args.scope)
     server = shared('server')
     port = args.port or server.default_port
     if not server.running(port):

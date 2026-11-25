@@ -350,6 +350,9 @@ async function refresh() {
   state.agent = listing.agent || 'Claude';
   // Commit, for a session's review with changes of its work: a git review's are anyone's.
   byId('commitButton').hidden = Boolean(listing.isGit) || !listing.files.some(file => !file.isOther && file.all);
+  // Scoped to a patch (review.py --scope): the header says so, and shows all of the work on a click.
+  byId('scopeButton').hidden = !listing.scope;
+  byId('scopeButton').textContent = listing.scope ? `Patch · ${listing.scope} file${listing.scope === 1 ? '' : 's'} · show all` : '';
   diffView.agent = state.agent;
   byId('describeButton').title = `Ask ${state.agent} to describe the changes`;
   byId('overviewButton').title = `Overview: the changes by purpose, as ${state.agent} describes them, each part a way to its code`;
@@ -2050,6 +2053,10 @@ async function main() {
   byId('historyClose').addEventListener('click', () => (byId('history').hidden = true));
   byId('commitButton').addEventListener('click', () => (byId('commit').hidden ? openCommit() : closeCommit()));
   byId('commitClose').addEventListener('click', closeCommit);
+  byId('scopeButton').addEventListener('click', () => queued(async () => {
+    await asked('/unscope', {});
+    await refreshAll();
+  }));
   byId('overviewButton').addEventListener('click', () => queued(async () => {
     byId('overview').hidden = !byId('overview').hidden;
     byId('overviewButton').classList.toggle('chosen', !byId('overview').hidden);

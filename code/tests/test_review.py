@@ -759,6 +759,38 @@ class Commit(unittest.TestCase):
             self.rv.set_commit_draft({'/nowhere': 'x'})
 
 
+
+class Scope(unittest.TestCase):
+    """A session's review scoped to a patch of its work (--scope): its files alone, a change the recorder did
+    not see taken in, and Commit of the patch alone."""
+
+    def setUp(self):
+        self.top, self.who = repo({'a.py': 'a1\n', 'b.py': 'b1\n', 'c.py': 'c1\n', 'd.py': 'd1\n'}), scratch.session()
+        for name in ('a.py', 'b.py'):
+            scratch.hook('pre', self.who, self.top, 'Edit', {'file_path': str(self.top / name)})
+            write(self.top, {name: name[0].upper() + '1\n'})
+            scratch.hook('post', self.who, self.top, 'Edit', {'file_path': str(self.top / name)})
+        self.rv = review.Review(self.who)
+
+    def test_a_scope_shows_its_files_alone_and_takes_in_a_change_the_recorder_missed(self):
+        write(self.top, {'c.py': 'C1\n'})
+        kept, missed = self.rv.set_scope([f'{self.top}/a.py', f'{self.top}/c.py', f'{self.top}/d.py', f'{self.top}/nope.py'])
+        self.assertEqual([os.path.basename(path) for path in kept], ['a.py', 'c.py'])
+        self.assertEqual([(os.path.basename(path), why) for path, why in missed],
+                         [('d.py', 'the same as at HEAD'), ('nope.py', 'no file the session could have changed there')])
+        files = listed(self.rv)
+        self.assertEqual((set(files), counts(files['c.py']), self.rv.listing()['scope']), ({'a.py', 'c.py'}, (1, 1), 2))
+        # Commit offers the patch alone, once accepted.
+        for name in ('a.py', 'c.py'):
+            key = files[name]['key']
+            self.rv.apply(key, 'accept', None, scratch.expected(self.rv, key, 'accept'))
+        tree = self.rv.commit_plan()['trees'][0]
+        self.assertEqual(([os.path.basename(f['path']) for f in tree['files']], tree['left']), (['a.py', 'c.py'], []))
+        # No paths: the whole review again.
+        self.rv.set_scope([])
+        self.assertEqual(set(listed(self.rv)), {'a.py', 'b.py', 'c.py'})
+
+
 class AgentFiles(unittest.TestCase):
     def test_codexs_own_files_stand_apart_unless_kept_in_a_repository(self):
         codex = scratch.home / '.codex'
